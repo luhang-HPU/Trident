@@ -1,0 +1,18 @@
+#!/bin/bash
+
+if [ $1 = "build" ]; then
+    cd pir
+    cmake .
+    sudo make
+    cd ..
+    cd heartstudy
+    cmake .
+    sudo make
+    cd ..
+    cd resnet20
+    mkdir build
+    cd build
+    cmake ..
+    sudo make
+    cd ../..
+fi
