@@ -4,5 +4,5 @@ project(heartstudy)
 set(CMAKE_CXX_STANDARD 17)
 
 
-add_executable(heartstudy test_ckks_heartstudy.cpp)
+add_executable(heartstudy heartstudy.cpp)
 target_link_libraries (${PROJECT_NAME} /usr/poseidon/lib/libposeidon_shared.so gmp)
