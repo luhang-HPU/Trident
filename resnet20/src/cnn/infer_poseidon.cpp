@@ -107,7 +107,7 @@ void import_parameters_cifar10(vector<double> &linear_weight, vector<double> &li
 }
 
 
-void ResNet_cifar10_poseidon_sparse(size_t layer_num, size_t start_image_id, size_t end_image_id, size_t qdef)
+void ResNet_cifar10_poseidon_sparse(size_t layer_num, size_t start_image_id, size_t end_image_id, uint32_t qdef)
 {
 	// approximation boundary setting
 	double B = 40.0;	// approximation boundary
