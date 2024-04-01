@@ -7,6 +7,10 @@ using namespace std;
 using namespace poseidon;
 
 int main(int argc, char **argv) {
+    cout << BANNER  << endl;
+    cout << "POSEIDON SOFTWARE  VERSION:" <<POSEIDON_VERSION << endl;
+    cout << "" << endl;
+
 	int layer = 20;
 	int dataset = 10;
 	int start = atoi(argv[1]);

@@ -144,7 +144,8 @@ void ResNet_cifar10_poseidon_sparse(size_t layer_num, size_t start_image_id, siz
 
     // CKKSParametersLiteralDefault ckks_param_literal(degree_32768);
     ckks_param_literal.set_log_modulus(logQTmp,logPTmp);
-	PoseidonContext context(ckks_param_literal,poseidon::sec_level_type::none,false);
+	PoseidonContext context(ckks_param_literal,poseidon::sec_level_type::none);
+	// PoseidonContext context(ckks_param_literal,poseidon::sec_level_type::none,false);
 
     PublicKey public_key;
     RelinKeys relin_keys;
