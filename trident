@@ -1,18 +1,62 @@
 #!/bin/bash
 
-if [ $1 = "build" ]; then
-    cd pir
-    cmake .
-    sudo make
-    cd ..
-    cd heartstudy
-    cmake .
-    sudo make
-    cd ..
-    cd resnet20
-    mkdir build
-    cd build
-    cmake ..
-    sudo make
-    cd ../..
+if [ -z $1 ]; then
+    echo 'No parameter'
+    exit 127
 fi
+
+case $1 in
+    "build")
+        if [ -z $2 ]; then
+            mkdir pir/build
+            cd pir/build
+            cmake ..
+            sudo make
+            cd ../..
+
+            mkdir heartstudy/build
+            cd heartstudy/build
+            cmake ..
+            sudo make
+            cd ../..
+
+            mkdir resnet20/build
+            cd resnet20/build
+            cmake ..
+            sudo make
+            cd ../..
+        else
+            mkdir $2/build
+            cd $2/build
+            cmake ..
+            sudo make
+            cd ../..
+        fi
+        exit 0;;
+
+    "run")
+        if [ -z $2 ]; then
+            ./pir/build/pir
+            ./heartstudy/build/heartstudy
+            ./resnet20/build/resnet20 0 0
+        else
+            if [ $2 = "resnet20" ]; then
+                if [ -z $3 ]; then
+                    ./$2/build/$2 0 0
+                elif [ -z $4 ]; then
+                    ./$2/build/$2 $3 $3
+                else
+                    ./$2/build/$2 $3 $4
+                fi
+            else
+                ./$2/build/$2
+            fi
+        fi
+        exit 0;;
+
+    *)
+    echo "$1 Error: Unknown action '$1'."
+    exit 1;;
+esac
+
+exit 0
