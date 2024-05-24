@@ -1,5 +1,6 @@
 # Trident
 Trident is a benchmark suite based on [Poseidon](https://poseidon-hpu.readthedocs.io/en/latest/Getting_Started/Installation/Installation.html) library.
+
 Download and install Poseidon (follow the instructions in the above link) before testing Trident.
 
 ## Compiling Trident
