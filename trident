@@ -25,6 +25,12 @@ case $1 in
             cmake ..
             sudo make
             cd ../..
+
+            mkdir lr_train/build
+            cd lr_train/build
+            cmake ..
+            sudo make
+            cd ../..
         else
             mkdir $2/build
             cd $2/build
@@ -38,19 +44,26 @@ case $1 in
         if [ -z $2 ]; then
             ./pir/build/pir
             ./heartstudy/build/heartstudy
-            ./resnet20/build/resnet20 0 0
+            cd resnet20
+            ./build/resnet20 0 0
+            cd ../..
+            cd lr_train
+            ./build/lr_train
+            cd ..
         else
+            cd $2
             if [ $2 = "resnet20" ]; then
                 if [ -z $3 ]; then
-                    ./$2/build/$2 0 0
+                    ./build/$2 0 0
                 elif [ -z $4 ]; then
-                    ./$2/build/$2 $3 $3
+                    ./build/$2 $3 $3
                 else
-                    ./$2/build/$2 $3 $4
+                    ./build/$2 $3 $4
                 fi
             else
-                ./$2/build/$2
+                ./build/$2
             fi
+            cd ..
         fi
         exit 0;;
 
