@@ -1,0 +1,4 @@
+[submodule "libs/cinatra"]
+	path = libs/cinatra
+	url = https://github.com/qicosmos/cinatra.git
+  # commit id = f096469a7b2952e52e1f951f510c44e440703b81

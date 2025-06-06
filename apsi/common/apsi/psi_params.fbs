@@ -1,0 +1,30 @@
+namespace apsi.fbs;
+
+struct ItemParams {
+    felts_per_item:uint32;
+}
+
+struct TableParams {
+    table_size:uint32;
+    max_items_per_bin:uint32;
+    hash_func_count:uint32;
+}
+
+table QueryParams {
+    ps_low_degree:uint32;
+    query_powers:[uint32];
+}
+
+table PoseidonParams {
+    data:[ubyte] (required);
+}
+
+table PSIParams {
+    version:uint32;
+    item_params:ItemParams;
+    table_params:TableParams;
+    query_params:QueryParams;
+    poseidon_params:PoseidonParams (required);
+}
+
+root_type PSIParams;
