@@ -1,5 +1,4 @@
 #include "pir_server.h"
-
 #include <cassert>
 
 namespace poseidon
@@ -10,8 +9,9 @@ namespace pir
 PIRServer::PIRServer(const ParametersLiteral &enc_params, const PirParams &pir_params)
     : enc_params_(enc_params), pir_params_(pir_params), is_db_preprocessed_(false)
 {
-    context_ = std::make_shared<PoseidonContext>(enc_params, sec_level_type::tc128, false);
-    evaluator_ = std::make_unique<BFVEvaluator_S>(*context_);
+    context_ = std::make_shared<PoseidonContext>(
+        PoseidonFactory::get_instance()->create_poseidon_context(enc_params));
+    evaluator_ = PoseidonFactory::get_instance()->create_bfv_evaluator(*context_);
     encoder_ = std::make_unique<BatchEncoder>(*context_);
 }
 
@@ -23,7 +23,7 @@ void PIRServer::preprocess_database()
         for (uint32_t i = 0; i < db_->size(); i++)
         {
             Plaintext tmp;
-            evaluator_->ftt_fwd(db_->operator[](i), tmp, context_->crt_context()->first_parms_id());
+            evaluator_->ntt_fwd(db_->operator[](i), tmp, context_->crt_context()->first_parms_id());
             db_->operator[](i) = tmp;
         }
 
@@ -250,7 +250,7 @@ PirReply PIRServer::generate_reply(PirQuery &query, uint32_t client_id)
         for (uint32_t jj = 0; jj < expanded_query.size(); jj++)
         {
             Ciphertext tmp;
-            evaluator_->ftt_fwd(expanded_query[jj], tmp);
+            evaluator_->ntt_fwd(expanded_query[jj], tmp);
             expanded_query[jj] = tmp;
         }
 
@@ -260,14 +260,9 @@ PirReply PIRServer::generate_reply(PirQuery &query, uint32_t client_id)
             for (uint32_t jj = 0; jj < cur->size(); jj++)
             {
                 Plaintext tmp;
-                evaluator_->ftt_fwd((*cur)[jj], tmp, context_->crt_context()->first_parms_id());
+                evaluator_->ntt_fwd((*cur)[jj], tmp, context_->crt_context()->first_parms_id());
                 (*cur)[jj] = tmp;
             }
-        }
-
-        for (uint32_t jj = 0; jj < cur->size(); jj++)
-        {
-            (*cur)[jj].is_ntt_form() = true;
         }
 
         for (uint64_t k = 0; k < product; k++)
@@ -299,7 +294,7 @@ PirReply PIRServer::generate_reply(PirQuery &query, uint32_t client_id)
         for (uint32_t jj = 0; jj < intermediateCtxts.size(); jj++)
         {
             Ciphertext tmp;
-            evaluator_->ftt_inv(intermediateCtxts[jj], tmp);
+            evaluator_->ntt_inv(intermediateCtxts[jj], tmp);
             intermediateCtxts[jj] = tmp;
             // print intermediate ctxts?
             // cout << "const term of ctxt " << jj << " = " <<
@@ -390,7 +385,7 @@ inline vector<Ciphertext> PIRServer::expand_query(const Ciphertext &encrypted, u
         for (uint32_t a = 0; a < temp.size(); a++)
         {
 
-            evaluator_->apply_galois(temp[a], galois_elts[i], galkey, tempctxt_rotated);
+            evaluator_->apply_galois(temp[a], tempctxt_rotated, galois_elts[i], galkey);
 
             // cout << "rotate " <<
             // client.decryptor_->invariant_noise_budget(tempctxt_rotated) << ",
@@ -447,7 +442,7 @@ inline vector<Ciphertext> PIRServer::expand_query(const Ciphertext &encrypted, u
         }
         else
         {
-            evaluator_->apply_galois(temp[a], galois_elts[logm - 1], galkey, tempctxt_rotated);
+            evaluator_->apply_galois(temp[a], tempctxt_rotated, galois_elts[logm - 1], galkey);
             evaluator_->add(temp[a], tempctxt_rotated, newtemp[a]);
             multiply_power_of_X(temp[a], tempctxt_shifted, index_raw);
             multiply_power_of_X(tempctxt_rotated, tempctxt_rotatedshifted, index);
@@ -475,7 +470,7 @@ inline void PIRServer::multiply_power_of_X(const Ciphertext &encrypted, Cipherte
                                            uint32_t index)
 {
 
-    auto coeff_mod_count = enc_params_.Q().size() + enc_params_.P().size() - 1;
+    auto coeff_mod_count = enc_params_.q().size() + enc_params_.p().size() - 1;
     auto coeff_count = enc_params_.degree();
     auto encrypted_count = encrypted.size();
 
@@ -488,11 +483,11 @@ inline void PIRServer::multiply_power_of_X(const Ciphertext &encrypted, Cipherte
     // Prepare for destination
     // Multiply X^index for each ciphertext polynomial
     std::vector<Modulus> coeff_modulus;
-    for (auto mod : enc_params_.Q())
+    for (auto mod : enc_params_.q())
     {
         coeff_modulus.push_back(mod);
     }
-    for (auto mod : enc_params_.P())
+    for (auto mod : enc_params_.p())
     {
         coeff_modulus.push_back(mod);
     }
@@ -512,7 +507,7 @@ void PIRServer::simple_set(uint64_t index, Plaintext pt)
     if (is_db_preprocessed_)
     {
         Plaintext tmp;
-        evaluator_->ftt_fwd(pt, tmp, context_->crt_context()->first_parms_id());
+        evaluator_->ntt_fwd(pt, tmp, context_->crt_context()->first_parms_id());
         pt = tmp;
     }
     db_->operator[](index) = pt;
@@ -525,7 +520,7 @@ Ciphertext PIRServer::simple_query(uint64_t index)
     Plaintext pt = db_->operator[](index);
     evaluator_->multiply_plain(one_, pt, ct);
     Ciphertext tmp;
-    evaluator_->ftt_inv(ct, tmp);
+    evaluator_->ntt_inv(ct, tmp);
     ct = tmp;
     return ct;
 }
@@ -534,7 +529,7 @@ void PIRServer::set_one_ct(Ciphertext one)
 {
     one_ = one;
     Ciphertext tmp;
-    evaluator_->ftt_fwd(one_, tmp);
+    evaluator_->ntt_fwd(one_, tmp);
     one_ = tmp;
 }
 
