@@ -27,7 +27,7 @@ int main(int argc, char *argv[])
     PoseidonFactory::get_instance()->set_device_type(DEVICE_SOFTWARE);
 #endif
 
-    uint64_t number_of_items = 1 << 16;
+    uint64_t number_of_items = 1 << 8;
     uint64_t size_per_item = 288;  // in bytes
     uint32_t N = 8192;
 
