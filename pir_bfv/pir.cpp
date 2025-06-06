@@ -1,7 +1,5 @@
 #include "pir.h"
-
-#include "poseidon/batchencoder.h"
-
+#include "poseidon/src/batchencoder.h"
 #include <cassert>
 #include <cmath>
 
@@ -72,14 +70,14 @@ void gen_pir_params(uint64_t ele_num, uint64_t ele_size, uint32_t d,
     std::vector<uint64_t> nvec = get_dimensions(num_of_plaintexts, d);
 
     uint32_t expansion_ratio = 0;
-    for (uint32_t i = 0; i < enc_params.Q().size(); ++i)
+    for (uint32_t i = 0; i < enc_params.q().size(); ++i)
     {
-        double logqi = log2(enc_params.Q()[i].value());
+        double logqi = log2(enc_params.q()[i].value());
         expansion_ratio += ceil(logqi / logt);
     }
-    for (uint32_t i = 0; i < enc_params.P().size(); ++i)
+    for (uint32_t i = 0; i < enc_params.p().size(); ++i)
     {
-        double logqi = log2(enc_params.P()[i].value());
+        double logqi = log2(enc_params.p()[i].value());
         expansion_ratio += ceil(logqi / logt);
     }
 
@@ -98,7 +96,7 @@ void gen_pir_params(uint64_t ele_num, uint64_t ele_size, uint32_t d,
 
 void verify_encryption_params(const ParametersLiteral &enc_params)
 {
-    PoseidonContext context(enc_params, sec_level_type::tc128, true);
+    auto context = PoseidonFactory::get_instance()->create_poseidon_context(enc_params);
     // TODO
     // if (!context.parameters_set()) {
     //   throw invalid_argument("SEAL parameters not valid.");
@@ -119,8 +117,6 @@ void verify_encryption_params(const ParametersLiteral &enc_params)
         throw invalid_argument("Slot count not equal to poly modulus degree - this "
                                "will cause issues downstream.");
     }
-
-    return;
 }
 
 void print_pir_params(const PirParams &pir_params)
@@ -154,20 +150,20 @@ void print_seal_params(const ParametersLiteral &enc_params)
     std::cout << "SEAL encryption parameters" << std::endl;
     std::cout << "Degree of polynomial modulus (N): " << N << std::endl;
     std::cout << "Size of plaintext modulus (log t):" << logt << std::endl;
-    std::cout << "There are " << enc_params.Q().size() + enc_params.P().size()
+    std::cout << "There are " << enc_params.q().size() + enc_params.p().size()
               << " coefficient modulus:" << std::endl;
 
     uint32_t cnt = 0;
-    for (uint32_t i = 0; i < enc_params.Q().size(); ++i)
+    for (uint32_t i = 0; i < enc_params.q().size(); ++i)
     {
-        double logqi = log2(enc_params.Q()[i].value());
+        double logqi = log2(enc_params.q()[i].value());
         std::cout << "Size of coefficient modulus " << cnt << " (log q_" << cnt << "): " << logqi
                   << std::endl;
         ++cnt;
     }
-    for (uint32_t i = 0; i < enc_params.P().size(); ++i)
+    for (uint32_t i = 0; i < enc_params.p().size(); ++i)
     {
-        double logqi = log2(enc_params.P()[i].value());
+        double logqi = log2(enc_params.p()[i].value());
         std::cout << "Size of coefficient modulus " << cnt << " (log q_" << cnt << "): " << logqi
                   << std::endl;
         ++cnt;
@@ -322,14 +318,14 @@ uint32_t compute_expansion_ratio(ParametersLiteral params)
 {
     uint32_t expansion_ratio = 0;
     uint32_t pt_bits_per_coeff = std::log2(params.plain_modulus().value());
-    for (size_t i = 0; i < params.P().size(); ++i)
+    for (size_t i = 0; i < params.p().size(); ++i)
     {
-        double coeff_bit_size = std::log2(params.P()[i].value());
+        double coeff_bit_size = std::log2(params.p()[i].value());
         expansion_ratio += std::ceil(coeff_bit_size / pt_bits_per_coeff);
     }
-    for (size_t i = 0; i < params.Q().size(); ++i)
+    for (size_t i = 0; i < params.q().size(); ++i)
     {
-        double coeff_bit_size = std::log2(params.Q()[i].value());
+        double coeff_bit_size = std::log2(params.q()[i].value());
         expansion_ratio += std::ceil(coeff_bit_size / pt_bits_per_coeff);
     }
     return expansion_ratio;
@@ -339,13 +335,13 @@ std::vector<Plaintext> decompose_to_plaintexts(ParametersLiteral params, const C
 {
     const uint32_t pt_bits_per_coeff = std::log2(params.plain_modulus().value());
     const auto coeff_count = params.degree();
-    const auto coeff_mod_count = params.Q().size() + params.P().size();
+    const auto coeff_mod_count = params.q().size() + params.p().size();
     std::vector<Modulus> coeff_modulus;
-    for (auto mod : params.Q())
+    for (auto mod : params.q())
     {
         coeff_modulus.push_back(mod);
     }
-    for (auto mod : params.P())
+    for (auto mod : params.p())
     {
         coeff_modulus.push_back(mod);
     }
@@ -383,13 +379,13 @@ void compose_to_ciphertext(ParametersLiteral params, std::vector<Plaintext>::con
 {
     const uint32_t pt_bits_per_coeff = log2(params.plain_modulus().value());
     const auto coeff_count = params.degree();
-    const auto coeff_mod_count = params.Q().size() + params.P().size();
+    const auto coeff_mod_count = params.q().size() + params.p().size();
     std::vector<Modulus> coeff_modulus;
-    for (auto mod : params.Q())
+    for (auto mod : params.q())
     {
         coeff_modulus.push_back(mod);
     }
-    for (auto mod : params.P())
+    for (auto mod : params.p())
     {
         coeff_modulus.push_back(mod);
     }

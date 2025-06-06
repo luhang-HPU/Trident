@@ -1,5 +1,4 @@
 #include "pir_client_hardware.h"
-
 #include <cassert>
 
 using namespace std;
@@ -13,8 +12,10 @@ PIRClientHardware::PIRClientHardware(const ParametersLiteral &enc_params,
                                      const PirParams &pir_params)
     : enc_params_(enc_params), pir_params_(pir_params)
 {
-
-    context_ = std::make_shared<PoseidonContext>(enc_params, sec_level_type::tc128, true);
+    PoseidonFactory::get_instance()->set_device_type(DEVICE_HARDWARE);
+    context_ =
+        std::make_shared<PoseidonContext>(PoseidonFactory::get_instance()->create_poseidon_context(
+            enc_params));
 
     keygen_ = std::make_unique<KeyGenerator>(*context_);
 
@@ -32,7 +33,7 @@ PIRClientHardware::PIRClientHardware(const ParametersLiteral &enc_params,
     }
 
     decryptor_ = std::make_unique<Decryptor>(*context_, secret_key);
-    evaluator_ = std::make_unique<BFVEvaluator_H>(*context_);
+    evaluator_ = PoseidonFactory::get_instance()->create_bfv_evaluator(*context_);
     encoder_ = std::make_unique<BatchEncoder>(*context_);
 }
 

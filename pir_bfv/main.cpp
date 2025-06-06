@@ -7,6 +7,7 @@
 #include "pir_server.h"
 #endif
 
+#include <cassert>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -20,6 +21,11 @@ using namespace poseidon::pir;
 
 int main(int argc, char *argv[])
 {
+#ifdef PIR_USE_HARDWARE
+    PoseidonFactory::get_instance()->set_device_type(DEVICE_HARDWARE);
+#else
+    PoseidonFactory::get_instance()->set_device_type(DEVICE_SOFTWARE);
+#endif
 
     uint64_t number_of_items = 1 << 16;
     uint64_t size_per_item = 288;  // in bytes
@@ -122,38 +128,42 @@ int main(int argc, char *argv[])
     auto time_query_e = high_resolution_clock::now();
     auto time_query_us = duration_cast<microseconds>(time_query_e - time_query_s).count();
     cout << "Main: query generated" << endl;
-
+// #define SERIALIZED
+#ifdef SERIALIZED
     // Measure serialized query generation (useful for sending over the network)
-    //  stringstream client_stream;
-    //  stringstream server_stream;
-    //  auto time_s_query_s = high_resolution_clock::now();
-    //  int query_size = client.generate_serialized_query(index, client_stream);
-    //  auto time_s_query_e = high_resolution_clock::now();
-    //  auto time_s_query_us =
-    //      duration_cast<microseconds>(time_s_query_e -
-    //      time_s_query_s).count();
-    //  cout << "Main: serialized query generated" << endl;
+    stringstream client_stream;
+    stringstream server_stream;
+    auto time_s_query_s = high_resolution_clock::now();
+    int query_size = client.generate_serialized_query(index, client_stream);
+    auto time_s_query_e = high_resolution_clock::now();
+    auto time_s_query_us = duration_cast<microseconds>(time_s_query_e - time_s_query_s).count();
+    cout << "Main: serialized query generated" << endl;
 
     // Measure query deserialization (useful for receiving over the network)
-    //  auto time_deserial_s = high_resolution_clock::now();
-    //  PirQuery query2 = server.deserialize_query(client_stream);
-    //  auto time_deserial_e = high_resolution_clock::now();
-    //  auto time_deserial_us =
-    //      duration_cast<microseconds>(time_deserial_e -
-    //      time_deserial_s).count();
-    //  cout << "Main: query deserialized" << endl;
+    auto time_deserial_s = high_resolution_clock::now();
+    PirQuery query2 = server.deserialize_query(client_stream);
+    auto time_deserial_e = high_resolution_clock::now();
+    auto time_deserial_us = duration_cast<microseconds>(time_deserial_e - time_deserial_s).count();
+    cout << "Main: query deserialized" << endl;
+#endif
 
     // Measure query processing (including expansion)
     auto time_server_s = high_resolution_clock::now();
     // Answer PIR query from client 0. If there are multiple clients,
     // enter the id of the client (to use the associated galois key).
+#ifdef SERIALIZED
+    PirReply reply = server.generate_reply(query2, 0);
+#else
     PirReply reply = server.generate_reply(query, 0);
+#endif
     auto time_server_e = high_resolution_clock::now();
     auto time_server_us = duration_cast<microseconds>(time_server_e - time_server_s).count();
     cout << "Main: reply generated" << endl;
 
+#ifdef SERIALIZED
     // Serialize reply (useful for sending over the network)
-    // int reply_size = server.serialize_reply(reply, server_stream);
+    int reply_size = server.serialize_reply(reply, server_stream);
+#endif
 
     // Measure response extraction
     auto time_decode_s = chrono::high_resolution_clock::now();
