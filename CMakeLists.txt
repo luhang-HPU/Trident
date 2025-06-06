@@ -58,3 +58,9 @@ if (LR_TRAIN)
     add_subdirectory(lr_train)
 endif()
 
+option(HEARTSTUDY "Build HEARTSTUDY for POSEIDON" OFF)
+message(STATUS "HEARTSTUDY: ${HEARTSTUDY}")
+if (HEARTSTUDY)
+    add_subdirectory(heartstudy)
+endif()
+
