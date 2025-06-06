@@ -2,7 +2,6 @@
 
 #include "pir.h"
 #include "pir_client_hardware.h"
-
 #include <map>
 #include <memory>
 #include <vector>
@@ -49,7 +48,7 @@ private:
     std::unique_ptr<Database> db_;
     bool is_db_preprocessed_;
     std::map<int, GaloisKeys> galoisKeys_;
-    std::unique_ptr<BFVEvaluator_H> evaluator_;
+    std::unique_ptr<EvaluatorBfvBase> evaluator_;
     std::unique_ptr<BatchEncoder> encoder_;
     std::shared_ptr<PoseidonContext> context_;
 

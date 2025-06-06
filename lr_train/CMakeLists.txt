@@ -1,8 +1,7 @@
-cmake_minimum_required(VERSION 3.10)
-project(LR_train)
+cmake_minimum_required(VERSION 3.12)
 
-set(CMAKE_CXX_STANDARD 17)
+add_executable(test_ckks_lrtrain test_ckks_lrtrain.cpp)
+target_link_libraries(test_ckks_lrtrain poseidon_shared)
 
-
-add_executable(LR_train ${CMAKE_CURRENT_LIST_DIR}/LR_train.cpp)
-target_link_libraries (${PROJECT_NAME} /usr/poseidon/lib/libposeidon_shared.so gmp)
+add_executable(ckks_lrtrain_opt ckks_lrtrain_opt.cpp batch_handler.h batch_handler.cpp)
+target_link_libraries(ckks_lrtrain_opt poseidon_shared)

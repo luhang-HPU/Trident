@@ -1,5 +1,4 @@
 #include "pir_client.h"
-
 #include <cassert>
 
 using namespace std;
@@ -12,8 +11,9 @@ namespace pir
 PIRClient::PIRClient(const ParametersLiteral &enc_params, const PirParams &pir_params)
     : enc_params_(enc_params), pir_params_(pir_params)
 {
-
-    context_ = std::make_shared<PoseidonContext>(enc_params, sec_level_type::tc128, false);
+    PoseidonFactory::get_instance()->set_device_type(DEVICE_SOFTWARE);
+    context_ = std::make_shared<PoseidonContext>(
+        PoseidonFactory::get_instance()->create_poseidon_context(enc_params));
 
     keygen_ = std::make_unique<KeyGenerator>(*context_);
 
@@ -31,7 +31,9 @@ PIRClient::PIRClient(const ParametersLiteral &enc_params, const PirParams &pir_p
     }
 
     decryptor_ = std::make_unique<Decryptor>(*context_, secret_key);
-    evaluator_ = std::make_unique<BFVEvaluator_S>(*context_);
+    evaluator_ = PoseidonFactory::get_instance()->create_bfv_evaluator(*context_);
+    // evaluator_ = std::make_unique<EvaluatorBfvBase>(
+    //     PoseidonFactory::get_instance()->create_bfv_evaluator(*context_));
     encoder_ = std::make_unique<BatchEncoder>(*context_);
 }
 
@@ -282,20 +284,20 @@ Plaintext PIRClient::decode_reply(PirReply &reply)
 GaloisKeys PIRClient::generate_galois_keys()
 {
     // Generate the Galois keys needed for coeff_select.
-    vector<uint32_t> galois_elts;
-    int N = enc_params_.degree();
-    int logN = get_power_of_two(N);
+    // vector<uint32_t> galois_elts;
+    // int N = enc_params_.degree();
+    // int logN = get_power_of_two(N);
 
-    // std::cout << "printing galois elements...";
-    for (int i = 0; i < logN; i++)
-    {
-        galois_elts.push_back((N + exponentiate_uint(2, i)) / exponentiate_uint(2, i));
-        //#ifdef DEBUG
-        // std::cout << galois_elts.back() << ", ";
-        //#endif
-    }
+    // // std::cout << "printing galois elements...";
+    // for (int i = 0; i < logN; i++)
+    // {
+    //     galois_elts.push_back((N + exponentiate_uint(2, i)) / exponentiate_uint(2, i));
+    //     //#ifdef DEBUG
+    //     // std::cout << galois_elts.back() << ", ";
+    //     //#endif
+    // }
     GaloisKeys gal_keys;
-    keygen_->create_galois_keys(galois_elts, gal_keys);
+    keygen_->create_galois_keys(gal_keys);
     return gal_keys;
 }
 

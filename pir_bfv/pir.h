@@ -1,10 +1,11 @@
 #pragma once
 
-#include "poseidon/ciphertext.h"
-#include "poseidon/key/galoiskeys.h"
-#include "poseidon/plaintext.h"
-#include "poseidon/seal/serializable.h"
-
+#include "poseidon/src/basics/serializable.h"
+#include "poseidon/src/ciphertext.h"
+#include "poseidon/src/evaluator/evaluator_bfv_base.h"
+#include "poseidon/src/factory/poseidon_factory.h"
+#include "poseidon/src/key/galoiskeys.h"
+#include "poseidon/src/plaintext.h"
 #include <string>
 #include <vector>
 

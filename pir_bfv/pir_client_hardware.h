@@ -1,12 +1,10 @@
 #pragma once
 
 #include "pir.h"
-#include "poseidon/batchencoder.h"
-#include "poseidon/decryptor.h"
-#include "poseidon/encryptor.h"
-#include "poseidon/keygenerator.h"
-#include "poseidon/scheme/bfv/Hardware/BFVEvaluator_H.h"
-
+#include "poseidon/src/batchencoder.h"
+#include "poseidon/src/decryptor.h"
+#include "poseidon/src/encryptor.h"
+#include "poseidon/src/keygenerator.h"
 #include <memory>
 #include <vector>
 
@@ -54,7 +52,7 @@ private:
 
     std::unique_ptr<Encryptor> encryptor_;
     std::unique_ptr<Decryptor> decryptor_;
-    std::unique_ptr<BFVEvaluator_H> evaluator_;
+    std::unique_ptr<EvaluatorBfvBase> evaluator_;
     std::unique_ptr<KeyGenerator> keygen_;
     std::unique_ptr<BatchEncoder> encoder_;
     std::shared_ptr<PoseidonContext> context_;
