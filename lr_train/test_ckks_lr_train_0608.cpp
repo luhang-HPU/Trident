@@ -126,12 +126,10 @@ bool writeVectorToFile(const std::vector<T>& data,
                        bool append = true,
                        bool addFinalNewline = true) {
     try {
-        // 打开文件
         std::ofstream file(filename, append ? std::ios::app : std::ios::trunc);
         if (!file.is_open()) {
             throw std::runtime_error("无法打开文件: " + filename);
         }
-
         // 写入数据
         for (size_t i = 0; i < data.size(); ++i) {
             // 对普通类型和复数类型进行不同处理
@@ -141,7 +139,6 @@ bool writeVectorToFile(const std::vector<T>& data,
             } else {
                 file << data[i];
             }
-
             // 判断是否需要添加分隔符或换行
             if (i != data.size() - 1) {
                 if ((i + 1) % elementsPerLine == 0) {
@@ -150,23 +147,19 @@ bool writeVectorToFile(const std::vector<T>& data,
                     file << delimiter;  // 分隔符
                 }
             }
-
             // 检查写入是否成功
             if (!file.good()) {
                 throw std::runtime_error("写入文件失败: " + filename);
             }
         }
-
         // 添加最终换行符（可选）
         if (addFinalNewline && !data.empty()) {
             file << "\n";
         }
-
         // 确保文件操作成功
         if (!file.good()) {
             throw std::runtime_error("写入文件失败: " + filename);
         }
-
         return true;
     } catch (const std::exception& e) {
         std::cerr << "写入文件失败: " << e.what() << std::endl;
@@ -196,6 +189,7 @@ int main()
 
     std::filesystem::path current_path(__FILE__);
 
+    std::cout << "Read files" << std::endl;
     read_file(x, current_path.parent_path().string() + "/" + "x_train.txt");
     read_x_vecter(vecter_x, current_path.parent_path().string() + "/" + "x_train.txt");
     read_file(vecter_y, current_path.parent_path().string() + "/" + "y_train.txt");
@@ -222,12 +216,6 @@ int main()
         weight[i].real(sum);
     }
     auto _weight = weight;
-    writeVectorToFile(weight, "output_5.txt", ",", 1024);
-    // for (const auto& value : weight) {
-    //     std::cout << value << " ";
-    // }
-    // std::cout << std::endl;
-    // expandWeights(weight);
 
     PublicKey public_key;
     RelinKeys relin_keys;
@@ -239,6 +227,7 @@ int main()
     KeyGenerator kgen(context);
     kgen.create_public_key(public_key);
     kgen.create_relin_keys(relin_keys);
+    std::cout << "create galos keys" << std::endl;
     kgen.create_galois_keys(rot_keys);
 
     Encryptor enc(context, public_key, kgen.secret_key());
@@ -274,11 +263,13 @@ int main()
     {
         util::Timestacs timer_epoch;
         timer_epoch.start();
-        print_scale("开始", ciph_weight);
+        std::cout << "Epoch " + std::to_string(epoch + 1) << std::endl;
+        print_scale("新一轮开始，ciph_weight", ciph_weight);
         auto ciph_weight_expand = ciph_weight;
         auto ciph_weight_expand_tmp = ciph_weight;
 
         // 右旋到对应位置
+        std::cout << "preprocess weight " << std::endl;
         for (int i = 1; i <= 8; i++) {
             ckks_eva->rotate(ciph_weight_expand_tmp, ciph_weight_expand_tmp, -1023, rot_keys);
             ckks_eva->add(ciph_weight_expand, ciph_weight_expand_tmp, ciph_weight_expand);
@@ -290,7 +281,6 @@ int main()
         }
         Plaintext plain_mask;
         ckks_encoder.encode(vec_mask, ciph_weight_expand.parms_id(), ciph_weight_expand.scale(), plain_mask);
-        std::cout << "Here234" << std::endl;
         ckks_eva->multiply_plain(ciph_weight_expand, plain_mask, ciph_weight_expand);
         ckks_eva->rescale_dynamic(ciph_weight_expand, ciph_weight_expand, scale);
 
@@ -300,68 +290,30 @@ int main()
             ckks_eva->rotate(ciph_weight_expand, ciph_weight_temp, rotation_step, rot_keys);
             ckks_eva->add(ciph_weight_expand, ciph_weight_temp, ciph_weight_expand);
         }
-        // auto result_2 = decrypt_and_decode(ckks_encoder, dec, ciph_weight_expand);
-        // writeVectorToFile(result_2, "output_theta.txt", ",", 1024);
 
         Ciphertext ciph_tmp;
-        // enc.encrypt_zero(ciph_tmp);
-
         // calculate ciph_tmp = (theta * x1, theta * x2, ... , theta * xm, ...)
-        std::cout << "Here250" << std::endl;
         auto ciph_x_x = ciph_x;
         ckks_eva->drop_modulus(ciph_x_x, ciph_x_x, ciph_weight_expand.parms_id());
         ckks_eva->multiply_relin(ciph_x_x, ciph_weight_expand, ciph_tmp, relin_keys);
         ckks_eva->rescale_dynamic(ciph_tmp, ciph_tmp, scale);
-        // auto result_1111 = decrypt_and_decode(ckks_encoder, dec, ciph_tmp);
-        // writeVectorToFile(result_1111, "output_4.txt", ",", 1024);
 
-        print_scale("255", ciph_tmp);
         auto ciph_temp_rotated = ciph_tmp;
         for (auto i = 1; i < n; ++i)
         {
             ckks_eva->rotate(ciph_temp_rotated, ciph_temp_rotated, 1024, rot_keys);
             ckks_eva->add(ciph_tmp, ciph_temp_rotated, ciph_tmp);
         }
-        auto result_111 = decrypt_and_decode(ckks_encoder, dec, ciph_tmp);
-        writeVectorToFile(result_111, "output_.txt", ",", 1024);
 
-
-        // check theta^T * x
-        // std::vector<std::complex<double>> dot_product;
-        // {
-            // check::print_vector(vecter_x);
-            // check::print_matrix(x);
-            // check::print_vector(weight);
-            // std::vector<double> _dot_product;
-            // for (auto i = 0; i < m; ++i)
-            // {
-            //     double _sum = 0.0;
-            //     for (auto j = 0; j < m; ++j)
-            //     {
-            //         _sum += x[i][j].real() * _weight[j].real();
-            //     }
-            //     _dot_product.push_back(_sum);
-            // }
-            // writeVectorToFile(_dot_product, "output_3.txt", ",", 1024);
-
-
-            // std::cout << "fhe value  |  perdict value" << std::endl;
-            // for (auto i = 0; i < 16384; ++i)
-            // {
-            //     std::cout << dot_product[i].real() << " " << _dot_product[i] << std::endl;
-            // }
-        // };
-        // std::cout << "dead" << std::endl;
-
-
+        print_scale("预处理完成的ciph_weight", ciph_weight);
 
 #ifdef DEBUG_LRTRAIN
         // check theta^T * x
         std::vector<std::complex<double>> dot_product;
         {
-            check::print_vector(vecter_x);
+            // check::print_vector(vecter_x);
             // check::print_matrix(x_diag_T);
-            check::print_vector(weight);
+            // check::print_vector(weight);
             std::vector<double> _dot_product;
             for (auto i = 0; i < m; ++i)
             {
@@ -387,14 +339,11 @@ int main()
             ckks_eva->multiply_const(ciph_y, 1.0, scale, ciph_y, ckks_encoder);
             ckks_eva->rescale_dynamic(ciph_y, ciph_y, scale);
         }
-
         // calculate sigmoid(theta^T x)
         std::cout << "calculate sigmoid(theta^T x)" << std::endl;
         Ciphertext ciph_sigmoid =
             sigmoid_approx(ciph_tmp, polys, ckks_encoder, ckks_eva, relin_keys);
-        print_scale("ciph_sigmoid", ciph_sigmoid);
-
-
+        print_scale("sigmoid完成的ciph_sigmoid", ciph_sigmoid);
 
 #ifdef DEBUG_LRTRAIN
         // check sigmoid
@@ -412,7 +361,6 @@ int main()
             }
         }
 #endif
-
         // calculate gradient
         ckks_eva->sub_dynamic(ciph_sigmoid, ciph_y, ciph_sigmoid, ckks_encoder);
 
@@ -420,61 +368,37 @@ int main()
         Ciphertext ciph_gradient;
         auto ciph_x_temp = ciph_x;
         ckks_eva->drop_modulus(ciph_x_temp, ciph_x_temp, ciph_sigmoid.parms_id());
-        print_scale("ciph_x_temp降模数至与ciph_sigmoid相同", ciph_x_temp);
+        // print_scale("ciph_x_temp降模数至与ciph_sigmoid相同", ciph_x_temp);
 
         for (auto j = 0; j < n; ++j)
         {
             if (j != 0) {
                 ckks_eva->rotate(ciph_x_temp, ciph_x_temp, 1024, rot_keys);
             }
-            std::cout << "Here332" << std::endl;
             ckks_eva->multiply_relin(ciph_sigmoid, ciph_x_temp, ciph_accumulate, relin_keys);
-            std::cout << "Here333" << std::endl;
             ckks_eva->rescale_dynamic(ciph_accumulate, ciph_accumulate, scale);
-            print_scale("ciph_accumulaterescale之后", ciph_accumulate);
             ciph_accumulate =
                 accumulate_top_n(ciph_accumulate, m, ckks_encoder, enc, ckks_eva, rot_keys);
             // 通过掩码将第一位取出
-            std::cout << "Here436" << std::endl;
             std::vector<std::complex<double>> vec_mask{1.0};
             Plaintext plain_mask;
-            std::cout << "Here433" << std::endl;
             ckks_encoder.encode(vec_mask, ciph_accumulate.parms_id(), ciph_accumulate.scale(), plain_mask);
-            std::cout << "Here441" << std::endl;
             ckks_eva->multiply_plain(ciph_accumulate, plain_mask, ciph_accumulate);
-            if (j != 0)
-            {
+            if (j != 0){
                 ckks_eva->rotate(ciph_accumulate, ciph_accumulate, -j, rot_keys);
             }
-
-
-            std::cout << "Here448" << std::endl;
-            if (j == 0)
-            {
+            if (j == 0){
                 ciph_gradient = ciph_accumulate;
-            }
-            else
-            {
+            } else{
                 ckks_eva->add(ciph_accumulate, ciph_gradient, ciph_gradient);
             }
-            // auto result_121 = decrypt_and_decode(ckks_encoder, dec, ciph_gradient);
-            // size_t count = 0;
-            // for (const auto& value : result_121) {
-            //     if (count >= 9) break; // 输出9个元素后终止循环
-            //     std::cout << value << " ";
-            //     count++;
-            // }
-            std::cout << std::endl;
         }
-        print_scale("358后ciph_gradient", ciph_gradient);
         ckks_eva->rescale_dynamic(ciph_gradient, ciph_gradient, scale);
-        print_scale("360后ciph_gradient", ciph_gradient);
-
+        print_scale("主要梯度计算完成的ciph_gradient", ciph_gradient);
 
         ckks_eva->multiply_const(ciph_gradient, learning_rate / m, ciph_gradient.scale(), ciph_gradient, ckks_encoder);
-        print_scale("364后ciph_gradient", ciph_gradient);
         ckks_eva->rescale_dynamic(ciph_gradient, ciph_gradient, scale);
-        print_scale("366后ciph_gradient", ciph_gradient);
+        print_scale("mciph_gradient与learning_rate / m 相乘 后ciph_gradient", ciph_gradient);
 
         auto result_1212 = decrypt_and_decode(ckks_encoder, dec, ciph_gradient);
         size_t coutt = 0;
@@ -487,24 +411,24 @@ int main()
 
 #ifdef DEBUG_LRTRAIN
         // check gradient
-        // {
-        //     std::vector<double> perdict_gradient(m, 0.0);
-        //     for (auto j = 0; j < m; ++j)
-        //     {
-        //         auto sum = 0.0;
-        //         for (auto i = 0; i < m; ++i)
-        //         {
-        //             sum += (perdict_sigmoid[i] - y[i].real()) * x[i][j].real();
-        //         }
-        //         perdict_gradient[j] = sum / m;
-        //     }
-        //     auto res = decrypt_and_decode(ckks_encoder, dec, ciph_gradient);
-        //     std::cout << "fhe gradient  |  perdict gradient" << std::endl;
-        //     for (auto j = 0; j < m; ++j)
-        //     {
-        //         std::cout << res[j].real() << " " << perdict_gradient[j] << std::endl;
-        //     }
-        // }
+        {
+            std::vector<double> perdict_gradient(m, 0.0);
+            for (auto j = 0; j < m; ++j)
+            {
+                auto sum = 0.0;
+                for (auto i = 0; i < m; ++i)
+                {
+                    sum += (perdict_sigmoid[i] - y[i].real()) * x[i][j].real();
+                }
+                perdict_gradient[j] = sum / m;
+            }
+            auto res = decrypt_and_decode(ckks_encoder, dec, ciph_gradient);
+            std::cout << "fhe gradient  |  perdict gradient" << std::endl;
+            for (auto j = 0; j < n; ++j)
+            {
+                std::cout << res[j].real() << " " << perdict_gradient[j] << std::endl;
+            }
+        }
 #endif
 
         // update ciph_weight
@@ -527,8 +451,9 @@ int main()
         }
         std::cout << std::endl;
 
-        // ckks_eva->bootstrap(ciph_weight, ciph_weight, relin_keys,rot_keys, ckks_encoder);
+        print_scale("一个epoch结束的ciph_weight", ciph_weight);
 
+        // ckks_eva->bootstrap(ciph_weight, ciph_weight, relin_keys,rot_keys, ckks_encoder);
 
         // check weight updated begin
         update_weight(x, vecter_y, _weight);
@@ -543,7 +468,6 @@ int main()
         timer_epoch.print_time("Epoch " + std::to_string(epoch + 1) + " train time: ");
         std::cout << std::endl;
     }
-    print_scale("结束", ciph_weight);
 
     timer.end();
     timer.print_time("lr train total time: ");
