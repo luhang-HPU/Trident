@@ -5,3 +5,6 @@ target_link_libraries(test_ckks_lrtrain poseidon_shared)
 
 add_executable(ckks_lrtrain_opt ckks_lrtrain_opt.cpp batch_handler.h batch_handler.cpp)
 target_link_libraries(ckks_lrtrain_opt poseidon_shared)
+
+add_executable(ckks_lrtrain_0608 test_ckks_lr_train_0608.cpp batch_handler.h batch_handler.cpp)
+target_link_libraries(ckks_lrtrain_0608 poseidon_shared)

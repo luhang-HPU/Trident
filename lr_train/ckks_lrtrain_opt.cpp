@@ -24,8 +24,8 @@ using namespace poseidon::util;
 
 const int EPOCHS = 5;
 const double learning_rate = 0.95;
-int m = 5;      // row size of train set
-int n = 3;      // column size of train set
+int m = 32;      // row size of train set
+int n = 4;      // column size of train set
 
 namespace check
 {
@@ -144,10 +144,10 @@ int main()
     auto pid = getpid();
     PoseidonFactory::get_instance()->set_device_type(DEVICE_SOFTWARE);
     uint32_t q_def = 32;
-    uint32_t log_degree = 15;
+    uint32_t log_degree = 14;
 
     ParametersLiteral ckks_param_literal{CKKS, log_degree, log_degree - 1, q_def, 5, 1, 0, {}, {}};
-    vector<uint32_t> log_q(44, 32);
+    vector<uint32_t> log_q(45, 32);
     vector<uint32_t> log_p(1, 60);
     ckks_param_literal.set_log_modulus(log_q, log_p);
     auto context = PoseidonFactory::get_instance()->create_poseidon_context(ckks_param_literal);
@@ -157,7 +157,7 @@ int main()
     int block_num = (int)std::ceil((double)m / block_size);
     double scale = std::pow(2.0, q_def);
 
-    std::cout << "matrix size: " << m << "*" << n << std::endl;
+    std::cout << "matrix size: " << m << " * " << n << std::endl;
     std::cout << "block size: " << block_size << std::endl;
     std::cout << "block num: " << block_num << std::endl;
 
@@ -196,7 +196,7 @@ int main()
     std::vector<std::complex<double>> block_x_diag;
     for (const auto &vec : x_diag)
     {
-        std::copy(vec.begin(), vec.begin() + block_size, std::back_inserter(block_x_diag));
+        block_x_diag.insert(block_x_diag.end(), vec.begin(), vec.end());
     }
     // batching x_transpose
     std::vector<std::vector<std::complex<double>>> block_x_transpose;
@@ -218,9 +218,9 @@ int main()
         }
 
         // concatenate the weight with the weight
-        // weight_concat = [weight_extend , weight_extend]
+        // weight_concat = [weight_extend, weight_extend]
         auto weight_concat = weight_extend;
-        std::copy(weight_concat.begin(), weight_concat.end(), std::back_inserter(weight_concat));
+        weight_concat.insert(weight_concat.end(), weight_concat.begin(), weight_concat.end());
 
         for (auto i = 0; i < block_size; ++i)
         {
@@ -306,7 +306,7 @@ int main()
         ciph_product = accumulate_block_matrix(ckks_eva, rot_keys, ciph_product, block_size);
 
 #ifdef DEBUG_LRTRAIN
-        // check theta^T * x
+        // check dot_product of theta^T and x
         std::vector<double> expected_dot_product;
         {
             for (auto i = 0; i < m; ++i)
@@ -324,7 +324,7 @@ int main()
             std::cout << "fhe value  |  expected value" << std::endl;
             for (auto i = 0; i < m; ++i)
             {
-                std::cout << fhe_dot_product[i % block_size + i / block_size * block_size * block_size].real() << " " << expected_dot_product[i] << std::endl;
+                std::cout << "dot product[" << i << "]: " << fhe_dot_product[i % block_size + i / block_size * block_size * block_size].real() << " " << expected_dot_product[i] << std::endl;
             }
         }
 #endif
@@ -342,7 +342,7 @@ int main()
             for (auto i = 0; i < m; ++i)
             {
                 expected_sigmoid[i] = sigmoid(expected_dot_product[i]);
-                std::cout << fhe_sigmoid[i / block_size * block_size * block_size + (i % block_size)].real() << " " << expected_sigmoid[i] << std::endl;
+                std::cout << "sigmoid[" << i << "]: " << fhe_sigmoid[i / block_size * block_size * block_size + (i % block_size)].real() << " " << expected_sigmoid[i] << std::endl;
             }
         }
 #endif
@@ -355,7 +355,27 @@ int main()
         }
 
         // TODO scale loss
-        ciph_y_tmp.scale() = ciph_sigmoid.scale();
+        if(!util::are_approximate(ciph_y_tmp.scale(), ciph_sigmoid.scale()))
+        {
+//            ciph_sigmoid.scale() = ciph_y_tmp.scale();
+            std::vector<std::complex<double>> vec_tmp(slot_size, {1.0, 0.0});
+            Plaintext plt_tmp;
+
+            // for ciph_y_tmp
+            {
+                ckks_encoder.encode(vec_tmp, ciph_y_tmp.parms_id(), scale * scale / ciph_y_tmp.scale(), plt_tmp);
+                ckks_eva->multiply_plain(ciph_y_tmp, plt_tmp, ciph_y_tmp);
+                ckks_eva->rescale(ciph_y_tmp, ciph_y_tmp);
+            }
+
+            // for ciph_sigmoid
+            {
+                ckks_encoder.encode(vec_tmp, ciph_sigmoid.parms_id(), scale * scale / ciph_sigmoid.scale(), plt_tmp);
+                ckks_eva->multiply_plain(ciph_sigmoid, plt_tmp, ciph_sigmoid);
+                ckks_eva->rescale(ciph_sigmoid, ciph_sigmoid);
+            }
+        }
+
         ckks_eva->sub_dynamic(ciph_sigmoid, ciph_y_tmp, ciph_sigmoid, ckks_encoder);
 
         Ciphertext ciph_gradient;
@@ -403,14 +423,14 @@ int main()
 
             auto res = batch_handler.decrypt_and_decode(ckks_encoder, dec, ciph_gradient);
             std::cout << "fhe gradient  |  expected gradient" << std::endl;
-            for (auto j = 0; j < n; ++j)
+            for (auto i = 0; i < n; ++i)
             {
-                std::cout << res[j].real() << " " << expected_gradient[j] / m * learning_rate << std::endl;
+                std::cout << "grad[" << i << "]: " << res[i].real() << " " << expected_gradient[i] * learning_rate / m << std::endl;
             }
         }
 #endif
 
-        // ciph_grad_concat = concatenate(ciph_grad, ciph_grad)
+        // ciph_grad_concat = ciph_grad | ciph_grad
         Ciphertext ciph_grad_concat;
         {
             Ciphertext ciph_grad_rotated;
@@ -418,7 +438,8 @@ int main()
             ckks_eva->add(ciph_gradient, ciph_grad_rotated, ciph_grad_concat);
         }
 
-        Ciphertext ciph_gradient_shift;
+        // the gradient of block ciphertext
+        Ciphertext ciph_grad_block;
         for (auto i = 0; i < block_size; ++i)
         {
             std::vector<std::complex<double>> mask(block_size * 2, {0.0, 0.0});
@@ -433,37 +454,67 @@ int main()
 
             if (i == 0)
             {
-                ciph_gradient_shift = ciph_grad_concat_rotated;
+                ciph_grad_block = ciph_grad_concat_rotated;
             }
             else
             {
-                ckks_eva->add_dynamic(ciph_grad_concat_rotated, ciph_gradient_shift, ciph_gradient_shift, ckks_encoder);
+                ckks_eva->add_dynamic(ciph_grad_concat_rotated, ciph_grad_block, ciph_grad_block, ckks_encoder);
             }
         }
 
-        for (auto i = 0, _block_num = block_num; (_block_num >>= 1) > 1; ++i)
+        // ciphertext for gradient updating
+        Ciphertext ciph_for_grad_update = ciph_grad_block;
+        for (auto i = block_size * block_size; i < slot_size; i *= 2)
         {
             Ciphertext ciph_tmp;
-            ckks_eva->rotate(ciph_gradient_shift, ciph_tmp, -(block_size * block_size * (1 << i)), rot_keys);
-            ckks_eva->add(ciph_gradient_shift, ciph_tmp, ciph_gradient_shift);
+            ckks_eva->rotate(ciph_for_grad_update, ciph_tmp, -i, rot_keys);
+            ckks_eva->add(ciph_for_grad_update, ciph_tmp, ciph_for_grad_update);
         }
 
         // update ciph_weight
-        // TODO scale loss
-        ciph_gradient_shift.scale() = ciph_weight.scale();
-        ckks_eva->sub_dynamic(ciph_weight, ciph_gradient_shift, ciph_weight, ckks_encoder);
+        if (ciph_weight.level() > ciph_for_grad_update.level())
+        {
+            ckks_eva->drop_modulus(ciph_weight, ciph_weight, ciph_for_grad_update.parms_id());
+        }
+
+        // TODO scale loss?
+        if(!util::are_approximate(ciph_for_grad_update.scale(), ciph_weight.scale()))
+        {
+//            ciph_for_grad_update.scale() = ciph_weight.scale();
+            std::vector<std::complex<double>> vec_tmp(slot_size, {1.0, 0.0});
+            Plaintext plt_tmp;
+
+            // for ciph_for_grad_update
+            {
+                ckks_encoder.encode(vec_tmp, ciph_for_grad_update.parms_id(), scale * scale / ciph_for_grad_update.scale(), plt_tmp);
+                ckks_eva->multiply_plain(ciph_for_grad_update, plt_tmp, ciph_for_grad_update);
+                ckks_eva->rescale(ciph_for_grad_update, ciph_for_grad_update);
+            }
+
+            // for ciph_weight
+            {
+                ckks_encoder.encode(vec_tmp, ciph_weight.parms_id(), scale * scale / ciph_weight.scale(), plt_tmp);
+                ckks_eva->multiply_plain(ciph_weight, plt_tmp, ciph_weight);
+                ckks_eva->rescale(ciph_weight, ciph_weight);
+            }
+        }
+
+        ckks_eva->sub_dynamic(ciph_weight, ciph_for_grad_update, ciph_weight, ckks_encoder);
+
 
 #ifdef DEBUG_LRTRAIN
         // check updated weight
-        for (auto j = 0; j < n; ++j)
         {
-            expected_weight[j] -= learning_rate * expected_gradient[j] / m;
-        }
-        std::cout << "fhe weight  |  expected weight" << std::endl;
-        auto res = batch_handler.decrypt_and_decode(ckks_encoder, dec, ciph_weight);
-        for (auto i = 0; i < n; ++i)
-        {
-            std::cout << res[i].real() << " " << expected_weight[i].real() << std::endl;
+            for (auto i = 0; i < n; ++i)
+            {
+                expected_weight[i] -= learning_rate * expected_gradient[i] / m;
+            }
+            std::cout << "fhe weight  |  expected weight" << std::endl;
+            auto res = batch_handler.decrypt_and_decode(ckks_encoder, dec, ciph_weight);
+            for (auto i = 0; i < n; ++i)
+            {
+                std::cout << "weight[" << i << "]: " << res[i].real() << " " << expected_weight[i].real() << std::endl;
+            }
         }
 #endif
 
@@ -472,13 +523,25 @@ int main()
         timer.print_time("lr train time: ");
 
         // bootstrap
-        if(ciph_weight.level() < 10){
+        if(ciph_weight.level() < 12){
             auto start = chrono::high_resolution_clock::now();
             std::cout << "bootstraping start..." << std::endl;
             ckks_eva->bootstrap(ciph_weight, ciph_weight, relin_keys,rot_keys, ckks_encoder);
             auto stop = chrono::high_resolution_clock::now();
             auto duration = chrono::duration_cast<chrono::microseconds>(stop - start);
             std::cout << "bootstraping TIME: " << duration.count() << " microseconds" << std::endl;
+
+#ifdef DEBUG_LRTRAIN
+            // check the weight after bootstrap
+            {
+                auto wegiht_after_bootstrap = batch_handler.decrypt_and_decode(ckks_encoder, dec, ciph_weight);
+                std::cout << "after bootstrap" << std::endl;
+                for (auto i = 0; i < n; ++i)
+                {
+                    std::cout << "weight[" << i << "]: " << wegiht_after_bootstrap[i].real() << std::endl;
+                }
+            }
+#endif
         }
     }
 
@@ -697,7 +760,7 @@ Ciphertext accumulate_slot_matrix(const std::shared_ptr<EvaluatorCkksBase> eva, 
 std::vector<std::complex<double>> vector_to_block_message(const std::vector<std::complex<double>> &vec, int cnt, int block_size)
 {
     std::vector<std::complex<double>> ans;
-    for (auto i = 0, j = 0; i < cnt; ++i)
+    for (auto i = 0; i < cnt; ++i)
     {
         ans.push_back(vec[i]);
         if ((i + 1) % block_size == 0)
