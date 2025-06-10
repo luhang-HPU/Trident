@@ -19,7 +19,7 @@ using namespace poseidon::util;
 
 // #define DEBUG_LRTRAIN
 
-const int EPOCHS = 4;
+const int EPOCHS = 1;
 const double learning_rate = 0.95;
 int m = 780;      // row size of train set
 int n = 9;      // column size of train set
@@ -368,7 +368,7 @@ int main()
         Ciphertext ciph_gradient;
         auto ciph_x_temp = ciph_x;
         ckks_eva->drop_modulus(ciph_x_temp, ciph_x_temp, ciph_sigmoid.parms_id());
-        // print_scale("ciph_x_temp降模数至与ciph_sigmoid相同", ciph_x_temp);
+        print_scale("ciph_x_temp降模数至与ciph_sigmoid相同", ciph_x_temp);
 
         for (auto j = 0; j < n; ++j)
         {
@@ -400,12 +400,13 @@ int main()
         ckks_eva->rescale_dynamic(ciph_gradient, ciph_gradient, scale);
         print_scale("mciph_gradient与learning_rate / m 相乘 后ciph_gradient", ciph_gradient);
 
-        auto result_1212 = decrypt_and_decode(ckks_encoder, dec, ciph_gradient);
-        size_t coutt = 0;
-        for (const auto& value : result_1212) {
-            if (coutt >= 9) break; // 输出9个元素后终止循环
-            std::cout << value << " ";
-            coutt++;
+        std::cout << "ciph_gradient: " << std::endl;
+        auto result_ciph_gradient = decrypt_and_decode(ckks_encoder, dec, ciph_gradient);
+        size_t count_1 = 0;
+        for (const auto& value : result_ciph_gradient) {
+            if (count_1 >= 9) break; // 输出9个元素后终止循环
+            std::cout << value.real() << " ";
+            count_1++;
         }
         std::cout << std::endl;
 
@@ -432,12 +433,13 @@ int main()
 #endif
 
         // update ciph_weight
-        auto result_121212 = decrypt_and_decode(ckks_encoder, dec, ciph_weight);
-        size_t couttt = 0;
-        for (const auto& value : result_121212) {
-            if (couttt >= 9) break; // 输出9个元素后终止循环
-            std::cout << value << " ";
-            couttt++;
+        std::cout << "ciph_weight: " << std::endl;
+        auto result_ciph_weight = decrypt_and_decode(ckks_encoder, dec, ciph_weight);
+        size_t count_2 = 0;
+        for (const auto& value : result_ciph_weight) {
+            if (count_2 >= 9) break; // 输出9个元素后终止循环
+            std::cout << value.real() << " ";
+            count_2++;
         }
         std::cout << std::endl;
         ckks_eva->sub_dynamic(ciph_weight, ciph_gradient, ciph_weight, ckks_encoder);
@@ -446,7 +448,7 @@ int main()
         size_t coutttt = 0;
         for (const auto& value : result_12121212) {
             if (coutttt >= 9) break; // 输出9个元素后终止循环
-            std::cout << value << " ";
+            std::cout << value.real() << " ";
             coutttt++;
         }
         std::cout << std::endl;
