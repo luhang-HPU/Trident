@@ -1,11 +1,36 @@
 #include "pir_server.h"
 #include <cassert>
+#include <utility>
 
 namespace poseidon
 {
 namespace pir
 {
 
+#ifdef PIR_USE_HARDWARE
+namespace
+{
+void clear_id(Ciphertext &ctxt)
+{
+    for (auto &poly : ctxt.polys())
+    {
+        poly.set_hardware_id(0);
+    }
+}
+}  // namespace
+#endif
+
+#ifdef PIR_USE_HARDWARE
+PIRServerHardware::PIRServerHardware(const ParametersLiteral &enc_params,
+                                     const PirParams &pir_params,
+                                     std::shared_ptr<PoseidonContext> context)
+    : enc_params_(enc_params), pir_params_(pir_params), is_db_preprocessed_(false)
+{
+    context_ = context;
+    evaluator_ = PoseidonFactory::get_instance()->create_bfv_evaluator(*context_);
+    encoder_ = std::make_unique<BatchEncoder>(*context_);
+}
+#else
 PIRServer::PIRServer(const ParametersLiteral &enc_params, const PirParams &pir_params)
     : enc_params_(enc_params), pir_params_(pir_params), is_db_preprocessed_(false)
 {
@@ -14,6 +39,7 @@ PIRServer::PIRServer(const ParametersLiteral &enc_params, const PirParams &pir_p
     evaluator_ = PoseidonFactory::get_instance()->create_bfv_evaluator(*context_);
     encoder_ = std::make_unique<BatchEncoder>(*context_);
 }
+#endif
 
 void PIRServer::preprocess_database()
 {
@@ -36,7 +62,7 @@ void PIRServer::set_database(unique_ptr<vector<Plaintext>> &&db)
 {
     if (!db)
     {
-        throw invalid_argument("db cannot be null");
+        POSEIDON_THROW(invalid_argument_error, "db cannot be null");
     }
 
     db_ = std::move(db);
@@ -134,10 +160,11 @@ void PIRServer::set_database(const std::unique_ptr<const uint8_t[]> &bytes, uint
     assert(current_plaintexts <= num_of_plaintexts);
 
 #ifdef DEBUG
-    cout << "adding: " << matrix_plaintexts - current_plaintexts
-         << " FV plaintexts of padding (equivalent to: "
-         << (matrix_plaintexts - current_plaintexts) * elements_per_ptxt(logtp, N, ele_size)
-         << " elements)" << endl;
+//  cout << "adding: " << matrix_plaintexts - current_plaintexts
+//       << " FV plaintexts of padding (equivalent to: "
+//       << (matrix_plaintexts - current_plaintexts) *
+//              elements_per_ptxt(logtp, N, ele_size)
+//       << " elements)" << endl;
 #endif
 
     vector<uint64_t> padding(N, 1);
@@ -246,22 +273,24 @@ PirReply PIRServer::generate_reply(PirQuery &query, uint32_t client_id)
             cout << " size mismatch!!! " << expanded_query.size() << ", " << n_i << endl;
         }
 
-        // Transform expanded query to NTT, and ...
-        for (uint32_t jj = 0; jj < expanded_query.size(); jj++)
+        bool is_using_ntt_form;
+        if (is_using_ntt_form)
         {
-            Ciphertext tmp;
-            evaluator_->ntt_fwd(expanded_query[jj], tmp);
-            expanded_query[jj] = tmp;
-        }
+            // Transform expanded query to NTT, and ...
+            for (uint32_t jj = 0; jj < expanded_query.size(); jj++) {
+                Ciphertext tmp;
+              evaluator_->ntt_fwd(expanded_query[jj], tmp);
+              expanded_query[jj] = tmp;
+            }
 
-        // Transform plaintext to NTT. If database is pre-processed, can skip
-        if ((!is_db_preprocessed_) || i > 0)
-        {
-            for (uint32_t jj = 0; jj < cur->size(); jj++)
-            {
-                Plaintext tmp;
-                evaluator_->ntt_fwd((*cur)[jj], tmp, context_->crt_context()->first_parms_id());
-                (*cur)[jj] = tmp;
+            // Transform plaintext to NTT. If database is pre-processed, can skip
+            if ((!is_db_preprocessed_) || i > 0) {
+              for (uint32_t jj = 0; jj < cur->size(); jj++) {
+                  Plaintext tmp;
+                evaluator_->ntt_fwd((*cur)[jj], tmp,
+                context_->crt_context()->first_parms_id());
+                  (*cur)[jj] = tmp;
+              }
             }
         }
 
@@ -280,25 +309,32 @@ PirReply PIRServer::generate_reply(PirQuery &query, uint32_t client_id)
 
         for (uint64_t k = 0; k < product; k++)
         {
-
             evaluator_->multiply_plain(expanded_query[0], (*cur)[k], intermediateCtxts[k]);
 
             for (uint64_t j = 1; j < n_i; j++)
             {
                 evaluator_->multiply_plain(expanded_query[j], (*cur)[k + j * product], temp);
+#ifdef PIR_USE_HARDWARE
+                evaluator_->add(intermediateCtxts[k], temp,
+                                intermediateCtxts[k]);  // Adds to first component.
+                evaluator_->read(intermediateCtxts[k]);
+#else
                 evaluator_->add_inplace(intermediateCtxts[k],
                                         temp);  // Adds to first component.
+#endif
             }
         }
 
-        for (uint32_t jj = 0; jj < intermediateCtxts.size(); jj++)
+        if (is_using_ntt_form)
         {
-            Ciphertext tmp;
-            evaluator_->ntt_inv(intermediateCtxts[jj], tmp);
-            intermediateCtxts[jj] = tmp;
-            // print intermediate ctxts?
-            // cout << "const term of ctxt " << jj << " = " <<
-            // intermediateCtxts[jj][0] << endl;
+            for (uint32_t jj = 0; jj < intermediateCtxts.size(); jj++) {
+              Ciphertext tmp;
+              evaluator_->ntt_inv(intermediateCtxts[jj], tmp);
+              intermediateCtxts[jj] = tmp;
+              // print intermediate ctxts?
+              // cout << "const term of ctxt " << jj << " = " <<
+              // intermediateCtxts[jj][0] << endl;
+            }
         }
 
         if (i == nvec.size() - 1)
@@ -319,6 +355,7 @@ PirReply PIRServer::generate_reply(PirQuery &query, uint32_t client_id)
                     Ciphertext tmp;
                     evaluator_->drop_modulus(intermediateCtxts[rr], tmp,
                                              context_->crt_context()->last_parms_id());
+                    evaluator_->read(tmp);
                     intermediateCtxts[rr] = tmp;
                     parms = context_->crt_context()->last_context_data()->parms();
                 }
@@ -355,6 +392,9 @@ inline vector<Ciphertext> PIRServer::expand_query(const Ciphertext &encrypted, u
     // Assume that m is a power of 2. If not, round it to the next power of 2.
     uint32_t logm = std::ceil(std::log2(m));
     Plaintext two("2");
+#ifdef PIR_USE_HARDWARE
+    two.resize(enc_params_.degree());
+#endif
 
     vector<int> galois_elts;
     auto n = enc_params_.degree();
@@ -384,7 +424,6 @@ inline vector<Ciphertext> PIRServer::expand_query(const Ciphertext &encrypted, u
 
         for (uint32_t a = 0; a < temp.size(); a++)
         {
-
             evaluator_->apply_galois(temp[a], tempctxt_rotated, galois_elts[i], galkey);
 
             // cout << "rotate " <<
@@ -392,30 +431,22 @@ inline vector<Ciphertext> PIRServer::expand_query(const Ciphertext &encrypted, u
             // ";
 
             evaluator_->add(temp[a], tempctxt_rotated, newtemp[a]);
+            evaluator_->read(newtemp[a]);
+
             multiply_power_of_X(temp[a], tempctxt_shifted, index_raw);
-
-            // cout << "mul by x^pow: " <<
-            // client.decryptor_->invariant_noise_budget(tempctxt_shifted) << ",
-            // ";
-
             multiply_power_of_X(tempctxt_rotated, tempctxt_rotatedshifted, index);
-
-            // cout << "mul by x^pow: " <<
-            // client.decryptor_->invariant_noise_budget(tempctxt_rotatedshifted)
-            // <<
-            // ", ";
 
             // Enc(2^i x^j) if j = 0 (mod 2**i).
             evaluator_->add(tempctxt_shifted, tempctxt_rotatedshifted, newtemp[a + temp.size()]);
+            evaluator_->read(newtemp[a + temp.size()]);
         }
         temp = newtemp;
-        /*
-        cout << "end: ";
-        for (int h = 0; h < temp.size();h++){
-            cout << client.decryptor_->invariant_noise_budget(temp[h]) << ", ";
+#ifdef PIR_USE_HARDWARE
+        for (auto &ciph : temp)
+        {
+            clear_id(ciph);
         }
-        cout << endl;
-        */
+#endif
     }
 
 #ifdef DEBUG
@@ -437,6 +468,7 @@ inline vector<Ciphertext> PIRServer::expand_query(const Ciphertext &encrypted, u
         {  // corner case.
             evaluator_->multiply_plain(temp[a], two,
                                        newtemp[a]);  // plain multiplication by 2.
+            evaluator_->read(newtemp[a]);
             // cout << client.decryptor_->invariant_noise_budget(newtemp[a]) <<
             // ", ";
         }
@@ -444,9 +476,13 @@ inline vector<Ciphertext> PIRServer::expand_query(const Ciphertext &encrypted, u
         {
             evaluator_->apply_galois(temp[a], tempctxt_rotated, galois_elts[logm - 1], galkey);
             evaluator_->add(temp[a], tempctxt_rotated, newtemp[a]);
+            evaluator_->read(newtemp[a]);
+
             multiply_power_of_X(temp[a], tempctxt_shifted, index_raw);
             multiply_power_of_X(tempctxt_rotated, tempctxt_rotatedshifted, index);
+
             evaluator_->add(tempctxt_shifted, tempctxt_rotatedshifted, newtemp[a + temp.size()]);
+            evaluator_->read(newtemp[a + temp.size()]);
         }
     }
 
@@ -479,6 +515,12 @@ inline void PIRServer::multiply_power_of_X(const Ciphertext &encrypted, Cipherte
 
     // First copy over.
     destination = encrypted;
+#ifdef PIR_USE_HARDWARE
+    for (auto &poly : destination.polys())
+    {
+        poly.set_hardware_id(0);
+    }
+#endif
 
     // Prepare for destination
     // Multiply X^index for each ciphertext polynomial
