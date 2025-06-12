@@ -11,7 +11,11 @@ namespace pir
 PIRClient::PIRClient(const ParametersLiteral &enc_params, const PirParams &pir_params)
     : enc_params_(enc_params), pir_params_(pir_params)
 {
+#ifdef PIR_USE_HARDWARE
     PoseidonFactory::get_instance()->set_device_type(DEVICE_HARDWARE);
+#else
+    PoseidonFactory::get_instance()->set_device_type(DEVICE_SOFTWARE);
+#endif
     context_ =
         std::make_shared<PoseidonContext>(PoseidonFactory::get_instance()->create_poseidon_context(
             enc_params));
