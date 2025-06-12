@@ -1,7 +1,6 @@
 #pragma once
 
 #include "pir.h"
-#include "pir_client.h"
 #include <map>
 #include <memory>
 #include <vector>
