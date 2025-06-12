@@ -13,7 +13,13 @@ namespace pir
 class PIRServer
 {
 public:
+#ifdef PIR_USE_HARDWARE
+    PIRServer(const ParametersLiteral &enc_params,
+              const PirParams &pir_params,
+              std::shared_ptr<PoseidonContext> context);
+#else
     PIRServer(const ParametersLiteral &enc_params, const PirParams &pir_params);
+#endif
 
     // NOTE: server takes over ownership of db and frees it when it exits.
     // Caller cannot free db
@@ -55,6 +61,12 @@ private:
 
     void multiply_power_of_X(const Ciphertext &encrypted, Ciphertext &destination,
                              std::uint32_t index);
+
+#ifdef PIR_USE_HARDWARE
+    bool is_using_ntt_form = false;
+#else
+    bool is_using_ntt_form = true;
+#endif
 };
 
 }  // namespace pir
