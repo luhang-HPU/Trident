@@ -1,4 +1,4 @@
-set(PIR_USE_HARDWARE ON)
+option(PIR_USE_HARDWARE "USE HARDWARE TO RUN PIR of BFV" OFF)
 
 if(PIR_USE_HARDWARE)
     message(STATUS "pir_bfv hardware version")
