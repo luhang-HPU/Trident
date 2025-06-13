@@ -21,7 +21,7 @@ void clear_id(Ciphertext &ctxt)
 #endif
 
 #ifdef PIR_USE_HARDWARE
-PIRServerHardware::PIRServerHardware(const ParametersLiteral &enc_params,
+PIRServer::PIRServer(const ParametersLiteral &enc_params,
                                      const PirParams &pir_params,
                                      std::shared_ptr<PoseidonContext> context)
     : enc_params_(enc_params), pir_params_(pir_params), is_db_preprocessed_(false)
@@ -273,7 +273,6 @@ PirReply PIRServer::generate_reply(PirQuery &query, uint32_t client_id)
             cout << " size mismatch!!! " << expanded_query.size() << ", " << n_i << endl;
         }
 
-        bool is_using_ntt_form;
         if (is_using_ntt_form)
         {
             // Transform expanded query to NTT, and ...

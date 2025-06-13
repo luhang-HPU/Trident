@@ -1,11 +1,6 @@
 #include "pir.h"
-#ifdef PIR_USE_HARDWARE
-#include "pir_client_hardware.h"
-#include "pir_server_hardware.h"
-#else
 #include "pir_client.h"
 #include "pir_server.h"
-#endif
 
 #include <cassert>
 #include <chrono>
@@ -60,11 +55,7 @@ int main(int argc, char *argv[])
     print_pir_params(pir_params);
 
     // Initialize PIR client....
-#ifdef PIR_USE_HARDWARE
-    PIRClientHardware client(enc_params, pir_params);
-#else
     PIRClient client(enc_params, pir_params);
-#endif
     cout << "Main: Generating galois keys for client" << endl;
 
     GaloisKeys galois_keys = client.generate_galois_keys();
@@ -72,7 +63,7 @@ int main(int argc, char *argv[])
     // Initialize PIR Server
     cout << "Main: Initializing server" << endl;
 #ifdef PIR_USE_HARDWARE
-    PIRServerHardware server(enc_params, pir_params, client.get_context());
+    PIRServer server(enc_params, pir_params, client.get_context());
 #else
     PIRServer server(enc_params, pir_params);
 #endif
@@ -108,7 +99,9 @@ int main(int argc, char *argv[])
     // Measure database setup
     auto time_pre_s = high_resolution_clock::now();
     server.set_database(move(db), number_of_items, size_per_item);
+#ifndef PIR_USE_HARDWARE
     server.preprocess_database();
+#endif
     auto time_pre_e = high_resolution_clock::now();
     auto time_pre_us = duration_cast<microseconds>(time_pre_e - time_pre_s).count();
     cout << "Main: database pre processed " << endl;
