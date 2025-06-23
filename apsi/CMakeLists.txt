@@ -134,8 +134,10 @@ endif()
 # Flatbuffers flatbuffers version <= 1.12.1
 # Can use apt install libflatbuffers-dev
 find_package(Flatbuffers REQUIRED)
-if(NOT Flatbuffers_FOUND OR NOT Flatbuffers_VERSION_MAJOR EQUAL 1)
-    message(FATAL_ERROR "Flatbuffers: not found, need flatbuffers version <= 1.12.1")
+if(NOT Flatbuffers_FOUND)
+    message(FATAL_ERROR "Flatbuffers: not found")
+elseif(NOT Flatbuffers_VERSION_MAJOR EQUAL 1 AND NOT Flatbuffers_VERSION_MAJOR EQUAL 0)
+    message(FATAL_ERROR "Flatbuffers version need <= 1.12.1")
 else()
     message(STATUS "Flatbuffers: found")
     set(FLATBUFFERS_FLATC_PATH "/usr/bin/flatc")
