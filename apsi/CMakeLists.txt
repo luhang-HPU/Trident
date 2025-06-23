@@ -131,14 +131,14 @@ else()
     message(STATUS "Microsoft Kuku: found")
 endif()
 
-# Flatbuffers
+# Flatbuffers flatbuffers version <= 1.12.1
+# Can use apt install libflatbuffers-dev
 find_package(Flatbuffers REQUIRED)
-if(NOT Flatbuffers_FOUND)
-    message(FATAL_ERROR "Flatbuffers: not found")
+if(NOT Flatbuffers_FOUND OR NOT Flatbuffers_VERSION_MAJOR EQUAL 1)
+    message(FATAL_ERROR "Flatbuffers: not found, need flatbuffers version <= 1.12.1")
 else()
     message(STATUS "Flatbuffers: found")
     set(FLATBUFFERS_FLATC_PATH "/usr/bin/flatc")
-    # get_target_property(FLATBUFFERS_FLATC_PATH flatbuffers::flatc IMPORTED_LOCATION_RELEASE)
     message(STATUS "flatc path: ${FLATBUFFERS_FLATC_PATH}")
     include(CompileSchemaCXX)
 endif()
@@ -185,7 +185,7 @@ if(APSI_USE_ZMQ)
     endif()
 endif()
 
-# [Option] APSI_BUILD_TESTS (default: OFF)
+# [Option] APSI_BUILD_TESTS (default: ON)
 set(APSI_BUILD_TESTS_OPTION_STR "Build unit and integration tests for APSI")
 option(APSI_BUILD_TESTS ${APSI_BUILD_TESTS_OPTION_STR} ON)
 if(APSI_BUILD_TESTS)
@@ -361,13 +361,6 @@ configure_package_config_file(
     INSTALL_DESTINATION ${APSI_CONFIG_INSTALL_DIR}
 )
 
-# # Install the export
-# install(
-#     EXPORT APSITargets
-#     NAMESPACE APSI::
-#     DESTINATION ${APSI_CONFIG_INSTALL_DIR})
-
-
 # Version file; we require exact version match for downstream
 write_basic_package_version_file(
     ${APSI_CONFIG_VERSION_FILENAME}
@@ -380,16 +373,6 @@ install(
         ${APSI_CONFIG_FILENAME}
         ${APSI_CONFIG_VERSION_FILENAME}
     DESTINATION ${APSI_CONFIG_INSTALL_DIR})
-
-###################
-# APSI unit tests #
-###################
-
-if(APSI_BUILD_TESTS)
-    # add_executable(unit_tests)
-    # add_subdirectory(tests/unit/src)
-    # target_link_libraries(unit_tests apsi GTest::gtest)
-endif()
 
 ##########################
 # APSI integration tests #
