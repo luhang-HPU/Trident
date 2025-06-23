@@ -14,7 +14,6 @@
 
 #include <fstream>
 #include <filesystem>
-#include <unistd.h>
 
 using namespace std;
 using namespace poseidon;
@@ -22,10 +21,10 @@ using namespace poseidon::util;
 
 #define DEBUG_LRTRAIN
 
-const int EPOCHS = 5;
+const int EPOCHS = 50;
 const double learning_rate = 0.95;
-int m = 50;      // row size of train set
-int n = 4;      // column size of train set
+int m = 780;      // row size of train set
+int n = 9;      // column size of train set
 
 namespace check
 {
@@ -120,7 +119,7 @@ Ciphertext sigmoid_approx(const Ciphertext &ciph, const PolynomialVector &polys,
 /*
  * get @ret = 2^x
  * where @min <= 2^x <= @max
- * */
+ */
 int get_size(int min, int max);
 
 /*
@@ -141,13 +140,12 @@ std::vector<std::complex<double>> vector_to_block_message(const std::vector<std:
 
 int main()
 {
-    auto pid = getpid();
     PoseidonFactory::get_instance()->set_device_type(DEVICE_SOFTWARE);
     uint32_t q_def = 32;
-    uint32_t log_degree = 14;
+    uint32_t log_degree = 16;
 
     ParametersLiteral ckks_param_literal{CKKS, log_degree, log_degree - 1, q_def, 5, 1, 0, {}, {}};
-    vector<uint32_t> log_q(45, 32);
+    vector<uint32_t> log_q(50, 32);
     vector<uint32_t> log_p(1, 60);
     ckks_param_literal.set_log_modulus(log_q, log_p);
     auto context = PoseidonFactory::get_instance()->create_poseidon_context(ckks_param_literal);
@@ -245,9 +243,7 @@ int main()
     KeyGenerator kgen(context);
     kgen.create_public_key(public_key);
     kgen.create_relin_keys(relin_keys);
-    std::cout << "Before create galois keys : " << check::get_process_memory(pid) << std::endl;
     kgen.create_galois_keys(rot_keys);
-    std::cout << "After create galois keys : " << check::get_process_memory(pid) << std::endl;
 
     Encryptor enc(context, public_key, kgen.secret_key());
     Decryptor dec(context, kgen.secret_key());
@@ -270,7 +266,6 @@ int main()
         check::print_vector(message_x_transpose);
     }
 
-    std::cout << "After encode and encrypt : " << check::get_process_memory(pid) << std::endl;
     vector<complex<double>> buffer(4, 0);
     buffer[0] = 0.5;
     buffer[1] = 0.197;
@@ -354,10 +349,8 @@ int main()
             ckks_eva->drop_modulus(ciph_y_tmp, ciph_y_tmp, ciph_sigmoid.parms_id());
         }
 
-        // TODO scale loss
         if(!util::are_approximate(ciph_y_tmp.scale(), ciph_sigmoid.scale()))
         {
-//            ciph_sigmoid.scale() = ciph_y_tmp.scale();
             std::vector<std::complex<double>> vec_tmp(slot_size, {1.0, 0.0});
             Plaintext plt_tmp;
 
@@ -477,10 +470,8 @@ int main()
             ckks_eva->drop_modulus(ciph_weight, ciph_weight, ciph_for_grad_update.parms_id());
         }
 
-        // TODO scale loss?
         if(!util::are_approximate(ciph_for_grad_update.scale(), ciph_weight.scale()))
         {
-//            ciph_for_grad_update.scale() = ciph_weight.scale();
             std::vector<std::complex<double>> vec_tmp(slot_size, {1.0, 0.0});
             Plaintext plt_tmp;
 
@@ -526,7 +517,9 @@ int main()
         if(ciph_weight.level() < 12){
             auto start = chrono::high_resolution_clock::now();
             std::cout << "bootstraping start..." << std::endl;
-            ckks_eva->bootstrap(ciph_weight, ciph_weight, relin_keys,rot_keys, ckks_encoder);
+            EvalModPoly eval_mod_poly(context, CosDiscrete, (uint64_t)1 << 40, 1,
+                                      9, 3, 16, 0, 30);
+            ckks_eva->bootstrap(ciph_weight, ciph_weight, relin_keys,rot_keys, ckks_encoder, eval_mod_poly);
             auto stop = chrono::high_resolution_clock::now();
             auto duration = chrono::duration_cast<chrono::microseconds>(stop - start);
             std::cout << "bootstraping TIME: " << duration.count() << " microseconds" << std::endl;
@@ -535,7 +528,7 @@ int main()
             // check the weight after bootstrap
             {
                 auto wegiht_after_bootstrap = batch_handler.decrypt_and_decode(ckks_encoder, dec, ciph_weight);
-                std::cout << "after bootstrap" << std::endl;
+                std::cout << "weight after bootstrap" << std::endl;
                 for (auto i = 0; i < n; ++i)
                 {
                     std::cout << "weight[" << i << "]: " << wegiht_after_bootstrap[i].real() << std::endl;
