@@ -62,11 +62,8 @@ int main(int argc, char *argv[])
 
     // Initialize PIR Server
     cout << "Main: Initializing server" << endl;
-#ifdef PIR_USE_HARDWARE
-    PIRServer server(enc_params, pir_params, client.get_context());
-#else
+
     PIRServer server(enc_params, pir_params);
-#endif
 
     // Server maps the galois key to client 0. We only have 1 client,
     // which is why we associate it with 0. If there are multiple PIR
