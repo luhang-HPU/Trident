@@ -20,26 +20,19 @@ void clear_id(Ciphertext &ctxt)
 }  // namespace
 #endif
 
-#ifdef PIR_USE_HARDWARE
-PIRServer::PIRServer(const ParametersLiteral &enc_params,
-                                     const PirParams &pir_params,
-                                     std::shared_ptr<PoseidonContext> context)
-    : enc_params_(enc_params), pir_params_(pir_params), is_db_preprocessed_(false)
-{
-    context_ = context;
-    evaluator_ = PoseidonFactory::get_instance()->create_bfv_evaluator(*context_);
-    encoder_ = std::make_unique<BatchEncoder>(*context_);
-}
-#else
 PIRServer::PIRServer(const ParametersLiteral &enc_params, const PirParams &pir_params)
     : enc_params_(enc_params), pir_params_(pir_params), is_db_preprocessed_(false)
 {
+#ifdef PIR_USE_HARDWARE
+    is_using_ntt_form_ = false;
+#else
+    is_using_ntt_form_ = true;
+#endif
     context_ = std::make_shared<PoseidonContext>(
         PoseidonFactory::get_instance()->create_poseidon_context(enc_params));
     evaluator_ = PoseidonFactory::get_instance()->create_bfv_evaluator(*context_);
     encoder_ = std::make_unique<BatchEncoder>(*context_);
 }
-#endif
 
 void PIRServer::preprocess_database()
 {
@@ -273,7 +266,7 @@ PirReply PIRServer::generate_reply(PirQuery &query, uint32_t client_id)
             cout << " size mismatch!!! " << expanded_query.size() << ", " << n_i << endl;
         }
 
-        if (is_using_ntt_form)
+        if (is_using_ntt_form_)
         {
             // Transform expanded query to NTT, and ...
             for (uint32_t jj = 0; jj < expanded_query.size(); jj++) {
@@ -324,7 +317,7 @@ PirReply PIRServer::generate_reply(PirQuery &query, uint32_t client_id)
             }
         }
 
-        if (is_using_ntt_form)
+        if (is_using_ntt_form_)
         {
             for (uint32_t jj = 0; jj < intermediateCtxts.size(); jj++) {
               Ciphertext tmp;
