@@ -43,10 +43,7 @@ public:
 
     Plaintext replace_element(Plaintext pt, std::vector<std::uint64_t> new_element,
                               std::uint64_t offset);
-
-#ifdef PIR_USE_HARDWARE
     std::shared_ptr<PoseidonContext> get_context() const { return context_; }
-#endif
 
 private:
     ParametersLiteral enc_params_;
@@ -61,10 +58,6 @@ private:
 
     std::vector<uint64_t> indices_;  // the indices for retrieval.
     std::vector<uint64_t> inverse_scales_;
-
-#ifdef PIR_USE_HARDWARE
-    friend class PIRServerHardware;
-#endif
 };
 
 }  // namespace pir
