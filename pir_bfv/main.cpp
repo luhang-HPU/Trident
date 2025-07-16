@@ -96,9 +96,7 @@ int main(int argc, char *argv[])
     // Measure database setup
     auto time_pre_s = high_resolution_clock::now();
     server.set_database(move(db), number_of_items, size_per_item);
-#ifndef PIR_USE_HARDWARE
     server.preprocess_database();
-#endif
     auto time_pre_e = high_resolution_clock::now();
     auto time_pre_us = duration_cast<microseconds>(time_pre_e - time_pre_s).count();
     cout << "Main: database pre processed " << endl;
