@@ -36,17 +36,20 @@ PIRServer::PIRServer(const ParametersLiteral &enc_params, const PirParams &pir_p
 
 void PIRServer::preprocess_database()
 {
-    if (!is_db_preprocessed_)
+    if (is_using_ntt_form_)
     {
-
-        for (uint32_t i = 0; i < db_->size(); i++)
+        if (!is_db_preprocessed_)
         {
-            Plaintext tmp;
-            evaluator_->ntt_fwd(db_->operator[](i), tmp, context_->crt_context()->first_parms_id());
-            db_->operator[](i) = tmp;
-        }
 
-        is_db_preprocessed_ = true;
+            for (uint32_t i = 0; i < db_->size(); i++)
+            {
+                Plaintext tmp;
+                evaluator_->ntt_fwd(db_->operator[](i), tmp, context_->crt_context()->first_parms_id());
+                db_->operator[](i) = tmp;
+            }
+
+            is_db_preprocessed_ = true;
+        }
     }
 }
 
