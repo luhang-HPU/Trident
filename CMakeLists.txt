@@ -40,18 +40,6 @@ if (APSI)
     add_subdirectory(apsi)
 endif()
 
-option(FACE_ID "Build FACE_ID for POSEIDON" ON)
-message(STATUS "FACE_ID: ${FACE_ID}")
-if (FACE_ID)
-    add_subdirectory(face_id)
-endif()
-
-option(TRANSFORMER "Build TRANSFORMER for POSEIDON" ON)
-message(STATUS "TRANSFORMER: ${TRANSFORMER}")
-if (TRANSFORMER)
-    add_subdirectory(transformer)
-endif()
-
 option(LR_TRAIN "Build LR_TRAIN for POSEIDON" ON)
 message(STATUS "LR_TRAIN: ${LR_TRAIN}")
 if (LR_TRAIN)
