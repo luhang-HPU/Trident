@@ -9,6 +9,7 @@
 #include "src/util/debug.h"
 #include "src/util/precision.h"
 #include "src/util/random_sample.h"
+#include "thread_pool.h"
 
 #include <filesystem>
 
@@ -557,6 +558,30 @@ Ciphertext accumulate_top_n_block(const Ciphertext &ciph, int n, const CKKSEncod
     return ciph_sum;
 }
 
+void sub_and_square(const std::shared_ptr<EvaluatorCkksBase> &ckks_eva,
+                    std::vector<Ciphertext> &ciph_data, const std::vector<Ciphertext> &ciph_query, const poseidon::RelinKeys &relin_keys, const double scale)
+{
+    ThreadPool thread_pool(std::thread::hardware_concurrency());
+    for (int i = 0; i < ciph_query.size(); ++i)
+    {
+        thread_pool.enqueue(
+            [&, i]()
+            {
+                ckks_eva->sub(ciph_data[i], ciph_query[i], ciph_data[i]);
+                ckks_eva->multiply_relin(ciph_data[i], ciph_data[i], ciph_data[i], relin_keys);
+                ckks_eva->rescale_dynamic(ciph_data[i], ciph_data[i], scale);
+            });
+
+        thread_pool.enqueue(
+            [&, i]()
+            {
+                ckks_eva->sub(ciph_data[i + 10], ciph_query[i], ciph_data[i + 10]);
+                ckks_eva->multiply_relin(ciph_data[i + 10], ciph_data[i + 10], ciph_data[i + 10], relin_keys);
+                ckks_eva->rescale_dynamic(ciph_data[i + 10], ciph_data[i + 10], scale);
+            });
+    }
+}
+
 int main(int argc, char *argv[])
 {
     util::Timestacs timer;
@@ -633,81 +658,77 @@ int main(int argc, char *argv[])
     util::Timestacs timer_real;
     timer_real.start();
 
-    // 提交使用 参数解析,读入文件路径
-    std::string dataset_file;
-    std::string predictions_file;
-    for (int i = 1; i < argc; i++) {
-        if (std::string(argv[i]) == "--dataset") {
-            dataset_file = argv[++i];
-        } else if (std::string(argv[i]) == "--predictions") {
-            predictions_file = argv[++i];
-        }
-    }
-    read_jsonl_query(dataset_file, query);
-    read_jsonl_data(dataset_file, data);
-
     // 本地测试用
-    // std::string predictions_file = "/home/guoshuai/aproject/predictions.jsonl";
-    // read_jsonl_query("/home/guoshuai/aproject/train.jsonl", query);
-    // read_jsonl_data("/home/guoshuai/aproject/train.jsonl", data);
+    std::string predictions_file = "/home/sunshuo/develop2/predictions.jsonl";
+    read_jsonl_query("/home/sunshuo/develop2/train.jsonl", query);
+    read_jsonl_data("/home/sunshuo/develop2/train.jsonl", data);
 
-    // read_jsonl_query(current_path.parent_path().string() + "/" + "train.jsonl", query);
-    // read_jsonl_data(current_path.parent_path().string() + "/" + "train.jsonl", data);
-
+    // 加密数据
+    util::Timestacs timer_encrypt1;
+    timer_encrypt1.start();
     vector<Ciphertext> ciph_query = encode_and_encrypt(ckks_encoder, enc, query, scale);
     vector<Ciphertext> ciph_data = encode_and_encrypt(ckks_encoder, enc, data, scale);
+    timer_encrypt1.end();
 
-    Ciphertext ciph_tmp_1;
-    Ciphertext ciph_tmp_2;
-    Ciphertext ciph_distance_1;
-    Ciphertext ciph_distance_2;
+    // 多线程Square
+    sub_and_square(ckks_eva, ciph_data, ciph_query, relin_keys, scale);
+    Ciphertext ciph_distance_1 = ciph_data[0];
+    Ciphertext ciph_distance_2 = ciph_data[dimension];
+    for (size_t i = 1; i < dimension; i++)
 
-    util::Timestacs timer_sub;
-    timer_sub.start();
-    logger << "calculate distance: " << std::endl;
-    for (size_t i = 0; i < dimension; i++)
     {
-        ckks_eva->sub_dynamic(ciph_data[i], ciph_query[i], ciph_tmp_1, ckks_encoder);
-        ckks_eva->sub_dynamic(ciph_data[i + 10], ciph_query[i], ciph_tmp_2, ckks_encoder);
-
-        ckks_eva->multiply_relin(ciph_tmp_1, ciph_tmp_1, ciph_tmp_1, relin_keys);
-        ckks_eva->rescale_dynamic(ciph_tmp_1, ciph_tmp_1, scale);
-
-        ckks_eva->multiply_relin(ciph_tmp_2, ciph_tmp_2, ciph_tmp_2, relin_keys);
-        ckks_eva->rescale_dynamic(ciph_tmp_2, ciph_tmp_2, scale);
-
-        if (i == 0)
-        {
-            ciph_distance_1 = ciph_tmp_1;
-        }
-        else
-        {
-            ckks_eva->add(ciph_distance_1, ciph_tmp_1, ciph_distance_1);
-        }
-
-        if (i == 0)
-        {
-            ciph_distance_2 = ciph_tmp_2;
-        }
-        else
-        {
-            ckks_eva->add(ciph_distance_2, ciph_tmp_2, ciph_distance_2);
-        }
+        ckks_eva->add(ciph_distance_1, ciph_data[i], ciph_distance_1);
+        ckks_eva->add(ciph_distance_2, ciph_data[i + dimension], ciph_distance_2);
     }
+
+    // 单线程Square
+    // Ciphertext ciph_distance_1, ciph_tmp_1;
+    // Ciphertext ciph_distance_2, ciph_tmp_2;
+
+    // util::Timestacs timer_sub;
+    // timer_sub.start();
+    // logger << "calculate distance: " << std::endl;
+    // for (size_t i = 0; i < dimension; i++)
+    // {
+    //     ckks_eva->sub_dynamic(ciph_data[i], ciph_query[i], ciph_tmp_1, ckks_encoder);
+    //     ckks_eva->sub_dynamic(ciph_data[i + 10], ciph_query[i], ciph_tmp_2, ckks_encoder);
+
+    //     ckks_eva->multiply_relin(ciph_tmp_1, ciph_tmp_1, ciph_tmp_1, relin_keys);
+    //     ckks_eva->rescale_dynamic(ciph_tmp_1, ciph_tmp_1, scale);
+
+    //     ckks_eva->multiply_relin(ciph_tmp_2, ciph_tmp_2, ciph_tmp_2, relin_keys);
+    //     ckks_eva->rescale_dynamic(ciph_tmp_2, ciph_tmp_2, scale);
+
+    //     if (i == 0)
+    //     {
+    //         ciph_distance_1 = ciph_tmp_1;
+    //     }
+    //     else
+    //     {
+    //         ckks_eva->add(ciph_distance_1, ciph_tmp_1, ciph_distance_1);
+    //     }
+
+    //     if (i == 0)
+    //     {
+    //         ciph_distance_2 = ciph_tmp_2;
+    //     }
+    //     else
+    //     {
+    //         ckks_eva->add(ciph_distance_2, ciph_tmp_2, ciph_distance_2);
+    //     }
+    // }
     // logger.print_vector("ciph_distance_1", ciph_distance_1, ckks_encoder, dec);
     // logger.print_vector("ciph_distance_2", ciph_distance_2, ckks_encoder, dec);
 
     Ciphertext ciph_result;
     ckks_eva->sub_dynamic(ciph_distance_1, ciph_distance_2, ciph_result, ckks_encoder);
-    // logger.print_vector("ciph_distance_res", ciph_result, ckks_encoder, dec);
-    timer_sub.end();
+    // timer_sub.end();
 
     Ciphertext ciph_tmp;
     Ciphertext ciph_tmp_rotate;
     ciph_tmp = sign_1(ciph_result, polys, polys_1, ckks_encoder, ckks_eva, relin_keys, dec, enc, scale, rot_keys);
     ciph_result = accumulate_top_n_block(ciph_tmp, 100, ckks_encoder, enc, ckks_eva, rot_keys);
     logger.print_vector("相对序列: ", ciph_result, ckks_encoder, dec);
-    // logger.print_vector_real("相对序列取整：", ciph_result, ckks_encoder, dec);
 
     // 比较数组ckks_encoder
     std::vector<std::complex<double>> cmp_top_k(N, {0.0, 0.0});
@@ -720,23 +741,13 @@ int main(int argc, char *argv[])
     match_param_id(ciph_result, ciph_top_k, ckks_eva);
     match_scale(ciph_result, ciph_top_k, ckks_encoder, ckks_eva, scale);
 
-    // logger.print_vector("ciph_top_k", ciph_top_k, ckks_encoder, dec);
-    // logger.print_vector("ciph_result", ciph_result, ckks_encoder, dec);
     ckks_eva->sub_dynamic(ciph_top_k, ciph_result, ciph_result, ckks_encoder);
-
     logger.print_vector("序列相减：", ciph_result, ckks_encoder, dec);
-
     logger.print_scale("ciph_result  level", ciph_result);
-
     ckks_eva->multiply_const(ciph_result, 0.014, scale, ciph_result, ckks_encoder);
     ckks_eva->rescale_dynamic(ciph_result, ciph_result, scale);
-
     ciph_result = sign_2(ciph_result, polys, polys_1, ckks_encoder, ckks_eva, relin_keys, dec, enc, scale, rot_keys);
-
-    // logger.print_scale("拟合后", ciph_result);
     logger.print_vector("索引标记: ", ciph_result, ckks_encoder, dec);
-
-    
 
     // 查询方
     auto result_index = decrypt_and_decode(ckks_encoder, dec, ciph_result);
@@ -752,7 +763,8 @@ int main(int argc, char *argv[])
 
     writePredictions(result, predictions_file);
     logger << timer_init.get_time_s("init time: ") << std::endl;
-    logger << timer_sub.get_time_s("sub time: ") << std::endl;
+    logger << timer_encrypt1.get_time_s("encrypt1 time: ") << std::endl;
+    // logger << timer_sub.get_time_s("sub time: ") << std::endl;
     timer_real.end();
     logger << timer_real.get_time_s("cal time: ") << std::endl;
     timer.end();
@@ -771,18 +783,27 @@ Ciphertext encode_and_encrypt(const CKKSEncoder &encoder, const Encryptor &encry
     return ciph;
 }
 
+void encode_and_encrypt(const CKKSEncoder &encoder, const Encryptor &encryptor,
+                              std::vector<std::complex<double>> &message, double scale, Ciphertext &ciph)
+{
+    Plaintext plain;
+    encoder.encode(message, scale, plain);
+    encryptor.encrypt(plain, ciph);
+}
+
 std::vector<Ciphertext> encode_and_encrypt(const CKKSEncoder &encoder, const Encryptor &encryptor,
                                            std::vector<std::vector<std::complex<double>>> &message,
                                            double scale)
 {
+    ThreadPool thread_pool(std::thread::hardware_concurrency());
+
     std::vector<Ciphertext> vec_ciph;
+    vec_ciph.resize(message.size());
     for (int i = 0; i < message.size(); ++i)
     {
-        Plaintext plain;
-        Ciphertext ciph;
-        encoder.encode(message[i], scale, plain);
-        encryptor.encrypt(plain, ciph);
-        vec_ciph.push_back(ciph);
+        thread_pool.enqueue(
+            [&encoder, &encryptor, &message, &vec_ciph, i, &scale]()
+            { encode_and_encrypt(encoder, encryptor, message[i], scale, vec_ciph[i]); });
     }
     return vec_ciph;
 }
