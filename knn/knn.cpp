@@ -7,17 +7,16 @@
 #include "src/plaintext.h"
 #include "src/poseidon_context.h"
 #include "src/util/debug.h"
+#include "src/util/json.hpp"
 #include "src/util/precision.h"
 #include "src/util/random_sample.h"
-#include "src/thread_pool.h"
+#include "src/util/thread_pool.h"
 
 #include <filesystem>
-
 #include <iostream>
 #include <fstream>
 #include <string>
 #include <vector>
-#include "src/json.hpp"
 
 using json = nlohmann::json;
 using namespace std;
