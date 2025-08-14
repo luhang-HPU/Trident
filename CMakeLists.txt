@@ -58,5 +58,3 @@ message(STATUS "KNN: ${KNN}")
 if (KNN)
     add_subdirectory(knn)
 endif()
-
-
