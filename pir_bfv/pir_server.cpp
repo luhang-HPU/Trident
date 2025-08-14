@@ -1,4 +1,5 @@
 #include "pir_server.h"
+#include "src/util/thread_pool.h"
 #include <cassert>
 #include <utility>
 
@@ -300,23 +301,63 @@ PirReply PIRServer::generate_reply(PirQuery &query, uint32_t client_id)
         product /= n_i;
 
         vector<Ciphertext> intermediateCtxts(product);
-        Ciphertext temp;
-
-        for (uint64_t k = 0; k < product; k++)
+        bool using_thread = false;
+        if (using_thread)
         {
-            evaluator_->multiply_plain(expanded_query[0], (*cur)[k], intermediateCtxts[k]);
+            std::cout << "using 2 threads to compute" << std::endl;
+            poseidon::ThreadPool thread_pool(2);
+            uint64_t haft = product / 2;
+            thread_pool.enqueue(
+                [&]()
+                {
+                    Ciphertext temp;
+                    for (uint64_t k = 0; k < haft; k++)
+                    {
+                        // std::cout << "processing 1111111111111 / " << k << " / " << haft << std::endl;
+                        evaluator_->multiply_plain(expanded_query[0], (*cur)[k],
+                                                   intermediateCtxts[k]);
+                        for (uint64_t j = 1; j < n_i; j++)
+                        {
+                            evaluator_->multiply_plain(expanded_query[j], (*cur)[k + j * product],
+                                                       temp);
+                            evaluator_->add(intermediateCtxts[k], temp,
+                                            intermediateCtxts[k]);  // Adds to first component.
+                        }
+                    }
+                });
 
-            for (uint64_t j = 1; j < n_i; j++)
+            thread_pool.enqueue(
+                [&]()
+                {
+                    Ciphertext temp;
+                    for (uint64_t k = haft; k < product; k++)
+                    {
+                        // std::cout << "processing 2222222222222222222222222 / " << k << " / " << haft << std::endl;
+                        evaluator_->multiply_plain(expanded_query[0], (*cur)[k],
+                                                   intermediateCtxts[k]);
+                        for (uint64_t j = 1; j < n_i; j++)
+                        {
+                            evaluator_->multiply_plain(expanded_query[j], (*cur)[k + j * product],
+                                                       temp);
+                            evaluator_->add(intermediateCtxts[k], temp,
+                                            intermediateCtxts[k]);  // Adds to first component.
+                        }
+                    }
+                });
+        }
+        else
+        {
+            std::cout << "using 1 threads to compute" << std::endl;
+            Ciphertext temp;
+            for (uint64_t k = 0; k < product; k++)
             {
-                evaluator_->multiply_plain(expanded_query[j], (*cur)[k + j * product], temp);
-#ifdef PIR_USE_HARDWARE
-                evaluator_->add(intermediateCtxts[k], temp,
-                                intermediateCtxts[k]);  // Adds to first component.
-                evaluator_->read(intermediateCtxts[k]);
-#else
-                evaluator_->add_inplace(intermediateCtxts[k],
-                                        temp);  // Adds to first component.
-#endif
+                evaluator_->multiply_plain(expanded_query[0], (*cur)[k], intermediateCtxts[k]);
+                for (uint64_t j = 1; j < n_i; j++)
+                {
+                    evaluator_->multiply_plain(expanded_query[j], (*cur)[k + j * product], temp);
+                    evaluator_->add(intermediateCtxts[k], temp,
+                                    intermediateCtxts[k]);  // Adds to first component.
+                }
             }
         }
 
@@ -420,20 +461,13 @@ inline vector<Ciphertext> PIRServer::expand_query(const Ciphertext &encrypted, u
         for (uint32_t a = 0; a < temp.size(); a++)
         {
             evaluator_->apply_galois(temp[a], tempctxt_rotated, galois_elts[i], galkey);
-
-            // cout << "rotate " <<
-            // client.decryptor_->invariant_noise_budget(tempctxt_rotated) << ",
-            // ";
-
             evaluator_->add(temp[a], tempctxt_rotated, newtemp[a]);
-            evaluator_->read(newtemp[a]);
 
             multiply_power_of_X(temp[a], tempctxt_shifted, index_raw);
             multiply_power_of_X(tempctxt_rotated, tempctxt_rotatedshifted, index);
 
             // Enc(2^i x^j) if j = 0 (mod 2**i).
             evaluator_->add(tempctxt_shifted, tempctxt_rotatedshifted, newtemp[a + temp.size()]);
-            evaluator_->read(newtemp[a + temp.size()]);
         }
         temp = newtemp;
 #ifdef PIR_USE_HARDWARE
