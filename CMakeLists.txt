@@ -52,3 +52,9 @@ if (HEARTSTUDY)
     add_subdirectory(heartstudy)
 endif()
 
+
+option(KNN "Build KNN for POSEIDON" ON)
+message(STATUS "KNN: ${KNN}")
+if (KNN)
+    add_subdirectory(knn)
+endif()
