@@ -14,8 +14,8 @@
 #include "apsi/item.h"
 #include "apsi/oprf/oprf_sender.h"
 #include "apsi/psi_params.h"
-#include "poseidon/src/plaintext.h"
-#include "poseidon/src/basics/util/locks.h"
+#include "poseidon/plaintext.h"
+#include "poseidon/basics/util/locks.h"
 
 namespace apsi {
     namespace sender {

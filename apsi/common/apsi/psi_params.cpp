@@ -6,10 +6,10 @@
 #include "apsi/psi_params_generated.h"
 #include "apsi/version.h"
 #include "apsi/util/utils.h"
-#include "poseidon/src/poseidon_context.h"
-#include "poseidon/src/basics/modulus.h"
-#include "poseidon/src/basics/util/common.h"
-#include "poseidon/src/basics/util/defines.h"
+#include "poseidon/poseidon_context.h"
+#include "poseidon/basics/modulus.h"
+#include "poseidon/basics/util/common.h"
+#include "poseidon/basics/util/defines.h"
 
 #ifndef APSI_DISABLE_JSON
 #include "json/json.h"

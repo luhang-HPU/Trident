@@ -1,8 +1,8 @@
 #include <string>
 #include <thread>
 #include <utility>
-#include "poseidon/src/keygenerator.h"
-#include "poseidon/src/key/publickey.h"
+#include "poseidon/keygenerator.h"
+#include "poseidon/key/publickey.h"
 #include "apsi/network/stream_channel.h"
 #include "apsi/powers.h"
 #include "apsi/util/utils.h"

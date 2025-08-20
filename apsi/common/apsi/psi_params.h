@@ -10,9 +10,9 @@
 #include "apsi/log.h"
 #include "apsi/util/utils.h"
 #include "kuku/kuku.h"
-#include "poseidon/src/basics/serialization.h"
-#include "poseidon/src/basics/util/common.h"
-#include "src/factory/poseidon_factory.h"
+#include "poseidon/basics/serialization.h"
+#include "poseidon/basics/util/common.h"
+#include "poseidon/factory/poseidon_factory.h"
 
 namespace apsi
 {

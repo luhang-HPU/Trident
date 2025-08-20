@@ -5,8 +5,8 @@
 #include "apsi/crypto_context.h"
 #include "apsi/network/result_package.h"
 #include "apsi/psi_params.h"
-#include "poseidon/src/poseidon_context.h"
-#include "poseidon/src/keygenerator.h"
+#include "poseidon/poseidon_context.h"
+#include "poseidon/keygenerator.h"
 #include "gtest/gtest.h"
 
 using namespace std;

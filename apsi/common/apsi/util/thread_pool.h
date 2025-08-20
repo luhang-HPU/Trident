@@ -14,7 +14,7 @@
 #include <vector>
 #include "apsi/config.h"
 #include "apsi/log.h"
-#include "poseidon/src/basics/util/common.h"
+#include "poseidon/basics/util/common.h"
 
 #ifdef APSI_USE_CXX17
 #define apsi_result_of_type typename std::invoke_result<F, Args...>::type

@@ -6,7 +6,7 @@
 #include "apsi/oprf/oprf_receiver.h"
 #include "apsi/oprf/oprf_sender.h"
 #include "apsi/util/utils.h"
-#include "poseidon/src/basics/randomgen.h"
+#include "poseidon/basics/randomgen.h"
 #include "gtest/gtest.h"
 
 using namespace std;

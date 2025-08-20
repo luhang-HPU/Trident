@@ -8,8 +8,8 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
-#include "poseidon/src/basics/dynarray.h"
-#include "poseidon/src/basics/memorymanager.h"
+#include "poseidon/basics/dynarray.h"
+#include "poseidon/basics/memorymanager.h"
 #include "apsi/item.h"
 #include "apsi/oprf/oprf_common.h"
 #include "gsl/span"

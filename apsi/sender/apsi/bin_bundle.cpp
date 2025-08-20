@@ -8,7 +8,7 @@
 #include "apsi/thread_pool_mgr.h"
 #include "apsi/util/interpolate.h"
 #include "apsi/util/utils.h"
-#include "poseidon/src/basics/util/defines.h"
+#include "poseidon/basics/util/defines.h"
 
 namespace apsi
 {
