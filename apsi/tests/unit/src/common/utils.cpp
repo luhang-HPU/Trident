@@ -4,7 +4,7 @@
 #include <utility>
 #include <vector>
 #include "apsi/util/utils.h"
-#include "poseidon/src/basics/util/defines.h"
+#include "poseidon/basics/util/defines.h"
 #include "gtest/gtest.h"
 
 using namespace std;

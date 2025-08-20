@@ -7,7 +7,7 @@
 #include "apsi/network/result_package.h"
 #include "apsi/network/sender_operation.h"
 #include "apsi/network/sender_operation_response.h"
-#include "poseidon/src/basics/util/defines.h"
+#include "poseidon/basics/util/defines.h"
 
 namespace apsi
 {

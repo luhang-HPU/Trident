@@ -9,7 +9,7 @@
 #include "apsi/util/stopwatch.h"
 #include "apsi/util/utils.h"
 
-#include "poseidon/src/basics/randomgen.h"
+#include "poseidon/basics/randomgen.h"
 
 using namespace std;
 using namespace poseidon;

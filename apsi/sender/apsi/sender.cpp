@@ -10,9 +10,9 @@
 #include "apsi/thread_pool_mgr.h"
 #include "apsi/util/stopwatch.h"
 #include "apsi/util/utils.h"
-#include "poseidon/src/basics/modulus.h"
-#include "poseidon/src/basics/util/common.h"
-#include "poseidon/src/evaluator/evaluator_base.h"
+#include "poseidon/basics/modulus.h"
+#include "poseidon/basics/util/common.h"
+#include "poseidon/evaluator/evaluator_base.h"
 
 using namespace std;
 using namespace poseidon;

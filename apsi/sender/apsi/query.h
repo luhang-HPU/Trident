@@ -11,8 +11,8 @@
 #include "apsi/powers.h"
 #include "apsi/requests.h"
 #include "apsi/sender_db.h"
-#include "poseidon/src/ciphertext.h"
-#include "poseidon/src/key/relinkeys.h"
+#include "poseidon/ciphertext.h"
+#include "poseidon/key/relinkeys.h"
 
 namespace apsi {
     namespace sender {

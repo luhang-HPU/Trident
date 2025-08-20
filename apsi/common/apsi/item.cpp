@@ -2,7 +2,7 @@
 #include <sstream>
 #include "apsi/item.h"
 #include "apsi/util/utils.h"
-#include "poseidon/src/basics/util/blake2.h"
+#include "poseidon/basics/util/blake2.h"
 
 using namespace std;
 

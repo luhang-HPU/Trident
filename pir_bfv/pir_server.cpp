@@ -1,5 +1,5 @@
 #include "pir_server.h"
-#include "src/util/thread_pool.h"
+#include "poseidon/util/thread_pool.h"
 #include <cassert>
 #include <utility>
 
