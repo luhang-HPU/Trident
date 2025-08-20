@@ -9,8 +9,8 @@
 #include "apsi/network/sop_header_generated.h"
 #include "apsi/network/zmq/zmq_channel.h"
 #include "apsi/util/utils.h"
-#include "poseidon/src/basics/randomgen.h"
-#include "poseidon/src/basics/util/streambuf.h"
+#include "poseidon/basics/randomgen.h"
+#include "poseidon/basics/util/streambuf.h"
 
 // ZeroMQ
 #ifdef _MSC_VER

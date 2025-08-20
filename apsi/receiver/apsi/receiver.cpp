@@ -11,12 +11,12 @@
 #include "apsi/util/db_encoding.h"
 #include "apsi/util/label_encryptor.h"
 #include "apsi/util/utils.h"
-#include "poseidon/src/ciphertext.h"
-#include "poseidon/src/poseidon_context.h"
-#include "poseidon/src/keygenerator.h"
-#include "poseidon/src/plaintext.h"
-#include "poseidon/src/basics/util/common.h"
-#include "poseidon/src/basics/util/defines.h"
+#include "poseidon/ciphertext.h"
+#include "poseidon/poseidon_context.h"
+#include "poseidon/keygenerator.h"
+#include "poseidon/plaintext.h"
+#include "poseidon/basics/util/common.h"
+#include "poseidon/basics/util/defines.h"
 
 using namespace std;
 using namespace poseidon;

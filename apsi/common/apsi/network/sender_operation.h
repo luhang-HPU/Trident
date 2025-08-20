@@ -10,9 +10,9 @@
 #include <vector>
 #include "apsi/poseidon_object.h"
 #include "apsi/version.h"
-#include "poseidon/src/ciphertext.h"
-#include "poseidon/src/key/relinkeys.h"
-#include "poseidon/src/basics/util/common.h"
+#include "poseidon/ciphertext.h"
+#include "poseidon/key/relinkeys.h"
+#include "poseidon/basics/util/common.h"
 
 namespace apsi {
     namespace network {

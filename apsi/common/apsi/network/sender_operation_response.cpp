@@ -4,8 +4,8 @@
 #include "apsi/network/sender_operation_response.h"
 #include "apsi/network/sop_response_generated.h"
 #include "apsi/util/utils.h"
-#include "poseidon/src/basics/util/common.h"
-#include "poseidon/src/basics/util/streambuf.h"
+#include "poseidon/basics/util/common.h"
+#include "poseidon/basics/util/streambuf.h"
 
 using namespace std;
 using namespace poseidon;

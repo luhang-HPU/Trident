@@ -12,8 +12,8 @@
 #include "apsi/util/label_encryptor.h"
 #include "apsi/util/utils.h"
 #include "kuku/locfunc.h"
-#include "poseidon/src/basics/util/common.h"
-#include "poseidon/src/basics/util/streambuf.h"
+#include "poseidon/basics/util/common.h"
+#include "poseidon/basics/util/streambuf.h"
 
 using namespace std;
 using namespace poseidon;

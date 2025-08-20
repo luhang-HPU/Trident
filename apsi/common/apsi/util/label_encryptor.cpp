@@ -6,8 +6,8 @@
 #include "apsi/fourq/random.h"
 #include "apsi/util/label_encryptor.h"
 #include "apsi/util/utils.h"
-#include "poseidon/src/basics/randomgen.h"
-#include "poseidon/src/basics/util/blake2.h"
+#include "poseidon/basics/randomgen.h"
+#include "poseidon/basics/util/blake2.h"
 
 using namespace std;
 using namespace poseidon;

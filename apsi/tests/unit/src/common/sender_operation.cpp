@@ -1,9 +1,9 @@
 #include <sstream>
 #include <vector>
 #include "apsi/network/sender_operation.h"
-#include "poseidon/src/poseidon_context.h"
-#include "poseidon/src/encryptor.h"
-#include "poseidon/src/keygenerator.h"
+#include "poseidon/poseidon_context.h"
+#include "poseidon/encryptor.h"
+#include "poseidon/keygenerator.h"
 #include "gtest/gtest.h"
 
 using namespace std;

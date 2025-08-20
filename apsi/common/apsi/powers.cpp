@@ -1,8 +1,8 @@
 #include <sstream>
 #include "apsi/powers.h"
 #include "apsi/util/utils.h"
-#include "poseidon/src/basics/util/common.h"
-#include "poseidon/src/basics/util/defines.h"
+#include "poseidon/basics/util/common.h"
+#include "poseidon/basics/util/defines.h"
 
 using namespace std;
 using namespace poseidon;

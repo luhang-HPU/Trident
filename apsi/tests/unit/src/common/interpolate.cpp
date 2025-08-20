@@ -5,9 +5,9 @@
 #include <vector>
 #include "apsi/config.h"
 #include "apsi/util/interpolate.h"
-#include "poseidon/src/poseidon_context.h"
-#include "poseidon/src/basics/modulus.h"
-#include "poseidon/src/basics/util/uintarithsmallmod.h"
+#include "poseidon/poseidon_context.h"
+#include "poseidon/basics/modulus.h"
+#include "poseidon/basics/util/uintarithsmallmod.h"
 #include "gtest/gtest.h"
 
 using namespace std;

@@ -1,5 +1,5 @@
 #include "pir.h"
-#include "poseidon/src/batchencoder.h"
+#include "poseidon/batchencoder.h"
 #include <cassert>
 #include <cmath>
 

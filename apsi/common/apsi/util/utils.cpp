@@ -4,7 +4,7 @@
 #include <sstream>
 #include <stdexcept>
 #include "apsi/util/utils.h"
-#include "poseidon/src/basics/util/common.h"
+#include "poseidon/basics/util/common.h"
 
 using namespace std;
 using namespace poseidon;

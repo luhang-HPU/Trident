@@ -6,16 +6,16 @@
 #include <string>
 #include <utility>
 #include "apsi/psi_params.h"
-#include "poseidon/src/batchencoder.h"
-#include "poseidon/src/decryptor.h"
-#include "poseidon/src/encryptor.h"
-#include "poseidon/src/evaluator/evaluator_base.h"
-#include "poseidon/src/key/publickey.h"
-#include "poseidon/src/key/relinkeys.h"
-#include "poseidon/src/key/secretkey.h"
-#include "poseidon/src/keygenerator.h"
-#include "poseidon/src/poseidon_context.h"
-#include "src/factory/poseidon_factory.h"
+#include "poseidon/batchencoder.h"
+#include "poseidon/decryptor.h"
+#include "poseidon/encryptor.h"
+#include "poseidon/evaluator/evaluator_base.h"
+#include "poseidon/key/publickey.h"
+#include "poseidon/key/relinkeys.h"
+#include "poseidon/key/secretkey.h"
+#include "poseidon/keygenerator.h"
+#include "poseidon/poseidon_context.h"
+#include "poseidon/factory/poseidon_factory.h"
 
 using namespace poseidon;
 

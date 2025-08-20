@@ -13,7 +13,7 @@
 #include "apsi/util/utils.h"
 #include "common/base_clp.h"
 
-#include "poseidon/src/basics/modulus.h"
+#include "poseidon/basics/modulus.h"
 
 /**
 Command Line Processor for Sender.

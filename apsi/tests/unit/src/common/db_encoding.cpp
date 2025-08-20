@@ -3,7 +3,7 @@
 #include <stdexcept>
 #include <vector>
 #include "apsi/util/db_encoding.h"
-#include "poseidon/src/basics/util/defines.h"
+#include "poseidon/basics/util/defines.h"
 #include "gtest/gtest.h"
 
 using namespace std;

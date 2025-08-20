@@ -10,7 +10,7 @@
 #include "apsi/log.h"
 #include "common/common_utils.h"
 #include "sender/sender_utils.h"
-#include "poseidon/src/basics/modulus.h"
+#include "poseidon/basics/modulus.h"
 
 using namespace std;
 using namespace poseidon;

@@ -7,8 +7,8 @@
 #include "apsi/powers.h"
 #include "apsi/psi_params.h"
 #include "apsi/poseidon_object.h"
-#include "poseidon/src/ciphertext.h"
-#include "poseidon/src/basics/modulus.h"
+#include "poseidon/ciphertext.h"
+#include "poseidon/basics/modulus.h"
 #include "gsl/span"
 
 namespace apsi {

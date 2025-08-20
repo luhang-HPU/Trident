@@ -9,7 +9,7 @@
 #include <utility>
 #include <vector>
 #include "gsl/span"
-#include "poseidon/src/basics/modulus.h"
+#include "poseidon/basics/modulus.h"
 #include "apsi/item.h"
 
 namespace apsi {
