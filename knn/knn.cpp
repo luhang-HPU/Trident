@@ -7,7 +7,7 @@
 #include "poseidon/plaintext.h"
 #include "poseidon/poseidon_context.h"
 #include "poseidon/util/debug.h"
-#include "poseidon/util/json.hpp"
+#include "poseidon/util/json.h"
 #include "poseidon/util/precision.h"
 #include "poseidon/util/random_sample.h"
 #include "poseidon/util/thread_pool.h"
@@ -419,13 +419,29 @@ Ciphertext accumulate_top_n_block(const Ciphertext &ciph, int n, const CKKSEncod
     return ciph_sum;
 }
 
+std::string get_current_path()
+{
+    char path_buffer[PATH_MAX] = {0};
+    // 读取当前进程的可执行文件路径（/proc/self/exe 是 Linux 特有的符号链接）
+    ssize_t len = readlink("/proc/self/exe", path_buffer, PATH_MAX - 1);
+    std::string path = std::string(path_buffer, len);
+
+    // 从完整路径中截取目录部分
+    size_t pos = path.find_last_of("/");
+    if (pos != std::string::npos)
+    {
+        path = path.substr(0, pos + 1);  // 保留路径分隔符
+    }
+    return path;
+}
+
 int main(int argc, char *argv[])
 {
-    // util::Timestacs timer;
-    // util::Timestacs timer_init;
-    // util::Timestacs timer_calculate;
-    // timer.start();
-    // timer_init.start();
+    util::Timestacs timer;
+    util::Timestacs timer_init;
+    util::Timestacs timer_calculate;
+    timer.start();
+    timer_init.start();
     // 参数设置
     PoseidonFactory::get_instance()->set_device_type(DEVICE_SOFTWARE);
     uint32_t q_def = 32;
@@ -488,21 +504,13 @@ int main(int argc, char *argv[])
     vector<vector<complex<double>>> query(10, vector<complex<double>>(N, {0.0, 0.0}));
     vector<vector<complex<double>>> data(20, vector<complex<double>>(N, {0.0, 0.0}));
 
-    // 提交使用 参数解析,读入文件路径
-    std::string dataset_file;
-    std::string predictions_file;
-    for (int i = 1; i < argc; i++) {
-        if (std::string(argv[i]) == "--dataset") {
-            dataset_file = argv[++i];
-        } else if (std::string(argv[i]) == "--predictions") {
-            predictions_file = argv[++i];
-        }
-    }
-    read_jsonl_query(dataset_file, query);
-    read_jsonl_data(dataset_file, data);
+    std::string predictions_file = "./predictions.jsonl";
+    std::string current_path = get_current_path();
+    read_jsonl_query(current_path + "train.jsonl", query);
+    read_jsonl_data(current_path + "train.jsonl", data);
 
-    // timer_init.end();
-    // timer_calculate.start();
+    timer_init.end();
+    timer_calculate.start();
 
     vector<Ciphertext> ciph_query = encode_and_encrypt_mt(ckks_encoder, enc, query, scale);
     vector<Ciphertext> ciph_data = encode_and_encrypt_mt(ckks_encoder, enc, data, scale);
@@ -553,10 +561,10 @@ int main(int argc, char *argv[])
 
     writePredictions(result, predictions_file);
 
-    // timer_calculate.end();
-    // timer.end();
-    // timer_init.print_time_ms("Init time: ");
-    // timer_calculate.print_time_ms("Calculate time: ");
-    // timer.print_time_ms("All time: ");
+    timer_calculate.end();
+    timer.end();
+    timer_init.print_time_ms("Init time: ");
+    timer_calculate.print_time_ms("Calculate time: ");
+    timer.print_time_ms("All time: ");
     return 0;
 }

@@ -123,19 +123,27 @@ if(NOT APSI_USE_CXX17 AND POSEIDON_USE_CXX17)
     message(FATAL_ERROR "CXX standards mismatch: APSI_USE_CXX17 is OFF, POSEIDON_USE_CXX17 is ON")
 endif()
 
+include(FetchContent) 
+
 # Microsoft Kuku
-find_package(Kuku 2.1 QUIET REQUIRED)
-if(NOT Kuku_FOUND)
-    message(FATAL_ERROR "Microsoft Kuku: not found")
-else()
+find_package(Kuku)
+if(Kuku_FOUND)
     message(STATUS "Microsoft Kuku: found")
+else()
+    message(STATUS "Microsoft Kuku: download ...")
+    FetchContent_Declare(
+        Kuku
+        GIT_REPOSITORY https://github.com/microsoft/kuku.git
+        GIT_TAG        1338c4ae2211ab4c739022ff57f48ce5a76531d5 # 2.1
+    )
+    FetchContent_MakeAvailable(Kuku)
 endif()
 
 # Flatbuffers flatbuffers version <= 1.12.1
 # Can use apt install libflatbuffers-dev
 find_package(Flatbuffers REQUIRED)
 if(NOT Flatbuffers_FOUND)
-    message(FATAL_ERROR "Flatbuffers: not found")
+    message(FATAL_ERROR "Flatbuffers: not found. You can use sudo apt install libflatbuffers-dev")
 elseif(NOT Flatbuffers_VERSION_MAJOR EQUAL 1 AND NOT Flatbuffers_VERSION_MAJOR EQUAL 0)
     message(FATAL_ERROR "Flatbuffers version need <= 1.12.1")
 else()
@@ -161,13 +169,13 @@ if(APSI_USE_LOG4CPLUS)
     set(CMAKE_PREFIX_PATH "/usr/lib/x86_64-linux-gnu/" ${CMAKE_PREFIX_PATH})
     find_package(log4cplus REQUIRED)
     if(NOT log4cplus_FOUND)
-        message(FATAL_ERROR "log4cplus: not found")
+        message(FATAL_ERROR "log4cplus: not found. You can use sudo apt install liblog4cplus-dev")
     else()
         message(STATUS "log4cplus: found")
     endif()
 endif()
 
-# [Option] APSI_USE_ZMQ (default: ON)
+# [Option] APSI_USE_ZMQ (default: OFF)
 set(APSI_USE_ZMQ_OPTION_STR "Use ZeroMQ for networking")
 option(APSI_USE_ZMQ ${APSI_USE_ZMQ_OPTION_STR} OFF)
 if(APSI_USE_ZMQ)
@@ -199,8 +207,13 @@ if(APSI_BUILD_TESTS)
         elseif(NOT GTest_FOUND)
             message(STATUS "GTest not found in APSI")
             message(STATUS "GTest: downloading ...")
-            poseidon_fetch_thirdparty_content(ExternalGTest)
-            add_library(GTest::gtest ALIAS gtest)
+            FetchContent_Declare(
+                googletest
+                GIT_REPOSITORY https://github.com/google/googletest.git
+                GIT_TAG        58d77fa8070e8cec2dc1ed015d66b454c8d78850 # 1.12.1
+            )
+            # 下载并配置 GTest
+            FetchContent_MakeAvailable(googletest)
         endif()
     endif()
 endif()

@@ -7,7 +7,7 @@ else()
     message(STATUS "pir_bfv software version")
 endif()
 
-add_executable(pir_bfv pir.h pir.cpp pir_client.h pir_client.cpp pir_server.h
-        pir_server.cpp main.cpp)
+file(GLOB PIR_BFV_SOURCE_FILES "*.cpp" "*.c")
+add_executable(pir_bfv ${PIR_BFV_SOURCE_FILES})
 target_link_libraries(pir_bfv PUBLIC poseidon_shared)
 message(STATUS "PIR build success")
