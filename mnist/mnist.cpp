@@ -7,33 +7,14 @@
 #include <cmath>
 #include <complex>
 #include <cstdint>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
-// #include <std::vector>
 
 using namespace poseidon;
 using namespace poseidon::util;
 
-// Verification functions(used in verification procedures but can be deleted):
-std::vector<double> rotation(std::vector<double> input, int shift)
-{
-    int n = input.size();
-    shift = shift % n;
-    if (shift < 0)
-    {
-        shift += n;
-    }
-    std::vector<double> result(n);
-    for (int i = 0; i < n; ++i)
-    {
-        int new_index = (i + shift) % n;
-        result[new_index] = input[i];
-    }
-    return result;
-}
-
-// TODO: 优化
 std::vector<double> take_real(std::vector<complex<double>> &input)
 {
     std::vector<double> result;
@@ -45,7 +26,6 @@ std::vector<double> take_real(std::vector<complex<double>> &input)
     return result;
 }
 
-// 
 std::vector<double> matrixVectorMultiply(const std::vector<std::vector<double>> &matrix, const std::vector<double> &vec)
 {
     int rows = matrix.size();
@@ -61,7 +41,7 @@ std::vector<double> matrixVectorMultiply(const std::vector<std::vector<double>> 
     return result;
 }
 
-// Functions used in CNN:
+// Functions used in CNN
 std::vector<double> softmax(std::vector<double> &logits)
 {
     std::vector<double> result;
@@ -137,7 +117,6 @@ std::vector<float> load_binary_param(const std::string &filename)
     return param_data;
 }
 
-// TODO: maybe优化
 std::vector<double> replicate(const std::vector<double> &kernel, int windows = 64)
 {
     std::vector<double> result;
@@ -162,9 +141,8 @@ Plaintext encode_with_consistent_level(const std::vector<double> &input, const C
 std::vector<std::vector<double>> padding_matrix(std::vector<std::vector<double>> &matrix)
 {
     int rows = matrix.size();
-    std::cout << rows << endl;
     int cols = matrix[0].size();
-    std::cout << cols << endl;
+
     // row > col
     std::vector<std::vector<double>> result(8192, std::vector<double>(8192, 1e-10));
     for (int i = 0; i < rows; ++i)
@@ -213,7 +191,8 @@ int main()
     // fc1_bias_vec from fc1.bias.bin
     // fc1_weights from fc1.weight.bin
     // fc2_bias_vec from fc2.bias.bin
-    const std::string param_dir = "parameters/";
+    std::filesystem::path current_path(__FILE__);
+    const std::string param_dir = current_path.parent_path().string() + "/parameters/";
     std::vector<float> conv1_weight = load_binary_param(param_dir + "conv1.weight.bin");
     std::vector<std::vector<double>> conv_kernels(4, std::vector<double>(49));
     for (int k = 0; k < 4; k++)
@@ -421,12 +400,10 @@ int main()
         result = mult;
         for (int shift = 1; shift < 49; ++shift)
         {
-            // TODO: use std::rotate function
-            // auto a = std::rotate(mult.begin(), mult.begin() + shift * 64, mult.end());
-            auto temp = rotation(mult, -shift * 64);
+            std::rotate(mult.begin(), mult.begin() + 64, mult.end());
             for (int i = 0; i < msg_image.size(); ++i)
             {
-                result[i] = result[i] + temp[i];
+                result[i] = result[i] + mult[i];
             }
         }
         for (int i = 0; i < 3136; ++i)
@@ -447,13 +424,13 @@ int main()
             result.push_back(verify_conv[j][i]);
         }
     }
+
     for (int i = 0; i < 256; ++i)
     {
         result[i] = result[i] + conv_bias_replicated[i];
         result[i] = result[i] * result[i];
     }
     // fc layer
-
     result = matrixVectorMultiply(fc1_weights, result);
     for (int i = 0; i < 64; ++i)
     {
@@ -486,13 +463,10 @@ int main()
     msg_result = softmax(msg_res_1);
     for (int i = 0; i < 10; ++i)
     {
-        std::cout << result[i];
-        std::cout << "\n" << endl;
-        std::cout << msg_result[i];
-        std::cout << "\n" << endl;
+        std::cout << i << " plaintext probability: " << result[i] << std::endl;
+        std::cout << i << " encrypted probability: " << msg_result[i] << std::endl << std::endl;
     }
 
     timestacs.print_time("CNN TIME: ");
-    cout << "ok" << endl;
     return 0;
 }
