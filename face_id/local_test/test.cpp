@@ -1,32 +1,35 @@
 #include "test.h"
 
-#include "../frontend_server.h"
-#include "../backend_server.h"
+#include "../backend_server/backend_server.h"
+#include "../frontend_server/frontend_server.h"
 
 namespace facial_recognition
 {
 
 void Test::test_main()
 {
-    auto &frontend_server = facial_recognition::FrontendServer::getInstance();
-    auto &backend_server = facial_recognition::BackendServer::getInstance();
-
-    facial_recognition::FEATURE_VECTOR feat_vec(1024);
-    facial_recognition::read_vector(get_file_path("data2.txt"), feat_vec);
-
-    nlohmann::json key_json = frontend_server.handler_galois_key();
-    nlohmann::json ciphertext_json = frontend_server.handler_feature_vector(feat_vec);
-
-    backend_server.handler_set_galois_key(key_json);
-    nlohmann::json ret_json = backend_server.handler_ciphertext(ciphertext_json);
-
-    std::string max_id = frontend_server.handler_get_id(ret_json);
-
-    if (max_id.empty())
-    {
-        std::cout << "no match" << std::endl;
-    }
-    std::cout << max_id << std::endl;
+//    auto &frontend_server = facial_recognition::FrontendServer::getInstance();
+//    auto &backend_server = facial_recognition::BackendServer::getInstance();
+//
+//    facial_recognition::FEATURE_VECTOR feat_vec(1024);
+//    facial_recognition::read_vector(get_file_path("data2.txt"), feat_vec);
+//
+//    nlohmann::json key_json = frontend_server.handler_galois_key();
+//    nlohmann::json feature_vector_json;
+//    feature_vector_json["bytes"] = feat_vec;
+//    // 此处有问题
+//    nlohmann::json ciphertext_json = frontend_server.handler_feature_vector(feature_vector_json);
+//
+//    backend_server.handler_set_galois_key(key_json);
+//    nlohmann::json ret_json = backend_server.handler_ciphertext(ciphertext_json);
+//
+//    std::string max_id = frontend_server.handler_get_id(ret_json);
+//
+//    if (max_id.empty())
+//    {
+//        std::cout << "no match" << std::endl;
+//    }
+//    std::cout << max_id << std::endl;
 }
 
 

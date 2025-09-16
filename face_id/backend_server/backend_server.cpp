@@ -1,7 +1,7 @@
 #include "backend_server.h"
 
-#include "config.h"
-#include "json_helper.h"
+#include "../config.h"
+#include "../json_helper.h"
 #include "poseidon/keygenerator.h"
 
 #ifdef USE_MYSQL

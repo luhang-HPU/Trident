@@ -1,14 +1,14 @@
 #pragma once
 
-#include "base.h"
+#include "../base.h"
 #include "cinatra/cinatra.hpp"
+#include "nlohmann_json/json.hpp"
 #include "poseidon/ciphertext.h"
 #include "poseidon/ckks_encoder.h"
-#include "poseidon/encryptor.h"
 #include "poseidon/decryptor.h"
-#include "poseidon/keygenerator.h"
+#include "poseidon/encryptor.h"
 #include "poseidon/factory/poseidon_factory.h"
-#include "nlohmann_json/json.hpp"
+#include "poseidon/keygenerator.h"
 
 namespace facial_recognition {
 

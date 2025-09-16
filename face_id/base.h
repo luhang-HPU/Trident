@@ -6,6 +6,7 @@
 #include <iostream>
 #include <fstream>
 #include <chrono>
+#include <filesystem>
 
 namespace facial_recognition
 {
@@ -33,7 +34,7 @@ namespace facial_recognition
         return (int)std::chrono::duration_cast<std::chrono::seconds>(duration).count();
     }
 
-    static std::string& get_file_path(const std::string &filename)
+    static std::string get_file_path(const std::string &filename)
     {
         std::filesystem::path current_path(__FILE__);
         auto path = current_path.parent_path().string() + "/test_data/" + filename;
