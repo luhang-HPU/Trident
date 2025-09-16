@@ -1,6 +1,7 @@
 #pragma once
 
 #include "base.h"
+#include "cinatra/cinatra.hpp"
 #include "poseidon/ciphertext.h"
 #include "poseidon/ckks_encoder.h"
 #include "poseidon/encryptor.h"
@@ -26,6 +27,7 @@ namespace facial_recognition {
         FrontendServer();
 
         void init();
+        void register_handler(cinatra::http_server &server);
         void create_keys();
         poseidon::Plaintext encode(std::vector<double> feature_vector);
         poseidon::Ciphertext encrypt(const poseidon::Plaintext& ptxt);
@@ -61,7 +63,7 @@ namespace facial_recognition {
         poseidon::ParametersLiteralDefault parm_;
         poseidon::PoseidonContext context_;
         double scale_;
-        double threshold_;      // similarity threshold;
+        double threshold_;      // similarity threshold, recognition succeeds if result > threshold_
 
         poseidon::KeyGenerator keygen_;
         poseidon::PublicKey public_key_;

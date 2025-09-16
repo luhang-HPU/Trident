@@ -13,7 +13,6 @@ namespace facial_recognition
     using FEATURE_DATABASE = std::map<std::string, poseidon::Plaintext>;
 
 
-
     static bool read_vector(const std::string& file, FEATURE_VECTOR& vec)
     {
         std::ifstream ifs(file);
@@ -32,5 +31,12 @@ namespace facial_recognition
         auto now = std::chrono::system_clock::now();
         auto duration = now.time_since_epoch();
         return (int)std::chrono::duration_cast<std::chrono::seconds>(duration).count();
+    }
+
+    static std::string& get_file_path(const std::string &filename)
+    {
+        std::filesystem::path current_path(__FILE__);
+        auto path = current_path.parent_path().string() + "/test_data/" + filename;
+        return path;
     }
 }

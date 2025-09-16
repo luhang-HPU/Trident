@@ -1,6 +1,5 @@
 #include "backend_server.h"
 
-#include "cinatra/cinatra.hpp"
 #include "config.h"
 #include "json_helper.h"
 #include "poseidon/keygenerator.h"
@@ -56,33 +55,7 @@ namespace facial_recognition {
         server.listen("0.0.0.0", port_backend_default);
         std::cout << "backend server start" << std::endl;
 
-        // 注册handler
-        server.set_http_handler<cinatra::http_method::GET, cinatra::http_method::POST>("/", [&](cinatra::request& req, cinatra::response& res) {
-            std::cout << "response to / start" << std::endl;
-            res.set_status_and_content(cinatra::status_type::ok, nlohmann::json{"backend server alive"}.dump());
-            std::cout << "response to / end" << std::endl;
-        });
-        server.set_http_handler<cinatra::http_method::GET, cinatra::http_method::POST>("/setGaloisKey", [&](cinatra::request& req, cinatra::response& res) {
-            std::cout << "response to /setGaloisKey start" << std::endl;
-            auto data = req.body();
-            auto json = nlohmann::json::parse(data);
-            res.set_status_and_content(cinatra::status_type::ok, handler_set_galois_key(json).dump());
-            std::cout << "response to /setGaloisKey end" << std::endl;
-        });
-        server.set_http_handler<cinatra::http_method::GET, cinatra::http_method::POST>("/getIdCiphertext", [&](cinatra::request& req, cinatra::response& res) {
-            std::cout << "response to /getIdCiphertext start" << std::endl;
-            auto data = req.body();
-            auto json = nlohmann::json::parse(data);
-            res.set_status_and_content(cinatra::status_type::ok, handler_ciphertext(json).dump());
-            std::cout << "response to /getIdCiphertext end" << std::endl;
-        });
-        server.set_http_handler<cinatra::http_method::GET, cinatra::http_method::POST>("/testCiphertext", [&](cinatra::request& req, cinatra::response& res) {
-            std::cout << "response to /testCiphertext start" << std::endl;
-            auto data = req.body();
-            auto json = nlohmann::json::parse(data);
-            res.set_status_and_content(cinatra::status_type::ok, handler_test_ciphertext(json).dump());
-            std::cout << "response to /testCiphertext end" << std::endl;
-        });
+        register_handler(server);
 
         server.run();
     }
@@ -118,6 +91,36 @@ namespace facial_recognition {
 #ifdef USE_MYSQL
         mysql_close(conn_);
 #endif
+    }
+
+    void BackendServer::register_handler(cinatra::http_server &server)
+    {
+        server.set_http_handler<cinatra::http_method::GET, cinatra::http_method::POST>("/", [&](cinatra::request& req, cinatra::response& res) {
+                                                                                           std::cout << "response to / start" << std::endl;
+                                                                                           res.set_status_and_content(cinatra::status_type::ok, nlohmann::json{"backend server alive"}.dump());
+                                                                                           std::cout << "response to / end" << std::endl;
+                                                                                       });
+        server.set_http_handler<cinatra::http_method::GET, cinatra::http_method::POST>("/setGaloisKey", [&](cinatra::request& req, cinatra::response& res) {
+                                                                                           std::cout << "response to /setGaloisKey start" << std::endl;
+                                                                                           auto data = req.body();
+                                                                                           auto json = nlohmann::json::parse(data);
+                                                                                           res.set_status_and_content(cinatra::status_type::ok, handler_set_galois_key(json).dump());
+                                                                                           std::cout << "response to /setGaloisKey end" << std::endl;
+                                                                                       });
+        server.set_http_handler<cinatra::http_method::GET, cinatra::http_method::POST>("/getIdCiphertext", [&](cinatra::request& req, cinatra::response& res) {
+                                                                                           std::cout << "response to /getIdCiphertext start" << std::endl;
+                                                                                           auto data = req.body();
+                                                                                           auto json = nlohmann::json::parse(data);
+                                                                                           res.set_status_and_content(cinatra::status_type::ok, handler_ciphertext(json).dump());
+                                                                                           std::cout << "response to /getIdCiphertext end" << std::endl;
+                                                                                       });
+        server.set_http_handler<cinatra::http_method::GET, cinatra::http_method::POST>("/testCiphertext", [&](cinatra::request& req, cinatra::response& res) {
+                                                                                           std::cout << "response to /testCiphertext start" << std::endl;
+                                                                                           auto data = req.body();
+                                                                                           auto json = nlohmann::json::parse(data);
+                                                                                           res.set_status_and_content(cinatra::status_type::ok, handler_test_ciphertext(json).dump());
+                                                                                           std::cout << "response to /testCiphertext end" << std::endl;
+                                                                                       });
     }
 
     std::map<std::string, poseidon::Ciphertext> BackendServer::compute(poseidon::Ciphertext &ctxt) {

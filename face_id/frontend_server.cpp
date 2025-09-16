@@ -1,5 +1,5 @@
-#include "cinatra/cinatra.hpp"
 #include "frontend_server.h"
+
 #include "config.h"
 #include "json_helper.h"
 
@@ -33,6 +33,48 @@ namespace facial_recognition {
         }
     }
 
+    void FrontendServer::register_handler(cinatra::http_server &server)
+    {
+        // test
+        server.set_http_handler<cinatra::http_method::GET, cinatra::http_method::POST>("/", [&](cinatra::request& req, cinatra::response& res) {
+                                                                                           std::cout << "response to / start" << std::endl;
+                                                                                           res.set_status_and_content(cinatra::status_type::ok, generate_json(1, "", get_timestamp(), nlohmann::json{"frontend server alive"}).dump());
+                                                                                           std::cout << "response to / end" << std::endl;
+                                                                                       });
+        // get encrypted feature vector
+        server.set_http_handler<cinatra::http_method::GET, cinatra::http_method::POST>("/getCiphertext", [&](cinatra::request& req, cinatra::response& res) {
+                                                                                           std::cout << "response to /getCiphertext start" << std::endl;
+                                                                                           auto data = req.body();
+                                                                                           auto json = nlohmann::json::parse(data);
+                                                                                           res.set_status_and_content(cinatra::status_type::ok, handler_feature_vector(json).dump());
+                                                                                           std::cout << "response to /getCiphertext end" << std::endl;
+                                                                                       });
+        // get galois key
+        server.set_http_handler<cinatra::http_method::GET, cinatra::http_method::POST>("/getGaloisKey", [&](cinatra::request& req, cinatra::response& res) {
+                                                                                           std::cout << "response to /getGaloisKey start" << std::endl;
+                                                                                           auto data = req.body();
+                                                                                           auto json = nlohmann::json::parse(data);
+                                                                                           res.set_status_and_content(cinatra::status_type::ok, handler_galois_key().dump());
+                                                                                           std::cout << "response to /getGaloisKey end" << std::endl;
+                                                                                       });
+        // get face id
+        server.set_http_handler<cinatra::http_method::GET, cinatra::http_method::POST>("/getId", [&](cinatra::request& req, cinatra::response& res) {
+                                                                                           std::cout << "response to /getId start" << std::endl;
+                                                                                           auto data = req.body();
+                                                                                           auto json = nlohmann::json::parse(data);
+                                                                                           res.set_status_and_content(cinatra::status_type::ok, handler_get_id(json).dump());
+                                                                                           std::cout << "response to /getId end" << std::endl;
+                                                                                       });
+
+        server.set_http_handler<cinatra::http_method::GET, cinatra::http_method::POST>("/testCiphertext", [&](cinatra::request& req, cinatra::response& res) {
+                                                                                           std::cout << "response to /testCiphertext start" << std::endl;
+                                                                                           auto data = req.body();
+                                                                                           auto json = nlohmann::json::parse(data);
+                                                                                           res.set_status_and_content(cinatra::status_type::ok, handler_test_ciphertext(json).dump());
+                                                                                           std::cout << "response to /testCiphertext end" << std::endl;
+                                                                                       });
+    }
+
     void FrontendServer::create_keys() {
         keygen_.create_public_key(public_key_);
         keygen_.create_relin_keys(relin_key_);
@@ -45,45 +87,7 @@ namespace facial_recognition {
         server.listen("0.0.0.0", port_frontend_default);
         std::cout << "frontend server start" << std::endl;
 
-        // 注册handler
-        // test
-        server.set_http_handler<cinatra::http_method::GET, cinatra::http_method::POST>("/", [&](cinatra::request& req, cinatra::response& res) {
-            std::cout << "response to / start" << std::endl;
-            res.set_status_and_content(cinatra::status_type::ok, generate_json(1, "", get_timestamp(), nlohmann::json{"frontend server alive"}).dump());
-            std::cout << "response to / end" << std::endl;
-        });
-        // get encrypted feature vector
-        server.set_http_handler<cinatra::http_method::GET, cinatra::http_method::POST>("/getCiphertext", [&](cinatra::request& req, cinatra::response& res) {
-            std::cout << "response to /getCiphertext start" << std::endl;
-            auto data = req.body();
-            auto json = nlohmann::json::parse(data);
-            res.set_status_and_content(cinatra::status_type::ok, handler_feature_vector(json).dump());
-            std::cout << "response to /getCiphertext end" << std::endl;
-        });
-        // get galois key
-        server.set_http_handler<cinatra::http_method::GET, cinatra::http_method::POST>("/getGaloisKey", [&](cinatra::request& req, cinatra::response& res) {
-            std::cout << "response to /getGaloisKey start" << std::endl;
-            auto data = req.body();
-            auto json = nlohmann::json::parse(data);
-            res.set_status_and_content(cinatra::status_type::ok, handler_galois_key().dump());
-            std::cout << "response to /getGaloisKey end" << std::endl;
-        });
-        // get face id
-        server.set_http_handler<cinatra::http_method::GET, cinatra::http_method::POST>("/getId", [&](cinatra::request& req, cinatra::response& res) {
-            std::cout << "response to /getId start" << std::endl;
-            auto data = req.body();
-            auto json = nlohmann::json::parse(data);
-            res.set_status_and_content(cinatra::status_type::ok, handler_get_id(json).dump());
-            std::cout << "response to /getId end" << std::endl;
-        });
-
-        server.set_http_handler<cinatra::http_method::GET, cinatra::http_method::POST>("/testCiphertext", [&](cinatra::request& req, cinatra::response& res) {
-            std::cout << "response to /testCiphertext start" << std::endl;
-            auto data = req.body();
-            auto json = nlohmann::json::parse(data);
-            res.set_status_and_content(cinatra::status_type::ok, handler_test_ciphertext(json).dump());
-            std::cout << "response to /testCiphertext end" << std::endl;
-        });
+        register_handler(server);
 
         server.run();
     }

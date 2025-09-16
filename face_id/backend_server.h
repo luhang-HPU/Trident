@@ -1,5 +1,6 @@
 #pragma once
 
+#include "cinatra/cinatra.hpp"
 #include "nlohmann_json/json.hpp"
 #include "base.h"
 #include "monitor_helper.h"
@@ -27,6 +28,9 @@ namespace facial_recognition {
     private:
         explicit BackendServer(const poseidon::sec_level_type& sec_level = poseidon::sec_level_type::none);
         ~BackendServer();
+
+        void register_handler(cinatra::http_server &server);
+
         /*
          * handle network interface /setGaloisKey
          * @param: json
@@ -35,10 +39,10 @@ namespace facial_recognition {
          * json format {}
          */
         nlohmann::json handler_set_galois_key(nlohmann::json& json);
+
         /* handle network interface /getIdCihertext
          * @param: json
          * json format { (binary) ciphertext }
-         *
          * @return: json
          * json format { {key: (string)id, value: (binary)ciphertext}, ... }
          */
@@ -52,6 +56,7 @@ namespace facial_recognition {
 
         // compute the inner product of received ciphertext and the database plaintext
         std::map<std::string, poseidon::Ciphertext> compute(poseidon::Ciphertext &ctxt);
+
         // return value of json type { { "id": "ciphertext_binary" }, ... }
         nlohmann::json serialize(const std::map<std::string, poseidon::Ciphertext>& ctxt_vec);
 

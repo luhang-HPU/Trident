@@ -12,20 +12,19 @@ void Test::test_main()
     auto &backend_server = facial_recognition::BackendServer::getInstance();
 
     facial_recognition::FEATURE_VECTOR feat_vec(1024);
-    facial_recognition::read_vector("/home/tangjiajian/Desktop/face_id/data2.txt", feat_vec);
+    facial_recognition::read_vector(get_file_path("data2.txt"), feat_vec);
 
     nlohmann::json key_json = frontend_server.handler_galois_key();
     nlohmann::json ciphertext_json = frontend_server.handler_feature_vector(feat_vec);
 
-    backend_server.handle_set_galois_key(key_json);
-    nlohmann::json ret_json = backend_server.handler_get_id(ciphertext_json);
+    backend_server.handler_set_galois_key(key_json);
+    nlohmann::json ret_json = backend_server.handler_ciphertext(ciphertext_json);
 
     std::string max_id = frontend_server.handler_get_id(ret_json);
 
     if (max_id.empty())
     {
         std::cout << "no match" << std::endl;
-        return -1;
     }
     std::cout << max_id << std::endl;
 }
