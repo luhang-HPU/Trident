@@ -11,8 +11,7 @@ namespace facial_recognition {
 
     FrontendServer::FrontendServer()
         : parm_(CKKS, 4096, poseidon::sec_level_type::none),
-          context_(PoseidonFactory::get_instance()->create_poseidon_context(
-              parm_, poseidon::sec_level_type::none)),
+          context_(parm_, false),
           scale_(std::pow(2.0, 32)), threshold_(0.6), encoder_(context_), keygen_(context_)
     {
         init();
