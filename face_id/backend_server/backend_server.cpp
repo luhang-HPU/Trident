@@ -17,8 +17,6 @@ namespace facial_recognition {
                 float tmp = *(c + 4 * i);
                 res.push_back(static_cast<double>(tmp));
             }
-            double num = *(c+1);
-
             return res;
         }
     }
@@ -142,7 +140,7 @@ namespace facial_recognition {
             poseidon::Ciphertext ctxt_temp;
             evaluator_->multiply_plain(ctxt, ptxt, ctxt_temp);
             evaluator_->rescale(ctxt_temp, ctxt_temp);
-            evaluator_->drop_modulus_to_next(ctxt_temp, ctxt_temp);
+            //evaluator_->drop_modulus_to_next(ctxt_temp, ctxt_temp);
 
             // rotate
             evaluator_->read(ctxt_temp);

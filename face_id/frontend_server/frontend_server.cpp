@@ -26,11 +26,6 @@ namespace facial_recognition {
         std::stringstream ss(std::ios_base::binary | std::ios_base::in | std::ios_base::out);
         galois_key_.save(ss);
         galois_key_json_ = stream_to_json(ss);
-
-        // set id vector
-        for (auto i = 1; i <= 3; ++i) {
-            id_vec_.emplace_back(std::to_string(i));
-        }
     }
 
     void FrontendServer::register_handler(cinatra::http_server &server)
@@ -41,14 +36,7 @@ namespace facial_recognition {
                                                                                            res.set_status_and_content(cinatra::status_type::ok, generate_json(1, "", get_timestamp(), nlohmann::json{"frontend server alive"}).dump());
                                                                                            std::cout << "response to / end" << std::endl;
                                                                                        });
-        // get encrypted feature vector
-        server.set_http_handler<cinatra::http_method::GET, cinatra::http_method::POST>("/getCiphertext", [&](cinatra::request& req, cinatra::response& res) {
-                                                                                           std::cout << "response to /getCiphertext start" << std::endl;
-                                                                                           auto data = req.body();
-                                                                                           auto json = nlohmann::json::parse(data);
-                                                                                           res.set_status_and_content(cinatra::status_type::ok, handler_feature_vector(json).dump());
-                                                                                           std::cout << "response to /getCiphertext end" << std::endl;
-                                                                                       });
+
         // get galois key
         server.set_http_handler<cinatra::http_method::GET, cinatra::http_method::POST>("/getGaloisKey", [&](cinatra::request& req, cinatra::response& res) {
                                                                                            std::cout << "response to /getGaloisKey start" << std::endl;
@@ -56,6 +44,14 @@ namespace facial_recognition {
                                                                                            auto json = nlohmann::json::parse(data);
                                                                                            res.set_status_and_content(cinatra::status_type::ok, handler_galois_key().dump());
                                                                                            std::cout << "response to /getGaloisKey end" << std::endl;
+                                                                                       });
+        // get encrypted feature vector
+        server.set_http_handler<cinatra::http_method::GET, cinatra::http_method::POST>("/getCiphertext", [&](cinatra::request& req, cinatra::response& res) {
+                                                                                           std::cout << "response to /getCiphertext start" << std::endl;
+                                                                                           auto data = req.body();
+                                                                                           auto json = nlohmann::json::parse(data);
+                                                                                           res.set_status_and_content(cinatra::status_type::ok, handler_feature_vector(json).dump());
+                                                                                           std::cout << "response to /getCiphertext end" << std::endl;
                                                                                        });
         // get face id
         server.set_http_handler<cinatra::http_method::GET, cinatra::http_method::POST>("/getId", [&](cinatra::request& req, cinatra::response& res) {
@@ -151,7 +147,10 @@ namespace facial_recognition {
         std::stringstream ss_message;
         double max_value = 0.0;
 
+        int for_cnt = 0;
         for (auto &item : json.items()) {
+            std::cout << "cnt = " << for_cnt << " begin" << std::endl;
+
             std::string id;
             id = item.key();
 
@@ -161,15 +160,22 @@ namespace facial_recognition {
             poseidon::Plaintext ptxt;
             ctxt.load(context_, ss);
             ptr_decryptor_->decrypt(ctxt, ptxt);
+            std::cout << "decrypt end" << std::endl;
 
             std::vector<double> ans;
             encoder_.decode(ptxt, ans);
+            std::cout << "decode end" << std::endl;
+
             ss_message << "result of id[" << id << "] : " << ans[0] << std::endl;
 
             if ((ans[0] > max_value) && (ans[0] > threshold_)) {
                 max_id = id;
             }
+
+            std::cout << "cnt = " << for_cnt << " end" << std::endl;
         }
+
+        std::cout << "for loop end" << std::endl;
 
         nlohmann::json result;
         result["id"] = max_id;

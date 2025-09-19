@@ -75,8 +75,6 @@ namespace facial_recognition {
         std::unique_ptr<poseidon::Decryptor> ptr_decryptor_;
 
         nlohmann::json galois_key_json_;
-
-        std::vector<std::string> id_vec_;
     };
 
 }
