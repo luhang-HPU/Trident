@@ -13,7 +13,7 @@ namespace facial_recognition {
         : parm_(CKKS, 4096, poseidon::sec_level_type::none),
           context_(poseidon::PoseidonFactory::get_instance()->create_poseidon_context(
               parm_)),
-          scale_(std::pow(2.0, 32)), threshold_(0.6), encoder_(context_), keygen_(context_)
+          scale_(std::pow(2.0, 32)), threshold_(0.7), encoder_(context_), keygen_(context_)
     {
         init();
         ptr_encryptor_ = std::make_unique<poseidon::Encryptor>(context_, public_key_);
