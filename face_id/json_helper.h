@@ -11,9 +11,13 @@ enum ERROR_TYPE {
 };
 
 
-nlohmann::json stream_to_json(std::stringstream& ss);
+nlohmann::json stream_to_binary_json(std::stringstream& ss);
 
-std::stringstream json_to_stream(nlohmann::json& json);
+nlohmann::json stream_to_array_json(std::stringstream& ss);
+
+std::stringstream binary_json_to_stream(nlohmann::json& json);
+
+std::stringstream array_json_to_stream(nlohmann::json& json);
 
 /*
  * parse json to get the data

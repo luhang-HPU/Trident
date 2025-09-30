@@ -13,7 +13,7 @@ int main(int argc, char **argv)
         get_mem_occupy((MemOccupy *)&mem_stat);
         cout << "mem_total: " << mem_stat.mem_total << "GB" << endl;
         cout << "mem_available: " << mem_stat.mem_available << "GB" << endl << endl;
-        sleep(1);  // 延时1s；
+        sleep(0.1);  // 延时1s；
     }
     return 0;
 }

@@ -12,7 +12,8 @@ void Test::test_main()
     auto &backend_server = facial_recognition::BackendServer::getInstance();
 
     // 同步Galois key
-    nlohmann::json key_json = frontend_server.handler_galois_key();
+    nlohmann::json key_json;
+    key_json["bytes"] = frontend_server.handler_galois_key();
     backend_server.handler_set_galois_key(key_json);
 
     // 读取人脸特征
@@ -22,10 +23,19 @@ void Test::test_main()
 
     // 加密人脸特征
     nlohmann::json feature_vector_json = feat_vec_sunninghui;
-    nlohmann::json ciphertext_json = frontend_server.handler_feature_vector(feature_vector_json);
+    nlohmann::json ciphertext_json;
+    ciphertext_json["bytes"] = frontend_server.handler_feature_vector(feature_vector_json);
 
     // 将人脸密文特征发送给后端服务器
-    nlohmann::json ret_json = backend_server.handler_ciphertext(ciphertext_json);
+    nlohmann::json ret_json = backend_server.handler_get_similarity_ciphertext(ciphertext_json);
+
+    {
+        poseidon::Plaintext plt;
+        frontend_server.ptr_decryptor_->decrypt(backend_server.ctxt_, plt);
+        std::vector<double> vec;
+        frontend_server.encoder_.decode(plt, vec);
+    }
+
 
     // 匹配人脸
     std::string max_id = frontend_server.handler_get_id(ret_json);

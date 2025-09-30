@@ -26,20 +26,10 @@ namespace facial_recognition {
     private:
         FrontendServer();
 
-        void init();
         void register_handler(cinatra::http_server &server);
-        void create_keys();
         poseidon::Plaintext encode(std::vector<double> feature_vector);
         poseidon::Ciphertext encrypt(const poseidon::Plaintext& ptxt);
 
-        /*
-         * handle network interface /getCiphertext
-         * @param: json
-         * json format { (array) float }
-         * @return: json
-         * json format { (binary) ciphertext }
-         */
-        nlohmann::json handler_feature_vector(nlohmann::json& json);
         /*
          * handle network interface /getGaloisKey
          * @param: json
@@ -48,6 +38,14 @@ namespace facial_recognition {
          * json format { (binary) galois_key }
          */
         nlohmann::json handler_galois_key();
+        /*
+         * handle network interface /getCiphertext
+         * @param: json
+         * json format { (array) float }
+         * @return: json
+         * json format { (binary) ciphertext }
+         */
+        nlohmann::json handler_feature_vector(nlohmann::json& json);
         /*
          * handle network interface /getId
          * @param: json
@@ -58,6 +56,18 @@ namespace facial_recognition {
         nlohmann::json handler_get_id(nlohmann::json& json);
 
         nlohmann::json handler_test_ciphertext(nlohmann::json& json);
+
+        // for test
+        nlohmann::json handler_get_public_key();
+
+        // for test
+        nlohmann::json handler_get_secret_key();
+
+        // for test
+        nlohmann::json handler_set_galois_key(nlohmann::json& json);
+
+        // for test
+        nlohmann::json handler_get_id_ciphertext(nlohmann::json& json);
 
     private:
         poseidon::ParametersLiteralDefault parm_;

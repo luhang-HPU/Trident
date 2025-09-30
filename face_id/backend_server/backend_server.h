@@ -46,21 +46,22 @@ namespace facial_recognition {
          * @return: json
          * json format { {key: (string)id, value: (binary)ciphertext}, ... }
          */
-        nlohmann::json handler_ciphertext(nlohmann::json& json);
+        nlohmann::json handler_get_similarity_ciphertext(nlohmann::json& json);
 
 #ifdef USE_MYSQL
         nlohmann::json handler_database(nlohmann::json& json);
 #endif
 
+        // for test
         nlohmann::json handler_test_ciphertext(nlohmann::json& json);
+        // for test
+        nlohmann::json handler_set_public_key(nlohmann::json& json);
 
         // compute the inner product of received ciphertext and the database plaintext
-        std::map<std::string, poseidon::Ciphertext> compute(poseidon::Ciphertext &ctxt);
+        std::map<std::string, poseidon::Ciphertext> compute_similarity(const poseidon::Ciphertext &ctxt);
 
-        // return value of json type { { "id": "ciphertext_binary" }, ... }
-        nlohmann::json serialize(const std::map<std::string, poseidon::Ciphertext>& ctxt_vec);
+        nlohmann::json serialize(const std::map<std::string, poseidon::Ciphertext> &ctxt_vec);
 
-        // only for test
         void test_read_database();
 
     private:
@@ -83,6 +84,9 @@ namespace facial_recognition {
         const unsigned int port = 3306;
         MYSQL* conn_;
 #endif
+
+        poseidon::PublicKey pk_;
+        poseidon::Ciphertext ctxt_;
     };
 
 }

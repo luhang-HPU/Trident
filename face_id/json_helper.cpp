@@ -1,6 +1,6 @@
 #include "json_helper.h"
 
-nlohmann::json stream_to_json(std::stringstream& ss) {
+nlohmann::json stream_to_binary_json(std::stringstream& ss) {
     std::vector<uint8_t> vec_byte;
     char c;
     while (ss.get(c)) {
@@ -9,9 +9,31 @@ nlohmann::json stream_to_json(std::stringstream& ss) {
     return nlohmann::json::binary(vec_byte, 0);
 }
 
-std::stringstream json_to_stream(nlohmann::json& json) {
+nlohmann::json stream_to_array_json(std::stringstream& ss) {
+    std::vector<char> vec_array;
+    char c;
+    while (ss.get(c)) {
+        vec_array.push_back(c);
+    }
+    return nlohmann::json{vec_array};
+}
+
+std::stringstream binary_json_to_stream(nlohmann::json& json) {
+    if (!json.is_binary()) {
+        throw "binary_json_to_stream error";
+    }
+
+    std::stringstream ss(std::ios_base::binary | std::ios_base::in | std::ios_base::out);
+    for (auto iter = json.cbegin(); iter != json.cend(); ++iter) {
+        uint8_t x = *iter;
+        ss << x;
+    }
+    return ss;
+}
+
+std::stringstream array_json_to_stream(nlohmann::json& json) {
     if (!json.is_array()) {
-        throw "json_to_stream error";
+        throw "array_json_to_stream error";
     }
 
     std::stringstream ss(std::ios_base::binary | std::ios_base::in | std::ios_base::out);
