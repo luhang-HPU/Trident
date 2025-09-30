@@ -146,7 +146,9 @@ namespace facial_recognition {
 
         std::map<std::string, poseidon::Ciphertext> result;
 
-        for (auto [id, ptxt] : database_) {
+        for (auto iter = database_.cbegin(); iter != database_.cend(); ++iter) {
+            const auto id = iter->first;
+            const auto ptxt = iter->second;
             poseidon::Ciphertext ctxt_result;
             evaluator_->multiply_plain(ctxt, ptxt, ctxt_result);
             evaluator_->rescale(ctxt_result, ctxt_result);
@@ -273,31 +275,31 @@ namespace facial_recognition {
         poseidon::Plaintext ptxt_tmp;
 
         encoder_.encode(feat_vec_tangjiajian, scale_, ptxt_tmp);
-        database_.insert( {"39", ptxt_tmp} );
+        database_["39"] = ptxt_tmp;
 
         encoder_.encode(feat_vec_sunninghui, scale_, ptxt_tmp);
-        database_.insert( {"42", ptxt_tmp} );
+        database_["42"] = ptxt_tmp;
 
         encoder_.encode(feat_vec_huzhenjiang, scale_, ptxt_tmp);
-        database_.insert( {"43", ptxt_tmp} );
+        database_["43"] = ptxt_tmp;
 
         encoder_.encode(feat_vec_lixiaowei, scale_, ptxt_tmp);
-        database_.insert( {"44", ptxt_tmp} );
+        database_["44"] = ptxt_tmp;
 
         encoder_.encode(feat_vec_wujianping, scale_, ptxt_tmp);
-        database_.insert( {"45", ptxt_tmp} );
+        database_["45"] = ptxt_tmp;
 
         encoder_.encode(feat_vec_fushouqing, scale_, ptxt_tmp);
-        database_.insert( {"46", ptxt_tmp} );
+        database_["46"] = ptxt_tmp;
 
         encoder_.encode(feat_vec_wuchenggang, scale_, ptxt_tmp);
-        database_.insert( {"47", ptxt_tmp} );
+        database_["47"] = ptxt_tmp;
 
         encoder_.encode(feat_vec_xietao, scale_, ptxt_tmp);
-        database_.insert( {"48", ptxt_tmp} );
+        database_["48"] = ptxt_tmp;
 
         encoder_.encode(feat_vec_sunshuo, scale_, ptxt_tmp);
-        database_.insert( {"49", ptxt_tmp} );
+        database_["49"] = ptxt_tmp;
 
 #ifdef USE_MYSQL
         std::string sql_query = "SELECT * FROM Staff";
