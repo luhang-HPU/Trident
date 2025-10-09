@@ -1,7 +1,7 @@
 #include "frontend_server.h"
 
 #include "../config.h"
-#include "../json_helper.h"
+#include "../tools/json_helper.h"
 
 namespace facial_recognition {
     FrontendServer& FrontendServer::getInstance() {

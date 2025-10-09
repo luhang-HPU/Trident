@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../base.h"
-#include "../performance_monitor_server/monitor_helper.h"
+#include "../monitor_server/monitor_helper.h"
 #include "cinatra/cinatra.hpp"
 #include "nlohmann_json/json.hpp"
 #include "poseidon/ciphertext.h"

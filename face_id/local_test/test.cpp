@@ -1,10 +1,22 @@
 #include "test.h"
 
+#include <thread>
+
 #include "../backend_server/backend_server.h"
 #include "../frontend_server/frontend_server.h"
 
+
 namespace facial_recognition
 {
+
+void Test::test_open_frontend_and_backend()
+{
+    std::thread t1(&facial_recognition::BackendServer::run, &facial_recognition::BackendServer::getInstance());
+    std::thread t2(&facial_recognition::FrontendServer::run, &facial_recognition::FrontendServer::getInstance());
+
+    t1.join();
+    t2.join();
+}
 
 void Test::test_main()
 {

@@ -1,4 +1,4 @@
-#include "../cinatra/cinatra.hpp"
+#include "cinatra/cinatra.hpp"
 #include "frontend_server.h"
 #include "config.h"
 #include "json_helper.h"

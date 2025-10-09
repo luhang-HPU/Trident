@@ -4,11 +4,10 @@ set(project_name face_id)
 project(${project_name})
 
 set(FACEID_EXAMPLE
-        main.cpp frontend_server.cpp json_helper.cpp
+        main.cpp
+        frontend_server.cpp
+        json_helper.cpp
 )
-
-include_directories(../cinatra)
-include_directories(../nlohmann_json)
 
 # Compile Standard
 set(CMAKE_CXX_STANDARD 20)
@@ -52,6 +51,7 @@ add_executable(${project_name} ${FACEID_EXAMPLE})
 target_compile_definitions(${project_name} PRIVATE ASYNC_SIMPLE_HAS_NOT_AIO)
 target_link_libraries(${project_name} PRIVATE poseidon_shared)
 target_include_directories(${project_name} PUBLIC "C:/Program Files (x86)/Poseidon/include")
+target_include_directories(${project_name} PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../libs")
 
 if (ENABLE_SSL)
     target_link_libraries(${project_name} ${OPENSSL_LIBRARIES} pthread -ldl)
