@@ -4,9 +4,13 @@
 
 int main(int argc, char** argv) {
 #ifdef POSEIDON_USE_ZLIB
+    std::cerr << "zlib not support" << std::endl;
+    return -1;
     std::cout << "macro POSEIDON_USE_ZLIB: on" << std::endl;
 #endif
 #ifdef POSEIDON_USE_ZSTD
+    std::cerr << "zstd not support" << std::endl;
+    return -1;
     std::cout << "macro POSEIDON_USE_ZSTD: on" << std::endl;
 #endif
 
