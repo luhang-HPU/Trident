@@ -8,7 +8,7 @@ set(FACEID_EXAMPLE
         backend_server/backend_server.cpp
         frontend_server/frontend_server.cpp
         monitor_server/monitor_server.cpp
-        json_helper.cpp
+        tools/json_helper.cpp
         local_test/test.cpp
 )
 
