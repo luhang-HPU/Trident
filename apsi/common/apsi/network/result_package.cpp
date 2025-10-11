@@ -7,7 +7,7 @@
 #include "apsi/network/result_package_generated.h"
 #include "apsi/network/sender_operation.h"
 #include "apsi/util/utils.h"
-#include "poseidon/src/basics/util/common.h"
+#include "poseidon/basics/util/common.h"
 #include "gsl/span"
 
 using namespace std;

@@ -1,13 +1,14 @@
 
-#include "poseidon/PoseidonContext.h"
-#include "poseidon/CKKSEncoder.h"
+#include "poseidon/poseidon_context.h"
+#include "poseidon/ckks_encoder.h"
 #include "poseidon/plaintext.h"
 #include "poseidon/encryptor.h"
 #include "poseidon/decryptor.h"
 #include "poseidon/keygenerator.h"
 #include "poseidon/util/precision.h"
-#include "poseidon/Evaluator.h"
+#include "poseidon/parameters_literal.h"
 #include "poseidon/util/debug.h"
+#include "poseidon/factory/poseidon_factory.h"
 using namespace std;
 
 using namespace poseidon;
@@ -34,7 +35,8 @@ int main() {
     vector<uint32_t> logPTmp{31,31,31,31,31,31,31,31,31,31, 31,31,31,31,31,31,31,31,31,31};//,31,31,31,31}; //
 
     ckks_param_literal.set_log_modulus(logQTmp,logPTmp);
-    PoseidonContext context(ckks_param_literal,poseidon::sec_level_type::none);
+    PoseidonFactory::get_instance()->set_device_type(DEVICE_SOFTWARE);
+    auto context = PoseidonFactory::get_instance()->create_poseidon_context(ckks_param_literal);
 
     //=====================init data ============================
     auto vec_size = ckks_param_literal.slot();
@@ -131,7 +133,7 @@ int main() {
     //-------------------------calculate----------------------------------
     //创建CKKS Evaluator
 
-    auto ckks_eva = EvaluatorFactory::DefaultFactory()->create(context);
+    auto ckks_eva = PoseidonFactory::get_instance()->create_ckks_evaluator(context);
 
     auto start = chrono::high_resolution_clock::now();
 

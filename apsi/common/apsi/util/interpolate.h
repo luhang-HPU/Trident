@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <utility>
 #include <vector>
-#include "poseidon/src/basics/modulus.h"
+#include "poseidon/basics/modulus.h"
 #include "gsl/span"
 
 namespace apsi {

@@ -7,10 +7,10 @@
 #include <sstream>
 #include <stdexcept>
 #include <utility>
-#include "poseidon/src/poseidon_context.h"
-#include "poseidon/src/basics/serializable.h"
-#include "poseidon/src/basics/util/common.h"
-#include "poseidon/src/basics/util/defines.h"
+#include "poseidon/poseidon_context.h"
+#include "poseidon/basics/serializable.h"
+#include "poseidon/basics/util/common.h"
+#include "poseidon/basics/util/defines.h"
 #include "gsl/span"
 
 namespace apsi {

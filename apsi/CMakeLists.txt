@@ -140,7 +140,7 @@ elseif(NOT Flatbuffers_VERSION_MAJOR EQUAL 1 AND NOT Flatbuffers_VERSION_MAJOR E
     message(FATAL_ERROR "Flatbuffers version need <= 1.12.1")
 else()
     message(STATUS "Flatbuffers: found")
-    set(FLATBUFFERS_FLATC_PATH "/usr/bin/flatc")
+    set(FLATBUFFERS_FLATC_PATH "/usr/local/bin/flatc")
     message(STATUS "flatc path: ${FLATBUFFERS_FLATC_PATH}")
     include(CompileSchemaCXX)
 endif()
@@ -351,6 +351,8 @@ add_subdirectory(receiver/apsi)
 add_subdirectory(sender/apsi)
 
 target_sources(apsi PRIVATE ${APSI_SOURCE_FILES})
+
+target_include_directories(apsi PRIVATE /usr/include/jsoncpp)
 
 #################################
 # Installation and CMake config #

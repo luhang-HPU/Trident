@@ -5,9 +5,9 @@
 #include "apsi/network/sop_generated.h"
 #include "apsi/network/sop_header_generated.h"
 #include "apsi/util/utils.h"
-#include "poseidon/src/basics/serialization.h"
-#include "poseidon/src/basics/util/common.h"
-#include "poseidon/src/basics/util/streambuf.h"
+#include "poseidon/basics/serialization.h"
+#include "poseidon/basics/util/common.h"
+#include "poseidon/basics/util/streambuf.h"
 
 using namespace std;
 using namespace poseidon;

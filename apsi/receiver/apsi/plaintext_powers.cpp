@@ -6,7 +6,7 @@
 #include "apsi/log.h"
 #include "apsi/plaintext_powers.h"
 #include "apsi/util/utils.h"
-#include "poseidon/src/basics/util/uintarithsmallmod.h"
+#include "poseidon/basics/util/uintarithsmallmod.h"
 
 using namespace std;
 using namespace poseidon;

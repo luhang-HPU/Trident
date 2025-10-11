@@ -1,18 +1,18 @@
 #include <bits/stdc++.h>
 #include <fstream>
 #include <iostream>
-#include "poseidon/src/ckks_encoder.h"
-#include "poseidon/src/decryptor.h"
-#include "poseidon/src/encryptor.h"
-#include "poseidon/src/evaluator/software/evaluator_ckks_software.h"
-#include "poseidon/src/factory/poseidon_factory.h"
-#include "poseidon/src/keygenerator.h"
-#include "poseidon/src/plaintext.h"
-#include "poseidon/src/poseidon_context.h"
-#include "poseidon/src/rns_poly.h"
-#include "poseidon/src/util/debug.h"
-#include "poseidon/src/util/precision.h"
-#include "poseidon/src/util/random_sample.h"
+#include "poseidon/ckks_encoder.h"
+#include "poseidon/decryptor.h"
+#include "poseidon/encryptor.h"
+#include "poseidon/evaluator/software/evaluator_ckks_software.h"
+#include "poseidon/factory/poseidon_factory.h"
+#include "poseidon/keygenerator.h"
+#include "poseidon/plaintext.h"
+#include "poseidon/poseidon_context.h"
+#include "poseidon/rns_poly.h"
+#include "poseidon/util/debug.h"
+#include "poseidon/util/precision.h"
+#include "poseidon/util/random_sample.h"
 
 using namespace std;
 using namespace poseidon;

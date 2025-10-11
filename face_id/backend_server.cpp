@@ -2,7 +2,7 @@
 #include "cinatra/include/cinatra.hpp"
 #include "config.h"
 #include "json_helper.h"
-#include "poseidon/src/keygenerator.h"
+#include "poseidon/keygenerator.h"
 
 #ifdef USE_MYSQL
 #include <mysql/mysql.h>

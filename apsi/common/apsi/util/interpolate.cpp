@@ -3,7 +3,7 @@
 #include <stdexcept>
 #include "apsi/config.h"
 #include "apsi/util/interpolate.h"
-#include "poseidon/src/basics/util/uintarithsmallmod.h"
+#include "poseidon/basics/util/uintarithsmallmod.h"
 
 using namespace std;
 using namespace poseidon;

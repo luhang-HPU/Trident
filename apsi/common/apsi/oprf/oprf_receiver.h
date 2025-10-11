@@ -5,8 +5,8 @@
 #include <unordered_set>
 #include <vector>
 #include "apsi/oprf/oprf_common.h"
-#include "poseidon/src/basics/dynarray.h"
-#include "poseidon/src/basics/memorymanager.h"
+#include "poseidon/basics/dynarray.h"
+#include "poseidon/basics/memorymanager.h"
 #include "gsl/span"
 
 namespace apsi {

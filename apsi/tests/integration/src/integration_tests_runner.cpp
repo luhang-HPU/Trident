@@ -1,5 +1,5 @@
 // Google Test
-#include "src/factory/poseidon_factory.h"
+#include "poseidon/factory/poseidon_factory.h"
 #include "gtest/gtest.h"
 
 /**

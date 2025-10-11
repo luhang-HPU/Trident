@@ -3,10 +3,10 @@
 #include "nlohmann_json/json.hpp"
 #include "base.h"
 #include "monitor_helper.h"
-#include "poseidon/src/ckks_encoder.h"
-#include "poseidon/src/ciphertext.h"
-#include "poseidon/src/factory/poseidon_factory.h"
-#include "poseidon/src/evaluator/evaluator_ckks_base.h"
+#include "poseidon/ckks_encoder.h"
+#include "poseidon/ciphertext.h"
+#include "poseidon/factory/poseidon_factory.h"
+#include "poseidon/evaluator/evaluator_ckks_base.h"
 
 #ifdef USE_MYSQL
 struct MYSQL;
