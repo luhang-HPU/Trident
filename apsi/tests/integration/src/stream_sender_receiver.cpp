@@ -275,9 +275,9 @@ void RunLabeledFromFile(vector<pair<Item, Label>> sender_items)
         std::thread run;
         if (poseidon::PoseidonFactory::get_instance()->get_device_type() ==
             DEVICE_TYPE::DEVICE_SOFTWARE)
-            run = std::thread(print_progress, 2230000, "运行");
+            run = std::thread(print_progress, 2230000, "运行      ");
         else
-            run = std::thread(print_progress, 1780000, "运行");
+            run = std::thread(print_progress, 1780000, "运行      ");
         // Create the OPRF receiver
         oprf::OPRFReceiver oprf_receiver = Receiver::CreateOPRFReceiver(recv_items);
         Request oprf_request = Receiver::CreateOPRFRequest(oprf_receiver);
