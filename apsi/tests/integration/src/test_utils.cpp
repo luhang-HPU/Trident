@@ -278,11 +278,11 @@ vector<apsi::Item> get_item()
 {
     // choice();
     vector<apsi::Item> recv_items;
-    std::cout << "请输入航运ID，支持多个ID，以回车为区分（输入ok结束）: " << std::endl;
+    std::cout << "请输入航运ID（16位数字），支持多个ID，以回车为区分（输入ok结束）: " << std::endl;
     int i = 1;
     while (true)
     {
-        cout << "请输入第" << i << "个ID，或(ok结束): ";
+        cout << "请输入第" << i << "个ID，或按ok结束: ";
         std::string input;
         std::array<unsigned char, 16> arr{};
 
@@ -298,7 +298,8 @@ vector<apsi::Item> get_item()
         // 验证长度
         if (input.size() != 16)
         {
-            std::cout << "输入格式错误，请重新输入或者结束输入(输入ok结束)" << std::endl;
+            std::cout << "输入格式错误（应输入16位数字），请重新输入或者结束输入(输入ok结束)"
+                      << std::endl;
             continue;
         }
 
