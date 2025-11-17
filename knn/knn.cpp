@@ -437,6 +437,11 @@ std::string get_current_path()
 
 int main(int argc, char *argv[])
 {
+    cout << BANNER << std::endl;
+    cout << "POSEIDON SOFTWARE VERSION:" << POSEIDON_VERSION << std::endl;
+    std::cout << "Trident Application: KNN start" << std::endl;
+    cout << "" << std::endl;
+
     util::Timestacs timer;
     util::Timestacs timer_init;
     util::Timestacs timer_calculate;
@@ -506,16 +511,23 @@ int main(int argc, char *argv[])
 
     std::string predictions_file = "./predictions.jsonl";
     std::string current_path = get_current_path();
+    std::cout << "read query start" << std::endl;
     read_jsonl_query(current_path + "train.jsonl", query);
+    std::cout << "read query end" << std::endl;
+    std::cout << "read data start" << std::endl;
     read_jsonl_data(current_path + "train.jsonl", data);
+    std::cout << "read data end" << std::endl;
 
     timer_init.end();
     timer_calculate.start();
 
+    std::cout << "encode and encrypt start" << std::endl;
     vector<Ciphertext> ciph_query = encode_and_encrypt_mt(ckks_encoder, enc, query, scale);
     vector<Ciphertext> ciph_data = encode_and_encrypt_mt(ckks_encoder, enc, data, scale);
+    std::cout << "encode and encrypt end" << std::endl;
 
     // 比较数组
+    std::cout << "compare start" << std::endl;
     std::vector<std::complex<double>> cmp_top_k(N, {0.0, 0.0});
     for (size_t i = 0; i < data_nums; i++)
     {
@@ -547,6 +559,7 @@ int main(int argc, char *argv[])
     ckks_eva->rescale_dynamic(ciph_result, ciph_result, scale);
 
     ciph_result = sign_2(ciph_result, polys_2, ckks_encoder, ckks_eva, relin_keys);
+    std::cout << "compare end" << std::endl;
 
     // 查询方
     auto result_index = decrypt_and_decode(ckks_encoder, dec, ciph_result);
@@ -560,6 +573,10 @@ int main(int argc, char *argv[])
     }
 
     writePredictions(result, predictions_file);
+
+    std::cout << std::endl;
+    std::cout << "Trident Application: KNN end" << std::endl;
+    std::cout << std::endl;
 
     timer_calculate.end();
     timer.end();
