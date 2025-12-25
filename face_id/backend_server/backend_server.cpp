@@ -220,9 +220,10 @@ namespace facial_recognition {
         poseidon::Ciphertext ctxt;
         ctxt.load(context_, ss);
 
+        auto res = compute_similarity(ctxt);
         timer.end();
         timer.print_time_ms("handler_get_similarity_ciphertext");
-        return serialize(compute_similarity(ctxt));
+        return serialize(res);
     }
 
 #ifdef USE_MYSQL
