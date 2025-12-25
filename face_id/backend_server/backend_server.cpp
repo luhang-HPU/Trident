@@ -3,6 +3,7 @@
 #include "../config.h"
 #include "../tools/json_helper.h"
 #include "poseidon/keygenerator.h"
+#include "poseidon/util/debug.h"
 
 #ifdef USE_MYSQL
 #include <mysql/mysql.h>
@@ -193,6 +194,8 @@ namespace facial_recognition {
     }
 
     nlohmann::json BackendServer::handler_set_galois_key(nlohmann::json& json) {
+        poseidon::util::Timestacs timer;
+        timer.start();
         auto cstream = json["bytes"];
         if (!cstream.is_array()) {
             return generate_json(-1, "json format error: is not array", get_timestamp(), nlohmann::json{});
@@ -200,11 +203,14 @@ namespace facial_recognition {
 
         std::stringstream ss = array_json_to_stream(cstream);
         galois_key_.load(context_, ss);
-
+        timer.end();
+        timer.print_time_ms("handler_set_galois_key");
         return generate_json(0, "", get_timestamp(), nlohmann::json{"set galois key success"});
     }
 
     nlohmann::json BackendServer::handler_get_similarity_ciphertext(nlohmann::json& json) {
+        poseidon::util::Timestacs timer;
+        timer.start();
         auto cstream = json["bytes"];
         if (!cstream.is_array()) {
             return generate_json(-1, "json format error: is not array", get_timestamp(), nlohmann::json{});
@@ -214,6 +220,8 @@ namespace facial_recognition {
         poseidon::Ciphertext ctxt;
         ctxt.load(context_, ss);
 
+        timer.end();
+        timer.print_time_ms("handler_get_similarity_ciphertext");
         return serialize(compute_similarity(ctxt));
     }
 
