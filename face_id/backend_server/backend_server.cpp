@@ -53,14 +53,7 @@ namespace facial_recognition {
         cinatra::http_server server(max_thread_num);
         server.listen("0.0.0.0", port_backend_default);
 
-        if (poseidon::PoseidonFactory::get_instance()->get_device_type() == poseidon::DEVICE_SOFTWARE)
-        {
-            std::cout << "cpu version" << std::endl;
-        }
-        else if (poseidon::PoseidonFactory::get_instance()->get_device_type() == poseidon::DEVICE_HARDWARE)
-        {
-            std::cout << "hpu version" << std::endl;
-        }
+        std::cout << "mlu version" << std::endl;
         std::cout << "================================================" << std::endl;
         std::cout << "polynomial degree: " << context_.parameters_literal()->degree() << std::endl;
         std::cout << "multiplication depth: " << context_.parameters_literal()->q().size() + 1 << std::endl;
