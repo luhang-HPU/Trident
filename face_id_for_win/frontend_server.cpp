@@ -160,6 +160,10 @@ namespace facial_recognition {
             encoder_.decode(ptxt, ans);
             ss_message << "result of id[" << id << "] : " << ans[0] << std::endl;
 
+#ifdef DEBUG
+            std::cout << "id: " << id << " , similarity: " << ans[0] << std::endl;
+#endif
+
             if ((ans[0] > max_value) && (ans[0] > threshold_)) {
                 max_id = id;
             }
