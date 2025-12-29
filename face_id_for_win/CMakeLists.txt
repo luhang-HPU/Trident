@@ -9,6 +9,9 @@ set(FACEID_EXAMPLE
         json_helper.cpp
 )
 
+include_directories(../libs/cinatra)
+include_directories(../libs/nlohmann_json)
+
 # Compile Standard
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
