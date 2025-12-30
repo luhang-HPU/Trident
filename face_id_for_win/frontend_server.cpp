@@ -141,7 +141,7 @@ namespace facial_recognition {
             return generate_json(-1, "json format error", get_timestamp(), nlohmann::json{});
         }
 
-        std::string max_id = "null";
+        std::string max_id = "69";      // id:69 is null face
         std::stringstream ss_message;
         double max_value = 0.0;
 
@@ -160,14 +160,13 @@ namespace facial_recognition {
             encoder_.decode(ptxt, ans);
             ss_message << "result of id[" << id << "] : " << ans[0] << std::endl;
 
-#ifdef DEBUG
             std::cout << "id: " << id << " , similarity: " << ans[0] << std::endl;
-#endif
 
             if ((ans[0] > max_value) && (ans[0] > threshold_)) {
                 max_id = id;
             }
         }
+        std::cout << std::endl;
 
         nlohmann::json result;
         result["id"] = max_id;

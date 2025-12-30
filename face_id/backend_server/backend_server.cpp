@@ -171,6 +171,7 @@ namespace facial_recognition {
             poseidon::Ciphertext ctxt_rotate;
             for (auto j = 1; j < 1024; j <<= 1) {
                 evaluator_->rotate(ctxt_result, ctxt_rotate, j, galois_key_);
+                evaluator_->read(ctxt_rotate);
                 evaluator_->add(ctxt_result, ctxt_rotate, ctxt_result);
             }
 
