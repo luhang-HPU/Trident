@@ -17,7 +17,7 @@ namespace facial_recognition {
     {
         keygen_.create_public_key(public_key_);
         keygen_.create_relin_keys(relin_key_);
-        keygen_.create_galois_keys(std::vector<int>{1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024}, galois_key_);
+        keygen_.create_galois_keys(galois_key_);
 
         std::stringstream ss(std::ios_base::binary | std::ios_base::in | std::ios_base::out);
         galois_key_.save(ss);
