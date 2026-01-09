@@ -95,9 +95,6 @@ namespace facial_recognition {
 
         mysql_set_character_set(conn_,"utf8");
 #endif
-
-        poseidon::KeyGenerator key_gen(context_);
-        key_gen.create_galois_keys(std::vector<int>{1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024}, galois_key_);
     }
 
     BackendServer::~BackendServer() {
