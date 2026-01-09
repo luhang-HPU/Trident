@@ -15,7 +15,7 @@ int main(int argc, char** argv) {
 #endif
 
 
-    poseidon::PoseidonFactory::get_instance()->set_device_type(poseidon::DEVICE_HARDWARE);
+    poseidon::PoseidonFactory::get_instance()->set_device_type(poseidon::DEVICE_SOFTWARE);
 
     facial_recognition::BackendServer::getInstance().run();
 
