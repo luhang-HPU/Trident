@@ -216,7 +216,7 @@ namespace facial_recognition {
         std::stringstream ss = array_json_to_stream(cstream);
         galois_key_.load(context_, ss);
         timer.end();
-        timer.print_time_ms("handler_set_galois_key time: ");
+        // timer.print_time_ms("handler_set_galois_key time: ");
         return generate_json(0, "", get_timestamp(), nlohmann::json{"set galois key success"});
     }
 
@@ -234,7 +234,7 @@ namespace facial_recognition {
 
         auto res = compute_similarity(ctxt);
         timer.end();
-        timer.print_time_ms("handler_get_similarity_ciphertext time: ");
+        // timer.print_time_ms("handler_get_similarity_ciphertext time: ");
         return serialize(res);
     }
 
