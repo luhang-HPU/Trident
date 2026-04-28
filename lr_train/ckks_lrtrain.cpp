@@ -284,6 +284,8 @@ int main()
 
     PolynomialVector polys(poly_v, slots_index);
 
+    long long total_time_bootstrap = 0;
+    long long total_time_lrtrain = 0;
     for (auto epoch = 0; epoch < EPOCHS; ++epoch)
     {
         util::Timestacs timer;
@@ -512,6 +514,7 @@ int main()
         timer.end();
         std::cout << "epoch " << epoch << " end..." << std::endl;
         timer.print_time("lr train time: ");
+        total_time_lrtrain += timer.microseconds();
 
         // bootstrap
         if(ciph_weight.level() < 12){
@@ -523,6 +526,7 @@ int main()
             auto stop = chrono::high_resolution_clock::now();
             auto duration = chrono::duration_cast<chrono::microseconds>(stop - start);
             std::cout << "bootstraping TIME: " << duration.count() << " microseconds" << std::endl;
+            total_time_bootstrap += duration.count();
 
 #ifdef DEBUG_LRTRAIN
             // check the weight after bootstrap
@@ -538,6 +542,9 @@ int main()
         }
     }
 
+    std::cout << "total time of lr train: " << total_time_lrtrain << std::endl;
+    std::cout << "total time of bootstrap: " << total_time_bootstrap << std::endl;
+    std::cout << "total time: " << total_time_lrtrain + total_time_bootstrap << std::endl;
     std::cout << "fhe training accuracy : " << accuracy_of_ciph(ciph_weight, x, y, dec, ckks_encoder) << std::endl;
 #ifdef DEBUG_LRTRAIN
     std::cout << "expected training accuracy : " << accuracy_of_plain(expected_weight, x, y) << std::endl;
