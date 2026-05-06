@@ -14,3 +14,12 @@ add_custom_command(
     "${EXE_OUTPUT_DIR}"
   COMMENT "Copying train.jsonl to executable directory: ${EXE_OUTPUT_DIR}"
 )
+
+option(KNN_BUILD_TESTS "Build tests for KNN" OFF)
+if(KNN_BUILD_TESTS)
+    add_executable(knn_tests)
+    add_subdirectory(tests)
+    target_include_directories(knn_tests PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>)
+    target_link_libraries(knn_tests poseidon_shared GTest::gtest)
+endif()
+message(STATUS "KNN tests build success")

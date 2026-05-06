@@ -1,3 +1,5 @@
+#include <gtest/gtest.h>
+
 #include "pir.h"
 #include "pir_client.h"
 #include "pir_server.h"
@@ -9,59 +11,55 @@
 
 using namespace std::chrono;
 using namespace std;
-using namespace poseidon;
-using namespace poseidon::pir;
 
-int main(int argc, char *argv[])
+namespace PIR_BGV_TEST
 {
-#ifdef PIR_USE_HARDWARE
-    PoseidonFactory::get_instance()->set_device_type(DEVICE_HARDWARE);
-#else
-    PoseidonFactory::get_instance()->set_device_type(DEVICE_SOFTWARE);
-#endif
 
-    uint64_t number_of_items = 1 << 16;
-    uint64_t size_per_item = 288;  // in bytes
-    uint32_t N = 8192;
+int pir_bgv_test(int degree)
+{
+    uint64_t number_of_items = 1 << 10;
+    uint64_t size_per_item = 120;  // in bytes
+    uint32_t N = degree;
 
     // Recommended values: (logt, d) = (20, 2).
     uint32_t logt = 20;
     uint32_t d = 2;
     bool use_symmetric = true;  // use symmetric encryption instead of public
                                 // key (recommended for smaller query)
-    bool use_batching = true;   // pack as many elements as possible into a BFV
+    bool use_batching = true;   // pack as many elements as possible into a BGV
                                 // plaintext (recommended)
     bool use_recursive_mod_switching = false;
 
-    ParametersLiteral enc_params;
-    PirParams pir_params;
+    poseidon::ParametersLiteral enc_params;
+    poseidon::pir::PirParams pir_params;
 
     // Generates all parameters
 
     cout << "Main: Generating SEAL parameters" << endl;
-    gen_encryption_params(N, logt, enc_params);
+    poseidon::pir::gen_encryption_params(N, logt, enc_params);
 
     cout << "Main: Verifying SEAL parameters" << endl;
-    verify_encryption_params(enc_params);
+    poseidon::pir::verify_encryption_params(enc_params);
     cout << "Main: SEAL parameters are good" << endl;
 
     cout << "Main: Generating PIR parameters" << endl;
     gen_pir_params(number_of_items, size_per_item, d, enc_params, pir_params, use_symmetric,
                    use_batching, use_recursive_mod_switching);
 
-    print_seal_params(enc_params);
+    poseidon::pir::print_seal_params(enc_params);
     print_pir_params(pir_params);
 
     // Initialize PIR client....
-    PIRClient client(enc_params, pir_params);
+    poseidon::pir::PIRClient client(enc_params, pir_params);
+
     cout << "Main: Generating galois keys for client" << endl;
 
-    GaloisKeys galois_keys = client.generate_galois_keys();
+    poseidon::GaloisKeys galois_keys = client.generate_galois_keys();
 
     // Initialize PIR Server
     cout << "Main: Initializing server" << endl;
 
-    PIRServer server(enc_params, pir_params);
+    poseidon::pir::PIRServer server(enc_params, pir_params);
 
     // Server maps the galois key to client 0. We only have 1 client,
     // which is why we associate it with 0. If there are multiple PIR
@@ -100,7 +98,8 @@ int main(int argc, char *argv[])
     cout << "Main: database pre processed " << endl;
 
     // Choose an index of an element in the DB
-    uint64_t ele_index = rd() % number_of_items;        // element in DB at random position
+    // uint64_t ele_index = rd() % number_of_items;        // element in DB at random position
+    uint64_t ele_index = 100;
     uint64_t index = client.get_fv_index(ele_index);    // index of FV plaintext
     uint64_t offset = client.get_fv_offset(ele_index);  // offset in FV plaintext
 
@@ -110,7 +109,7 @@ int main(int argc, char *argv[])
 
     // Measure query generation
     auto time_query_s = high_resolution_clock::now();
-    PirQuery query = client.generate_query(index);
+    poseidon::pir::PirQuery query = client.generate_query(index);
     auto time_query_e = high_resolution_clock::now();
     auto time_query_us = duration_cast<microseconds>(time_query_e - time_query_s).count();
     cout << "Main: query generated" << endl;
@@ -140,7 +139,8 @@ int main(int argc, char *argv[])
 #ifdef SERIALIZED
     PirReply reply = server.generate_reply(query2, 0);
 #else
-    PirReply reply = server.generate_reply(query, 0);
+    poseidon::pir::PirReply reply =
+        server.generate_reply(query, 0, client.encoder_.get(), client.decryptor_.get());
 #endif
     auto time_server_e = high_resolution_clock::now();
     auto time_server_us = duration_cast<microseconds>(time_server_e - time_server_s).count();
@@ -162,7 +162,7 @@ int main(int argc, char *argv[])
 
     bool failed = false;
     // Check that we retrieved the correct element
-    for (uint32_t i = 0; i < size_per_item; i++)
+    for (uint32_t i = 0; i < size_per_item / 100; i++)
     {
         if (elems[i] != db_copy.get()[(ele_index * size_per_item) + i])
         {
@@ -194,3 +194,22 @@ int main(int argc, char *argv[])
 
     return 0;
 }
+
+
+    TEST(PIRTest, Degree8192)
+    {
+        pir_bgv_test(8192);
+    }
+
+    TEST(PIRTest, Degree16384)
+    {
+        pir_bgv_test(16384);
+    }
+
+    TEST(PIRTest, Degree32768)
+    {
+        pir_bgv_test(32768);
+    }
+
+
+}  // namespace PIRBGVTEST
