@@ -1,4 +1,3 @@
-
 #include "poseidon/ckks_encoder.h"
 #include "poseidon/decryptor.h"
 #include "poseidon/encryptor.h"
@@ -22,7 +21,6 @@
 using namespace poseidon;
 using namespace poseidon::util;
 
-#define DEBUG_LRTRAIN
 
 Ciphertext encode_and_encrypt(const CKKSEncoder &encoder, const Encryptor &encryptor,
                               std::vector<std::complex<double>> &message, double scale)

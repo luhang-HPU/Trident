@@ -1,9 +1,14 @@
-#include "knn_utils.h"
+#include <gtest/gtest.h>
 
-namespace KNN
+#include "../knn_utils.h"
+
+using namespace KNN;
+
+
+namespace CKKS_LRTRAIN_TEST
 {
 
-int main(int argc, char *argv[])
+int knn_test(uint32_t log_degree = 15)
 {
     cout << BANNER << std::endl;
     cout << "POSEIDON SOFTWARE VERSION:" << POSEIDON_VERSION << std::endl;
@@ -18,7 +23,6 @@ int main(int argc, char *argv[])
     // 参数设置
     PoseidonFactory::get_instance()->set_device_type(DEVICE_SOFTWARE);
     uint32_t q_def = 32;
-    uint32_t log_degree = 15;
 
     ParametersLiteral ckks_param_literal{CKKS, log_degree, log_degree - 1, q_def, 5, 1, 0, {}, {}};
     vector<uint32_t> logQTmp(21, 32);
@@ -155,5 +159,21 @@ int main(int argc, char *argv[])
     timer.print_time_ms("All time: ");
     return 0;
 }
+
+    TEST(KNNTest, Degree8192)
+    {
+        knn_test(13);
+    }
+
+    TEST(KNNTest, Degree16384)
+    {
+        knn_test(14);
+    }
+
+    TEST(KNNTest, Degree32768)
+    {
+        knn_test(15);
+    }
+
 
 }
