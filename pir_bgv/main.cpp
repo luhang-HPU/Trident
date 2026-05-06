@@ -1,10 +1,9 @@
 #include "pir.h"
 #include "pir_client.h"
 #include "pir_server.h"
+
 #include <cassert>
 #include <chrono>
-#include <cstddef>
-#include <cstdint>
 #include <memory>
 #include <random>
 
