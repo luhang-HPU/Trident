@@ -1,18 +1,26 @@
-#include "batch_handler.h"
+#include <gtest/gtest.h>
+
 #include "ckks_lrtrain_utils.h"
+#include "batch_handler.h"
 
 #include "poseidon/util/debug.h"
 #include "poseidon/util/precision.h"
 
-using namespace std;
-using namespace poseidon;
-using namespace poseidon::util;
+#include <cassert>
+#include <chrono>
+#include <memory>
+#include <random>
 
-int main()
+using namespace poseidon;
+using namespace std::chrono;
+using namespace std;
+
+namespace CKKS_LRTRAIN_TEST
 {
-    PoseidonFactory::get_instance()->set_device_type(DEVICE_SOFTWARE);
+
+int ckks_lrtrain_test(uint32_t log_degree)
+{
     uint32_t q_def = 32;
-    uint32_t log_degree = 16;
 
     ParametersLiteral ckks_param_literal{CKKS, log_degree, log_degree - 1, q_def, 5, 1, 0, {}, {}};
     vector<uint32_t> log_q(50, 32);
@@ -41,8 +49,8 @@ int main()
     vector<vector<complex<double>>> x_diag(block_num * block_size, vector<complex<double>>(block_size, {0.0, 0.0}));
 
     std::filesystem::path current_path(__FILE__);
-    read_file(x,current_path.parent_path().string() + "/dataset/x_train.txt");
-    read_file(y,current_path.parent_path().string() + "/dataset/y_train.txt");
+    read_file(x,current_path.parent_path().string() + "/../dataset/x_train.txt");
+    read_file(y,current_path.parent_path().string() + "/../dataset/y_train.txt");
 
     // init weight randomly
     srand(0);
@@ -158,7 +166,7 @@ int main()
     long long total_time_lrtrain = 0;
     for (auto epoch = 0; epoch < EPOCHS; ++epoch)
     {
-        util::Timestacs timer;
+        poseidon::util::Timestacs timer;
         timer.start();
         std::cout << "epoch " << epoch << " start..." << std::endl;
 
@@ -421,4 +429,22 @@ int main()
 #endif
 
     return 0;
+}
+
+    TEST(CKKS_LRTRAIN_TEST, Degree8192)
+    {
+        ckks_lrtrain_test(13);
+    }
+
+    TEST(CKKS_LRTRAIN_TEST, Degree16384)
+    {
+        ckks_lrtrain_test(14);
+    }
+
+    TEST(CKKS_LRTRAIN_TEST, Degree32768)
+    {
+        ckks_lrtrain_test(15);
+    }
+
+
 }
