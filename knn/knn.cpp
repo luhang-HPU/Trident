@@ -1,7 +1,6 @@
 #include "knn_utils.h"
 
-namespace KNN
-{
+using namespace KNN;
 
 int main(int argc, char *argv[])
 {
@@ -156,4 +155,3 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-}
