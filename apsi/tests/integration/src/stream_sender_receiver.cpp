@@ -587,32 +587,22 @@ TEST(StreamSenderReceiverTests, UnlabeledHugeSoftwareAndhardware)
     poseidon::PoseidonFactory::get_instance()->set_device_type(poseidon::DEVICE_SOFTWARE);
     RunUnlabeledTest(sender_size, {{10000, 10000}}, create_huge_params1(), 1);
 
+#ifdef USING_HARDWARE
     std::cout << "10'000'000 HARDWARE" << std::endl;
     poseidon::PoseidonFactory::get_instance()->set_device_type(poseidon::DEVICE_HARDWARE);
     RunUnlabeledTest(sender_size, {{10000, 10000}}, create_huge_params1(), 1);
+#endif
 
     sender_size = 100'000'000;
     std::cout << "100'000'000 SOFTWARE" << std::endl;
     poseidon::PoseidonFactory::get_instance()->set_device_type(poseidon::DEVICE_SOFTWARE);
     RunUnlabeledTest(sender_size, {{10000, 10000}}, create_huge_params1(), 1);
 
+#ifdef USING_HARDWARE
     std::cout << "10'000'000 HARDWARE" << std::endl;
     poseidon::PoseidonFactory::get_instance()->set_device_type(poseidon::DEVICE_HARDWARE);
     RunUnlabeledTest(sender_size, {{10000, 10000}}, create_huge_params1(), 1);
-}
-
-TEST(Mytest, software) 
-{
-    std::cout << "====================软件====================" << std::endl;
-    poseidon::PoseidonFactory::get_instance()->set_device_type(poseidon::DEVICE_SOFTWARE);
-    RunLabeledFromFile(init_server_data("/home/sunshuo/hangyun/hangyun_1000000.csv"));
-}
-
-TEST(Mytest, hardware)
-{
-    std::cout << "====================硬件====================" << std::endl;
-    poseidon::PoseidonFactory::get_instance()->set_device_type(poseidon::DEVICE_HARDWARE);
-    RunLabeledFromFile(init_server_data("/home/sunshuo/hangyun/hangyun_1000000.csv"));
+#endif
 }
 
 TEST(StreamSenderReceiverTests, LabeledEmpty1)
