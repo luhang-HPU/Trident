@@ -13,7 +13,7 @@
 #include "apsi/item.h"
 #include "apsi/util/stopwatch.h"
 #include "kuku/common.h"
-#include "poseidon/src/poseidon_context.h"
+#include "poseidon/poseidon_context.h"
 #include "gsl/span"
 
 #ifndef APSI_blake2b

@@ -4,12 +4,16 @@ set(project_name face_id)
 project(${project_name})
 
 set(FACEID_EXAMPLE
-        main.cpp backend_server.cpp frontend_server.cpp json_helper.cpp
+        main.cpp
+        backend_server/backend_server.cpp
+        frontend_server/frontend_server.cpp
+        monitor_server/monitor_server.cpp
+        tools/json_helper.cpp
+        local_test/test.cpp
 )
 
-include_directories(../libs/cinatra/include)
-include_directories(../monitor)
-include_directories(../nlohmann_json)
+include_directories(../libs/cinatra)
+include_directories(../libs/nlohmann_json)
 
 # Compile Standard
 set(CMAKE_CXX_STANDARD 20)

@@ -6,7 +6,7 @@
 #include "apsi/sender.h"
 #include "apsi/sender_db.h"
 #include "apsi/thread_pool_mgr.h"
-#include "src/util/debug.h"
+#include "poseidon/util/debug.h"
 #include "test_utils.h"
 #include "gtest/gtest.h"
 

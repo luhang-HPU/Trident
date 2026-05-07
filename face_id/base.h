@@ -1,17 +1,21 @@
 #pragma once
 
-#include "poseidon/src/plaintext.h"
+#include "poseidon/plaintext.h"
 #include <vector>
 #include <map>
 #include <iostream>
 #include <fstream>
 #include <chrono>
+#include <filesystem>
 
-namespace facial_recognition {
+namespace facial_recognition
+{
     using FEATURE_VECTOR = std::vector<double>;
     using FEATURE_DATABASE = std::map<std::string, poseidon::Plaintext>;
 
-    static bool read_vector(const std::string& file, FEATURE_VECTOR& vec) {
+
+    static bool read_vector(const std::string& file, FEATURE_VECTOR& vec)
+    {
         std::ifstream ifs(file);
         if (!ifs.is_open()) {
             std::cout << "file error" << std::endl;
@@ -23,9 +27,17 @@ namespace facial_recognition {
         return true;
     }
 
-    static int get_timestamp() {
+    static int get_timestamp()
+    {
         auto now = std::chrono::system_clock::now();
         auto duration = now.time_since_epoch();
         return (int)std::chrono::duration_cast<std::chrono::seconds>(duration).count();
+    }
+
+    static std::string get_file_path(const std::string &filename)
+    {
+        std::filesystem::path current_path(__FILE__);
+        auto path = current_path.parent_path().string() + "/test_data/" + filename;
+        return path;
     }
 }

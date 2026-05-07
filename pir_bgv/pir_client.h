@@ -1,10 +1,10 @@
 #pragma once
 
 #include "pir.h"
-#include "poseidon/src/batchencoder.h"
-#include "poseidon/src/decryptor.h"
-#include "poseidon/src/encryptor.h"
-#include "poseidon/src/keygenerator.h"
+#include "poseidon/batchencoder.h"
+#include "poseidon/decryptor.h"
+#include "poseidon/encryptor.h"
+#include "poseidon/keygenerator.h"
 #include <memory>
 #include <vector>
 

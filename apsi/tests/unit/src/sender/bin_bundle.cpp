@@ -5,7 +5,7 @@
 #include <utility>
 #include <vector>
 #include "apsi/bin_bundle.h"
-#include "poseidon/src/keygenerator.h"
+#include "poseidon/keygenerator.h"
 #include "gtest/gtest.h"
 
 using namespace std;

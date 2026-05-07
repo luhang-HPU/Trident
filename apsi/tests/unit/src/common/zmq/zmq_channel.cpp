@@ -3,8 +3,8 @@
 #include <thread>
 #include <utility>
 
-#include "poseidon/src/keygenerator.h"
-#include "poseidon/src/key/publickey.h"
+#include "poseidon/keygenerator.h"
+#include "poseidon/key/publickey.h"
 
 // APSI
 #include "apsi/network/zmq/zmq_channel.h"

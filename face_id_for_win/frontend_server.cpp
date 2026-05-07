@@ -1,4 +1,4 @@
-#include "../cinatra/cinatra.hpp"
+#include "cinatra/cinatra.hpp"
 #include "frontend_server.h"
 #include "config.h"
 #include "json_helper.h"
@@ -11,8 +11,7 @@ namespace facial_recognition {
 
     FrontendServer::FrontendServer()
         : parm_(CKKS, 4096, poseidon::sec_level_type::none),
-          context_(PoseidonFactory::get_instance()->create_poseidon_context(
-              parm_, poseidon::sec_level_type::none)),
+          context_(parm_, false),
           scale_(std::pow(2.0, 32)), threshold_(0.6), encoder_(context_), keygen_(context_)
     {
         init();
@@ -36,7 +35,7 @@ namespace facial_recognition {
     void FrontendServer::create_keys() {
         keygen_.create_public_key(public_key_);
         keygen_.create_relin_keys(relin_key_);
-        keygen_.create_galois_keys(std::vector<int>{1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024}, galois_key_);
+        keygen_.create_galois_keys(galois_key_);
     }
 
     void FrontendServer::run() {
@@ -142,7 +141,7 @@ namespace facial_recognition {
             return generate_json(-1, "json format error", get_timestamp(), nlohmann::json{});
         }
 
-        std::string max_id = "null";
+        std::string max_id = "69";      // id:69 is null face
         std::stringstream ss_message;
         double max_value = 0.0;
 
@@ -161,10 +160,13 @@ namespace facial_recognition {
             encoder_.decode(ptxt, ans);
             ss_message << "result of id[" << id << "] : " << ans[0] << std::endl;
 
+            std::cout << "id: " << id << " , similarity: " << ans[0] << std::endl;
+
             if ((ans[0] > max_value) && (ans[0] > threshold_)) {
                 max_id = id;
             }
         }
+        std::cout << std::endl;
 
         nlohmann::json result;
         result["id"] = max_id;

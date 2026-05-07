@@ -10,7 +10,7 @@
 #pragma warning(push)
 #pragma warning(disable : 4804)
 #endif
-#include "poseidon/src/basics/util/blake2.h"
+#include "poseidon/basics/util/blake2.h"
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif

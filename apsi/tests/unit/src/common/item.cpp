@@ -2,7 +2,7 @@
 #include <cstdint>
 #include <numeric>
 #include "apsi/item.h"
-#include "poseidon/src/basics/util/defines.h"
+#include "poseidon/basics/util/defines.h"
 #include "gtest/gtest.h"
 
 using namespace std;

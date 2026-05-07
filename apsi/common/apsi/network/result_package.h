@@ -5,9 +5,9 @@
 #include <iostream>
 #include <memory>
 #include <vector>
-#include "poseidon/src/ciphertext.h"
-#include "poseidon/src/poseidon_context.h"
-#include "poseidon/src/basics/util/defines.h"
+#include "poseidon/ciphertext.h"
+#include "poseidon/poseidon_context.h"
+#include "poseidon/basics/util/defines.h"
 #include "apsi/crypto_context.h"
 #include "apsi/poseidon_object.h"
 

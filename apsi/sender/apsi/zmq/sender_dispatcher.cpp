@@ -7,7 +7,7 @@
 #include "apsi/requests.h"
 #include "apsi/zmq/sender_dispatcher.h"
 
-#include "poseidon/src/basics/util/common.h"
+#include "poseidon/basics/util/common.h"
 
 using namespace std;
 using namespace poseidon;

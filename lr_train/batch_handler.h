@@ -1,10 +1,10 @@
 #ifndef POSEIDON_BATCH_HANDLER_H
 #define POSEIDON_BATCH_HANDLER_H
 
-#include "src/ciphertext.h"
-#include "src/ckks_encoder.h"
-#include "src/encryptor.h"
-#include "src/decryptor.h"
+#include "poseidon/ciphertext.h"
+#include "poseidon/ckks_encoder.h"
+#include "poseidon/encryptor.h"
+#include "poseidon/decryptor.h"
 
 using namespace poseidon;
 
