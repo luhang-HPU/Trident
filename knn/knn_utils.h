@@ -26,10 +26,8 @@ using namespace poseidon;
 
 namespace KNN
 {
-extern std::filesystem::path current_path;
 extern int data_nums;
 extern int dimension;
-extern int N;
 extern int NUM;
 extern int num_threads;
 
