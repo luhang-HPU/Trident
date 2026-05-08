@@ -80,8 +80,8 @@ int knn_test(uint32_t log_degree = 15)
     vector<Polynomial> poly_v_2{approxF_2};
     PolynomialVector polys_2(poly_v_2, slots_index);
 
-    vector<vector<complex<double>>> query(10, vector<complex<double>>(N, {0.0, 0.0}));
-    vector<vector<complex<double>>> data(20, vector<complex<double>>(N, {0.0, 0.0}));
+    vector<vector<complex<double>>> query(10, vector<complex<double>>(1 << (log_degree-1), {0.0, 0.0}));
+    vector<vector<complex<double>>> data(20, vector<complex<double>>(1 << (log_degree-1), {0.0, 0.0}));
 
     std::string predictions_file = "./predictions.jsonl";
     std::string current_path = get_current_path();
@@ -102,7 +102,7 @@ int knn_test(uint32_t log_degree = 15)
 
     // 比较数组
     std::cout << "compare start" << std::endl;
-    std::vector<std::complex<double>> cmp_top_k(N, {0.0, 0.0});
+    std::vector<std::complex<double>> cmp_top_k(1 << (log_degree-1), {0.0, 0.0});
     for (size_t i = 0; i < data_nums; i++)
     {
         cmp_top_k[i].real(11.5);
