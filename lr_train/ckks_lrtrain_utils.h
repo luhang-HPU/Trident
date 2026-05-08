@@ -11,10 +11,13 @@
 
 using namespace poseidon;
 
-const int EPOCHS = 50;
-const double learning_rate = 0.95;
-const int m = 780;      // row size of train set
-const int n = 9;      // column size of train set
+namespace lr_train
+{
+
+extern int EPOCHS;
+extern double learning_rate;
+extern int m;      // row size of train set
+extern int n;      // column size of train set
 
 namespace check
 {
@@ -104,5 +107,7 @@ Ciphertext accumulate_slot_matrix(const std::shared_ptr<EvaluatorCkksBase> eva, 
  * into @return vector with block size @block_size
  */
 std::vector<std::complex<double>> vector_to_block_message(const std::vector<std::complex<double>> &vec, int cnt, int block_size);
+
+}
 
 #endif  // POSEIDON_CKKS_LRTRAIN_UTILS_H

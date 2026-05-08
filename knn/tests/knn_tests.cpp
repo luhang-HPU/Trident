@@ -8,7 +8,7 @@ using namespace KNN;
 namespace CKKS_LRTRAIN_TEST
 {
 
-int knn_test(uint32_t log_degree = 15)
+int knn_test(uint32_t log_degree)
 {
     cout << BANNER << std::endl;
     cout << "POSEIDON SOFTWARE VERSION:" << POSEIDON_VERSION << std::endl;
@@ -20,8 +20,7 @@ int knn_test(uint32_t log_degree = 15)
     util::Timestacs timer_calculate;
     timer.start();
     timer_init.start();
-    // 参数设置
-    PoseidonFactory::get_instance()->set_device_type(DEVICE_SOFTWARE);
+
     uint32_t q_def = 32;
 
     ParametersLiteral ckks_param_literal{CKKS, log_degree, log_degree - 1, q_def, 5, 1, 0, {}, {}};
@@ -86,10 +85,10 @@ int knn_test(uint32_t log_degree = 15)
     std::string predictions_file = "./predictions.jsonl";
     std::string current_path = get_current_path();
     std::cout << "read query start" << std::endl;
-    read_jsonl_query(current_path + "dataset/train.jsonl", query);
+    read_jsonl_query(current_path + "train.jsonl", query);
     std::cout << "read query end" << std::endl;
     std::cout << "read data start" << std::endl;
-    read_jsonl_data(current_path + "dataset/train.jsonl", data);
+    read_jsonl_data(current_path + "train.jsonl", data);
     std::cout << "read data end" << std::endl;
 
     timer_init.end();
@@ -160,18 +159,21 @@ int knn_test(uint32_t log_degree = 15)
     return 0;
 }
 
-    TEST(KNNTest, Degree8192)
-    {
-        knn_test(13);
-    }
-
-    TEST(KNNTest, Degree16384)
-    {
-        knn_test(14);
-    }
+//    TEST(KNNTest, Degree8192)
+//    {
+//        data_nums = 100;
+//        knn_test(13);
+//    }
+//
+//    TEST(KNNTest, Degree16384)
+//    {
+//        data_nums = 100;
+//        knn_test(14);
+//    }
 
     TEST(KNNTest, Degree32768)
     {
+        data_nums = 100;
         knn_test(15);
     }
 

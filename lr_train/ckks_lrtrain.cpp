@@ -7,6 +7,7 @@
 using namespace std;
 using namespace poseidon;
 using namespace poseidon::util;
+using namespace lr_train;
 
 int main()
 {

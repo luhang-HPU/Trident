@@ -15,10 +15,10 @@ using namespace std;
 namespace PIRBFVTEST
 {
 
-int pir_bfv_test(int degree)
+int pir_bfv_test(uint32_t degree, uint64_t _number_of_items = 1 << 16, uint64_t _size_per_item = 288)
 {
-    uint64_t number_of_items = 1 << 16;
-    uint64_t size_per_item = 288;  // in bytes
+    uint64_t number_of_items = _number_of_items;
+    uint64_t size_per_item = _size_per_item;  // in bytes
     uint32_t N = degree;
 
     // Recommended values: (logt, d) = (20, 2).
@@ -195,17 +195,47 @@ int pir_bfv_test(int degree)
 
     TEST(PIRTest, Degree8192)
     {
-        pir_bfv_test(8192);
+        pir_bfv_test(8192, 1 << 16, 288);
+    }
+
+    TEST(PIRTest, Degree8192_Item)
+    {
+        pir_bfv_test(8192, 1 << 20, 288);
+    }
+
+    TEST(PIRTest, Degree8192_Item_Size)
+    {
+        pir_bfv_test(8192, 1 << 20, 512);
     }
 
     TEST(PIRTest, Degree16384)
     {
-        pir_bfv_test(16384);
+        pir_bfv_test(16384, 1 << 16, 288);
+    }
+
+    TEST(PIRTest, Degree16384_Item)
+    {
+        pir_bfv_test(16384, 1 << 20, 288);
+    }
+
+    TEST(PIRTest, Degree16384_Item_Size)
+    {
+        pir_bfv_test(16384, 1 << 20, 512);
     }
 
     TEST(PIRTest, Degree32768)
     {
-        pir_bfv_test(32768);
+        pir_bfv_test(32768, 1 << 16, 288);
+    }
+
+    TEST(PIRTest, Degree32768_Item)
+    {
+        pir_bfv_test(32768, 1 << 20, 288);
+    }
+
+    TEST(PIRTest, Degree32768_Item_Size)
+    {
+        pir_bfv_test(32768, 1 << 20, 512);
     }
 
 

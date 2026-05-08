@@ -14,6 +14,7 @@
 using namespace poseidon;
 using namespace std::chrono;
 using namespace std;
+using namespace lr_train;
 
 namespace CKKS_LRTRAIN_TEST
 {
@@ -431,18 +432,75 @@ int ckks_lrtrain_test(uint32_t log_degree)
     return 0;
 }
 
-    TEST(CKKS_LRTRAIN_TEST, Degree8192)
+    TEST(CKKS_LRTRAIN_TEST, Degree8192_SmallDataset_Epoch10)
     {
+        m = 16;
+        n = 4;
+        EPOCHS = 10;
         ckks_lrtrain_test(13);
     }
 
-    TEST(CKKS_LRTRAIN_TEST, Degree16384)
+    TEST(CKKS_LRTRAIN_TEST, Degree8192_SmallDataset_Epoch20)
     {
+        m = 16;
+        n = 4;
+        EPOCHS = 20;
+        ckks_lrtrain_test(13);
+    }
+
+    TEST(CKKS_LRTRAIN_TEST, Degree8192_SmallDataset_Epoch50)
+    {
+        m = 16;
+        n = 4;
+        EPOCHS = 50;
+        ckks_lrtrain_test(13);
+    }
+
+    TEST(CKKS_LRTRAIN_TEST, Degree16384_MediumDataset_Epoch10)
+    {
+        m = 32;
+        n = 8;
+        EPOCHS = 10;
         ckks_lrtrain_test(14);
     }
 
-    TEST(CKKS_LRTRAIN_TEST, Degree32768)
+    TEST(CKKS_LRTRAIN_TEST, Degree16384_MediumDataset_Epoch20)
     {
+        m = 32;
+        n = 8;
+        EPOCHS = 20;
+        ckks_lrtrain_test(14);
+    }
+
+    TEST(CKKS_LRTRAIN_TEST, Degree16384_MediumDataset_Epoch50)
+    {
+        m = 32;
+        n = 8;
+        EPOCHS = 50;
+        ckks_lrtrain_test(14);
+    }
+
+    TEST(CKKS_LRTRAIN_TEST, Degree32768_LargeDataset_Epoch10)
+    {
+        m = 780;
+        n = 9;
+        EPOCHS = 10;
+        ckks_lrtrain_test(15);
+    }
+
+    TEST(CKKS_LRTRAIN_TEST, Degree32768_LargeDataset_Epoch20)
+    {
+        m = 780;
+        n = 9;
+        EPOCHS = 20;
+        ckks_lrtrain_test(15);
+    }
+
+    TEST(CKKS_LRTRAIN_TEST, Degree32768_LargeDataset_Epoch50)
+    {
+        m = 780;
+        n = 9;
+        EPOCHS = 50;
         ckks_lrtrain_test(15);
     }
 
