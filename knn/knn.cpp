@@ -1,7 +1,6 @@
 #include "knn_utils.h"
 
-namespace KNN
-{
+using namespace KNN;
 
 int main(int argc, char *argv[])
 {
@@ -76,16 +75,16 @@ int main(int argc, char *argv[])
     vector<Polynomial> poly_v_2{approxF_2};
     PolynomialVector polys_2(poly_v_2, slots_index);
 
-    vector<vector<complex<double>>> query(10, vector<complex<double>>(N, {0.0, 0.0}));
-    vector<vector<complex<double>>> data(20, vector<complex<double>>(N, {0.0, 0.0}));
+    vector<vector<complex<double>>> query(10, vector<complex<double>>(1 << (log_degree-1), {0.0, 0.0}));
+    vector<vector<complex<double>>> data(20, vector<complex<double>>(1 << (log_degree-1), {0.0, 0.0}));
 
     std::string predictions_file = "./predictions.jsonl";
     std::string current_path = get_current_path();
     std::cout << "read query start" << std::endl;
-    read_jsonl_query(current_path + "dataset/train.jsonl", query);
+    read_jsonl_query(current_path + "train.jsonl", query);
     std::cout << "read query end" << std::endl;
     std::cout << "read data start" << std::endl;
-    read_jsonl_data(current_path + "dataset/train.jsonl", data);
+    read_jsonl_data(current_path + "train.jsonl", data);
     std::cout << "read data end" << std::endl;
 
     timer_init.end();
@@ -98,7 +97,7 @@ int main(int argc, char *argv[])
 
     // 比较数组
     std::cout << "compare start" << std::endl;
-    std::vector<std::complex<double>> cmp_top_k(N, {0.0, 0.0});
+    std::vector<std::complex<double>> cmp_top_k(1 << (log_degree-1), {0.0, 0.0});
     for (size_t i = 0; i < data_nums; i++)
     {
         cmp_top_k[i].real(11.5);
@@ -154,6 +153,4 @@ int main(int argc, char *argv[])
     timer_calculate.print_time_ms("Calculate time: ");
     timer.print_time_ms("All time: ");
     return 0;
-}
-
 }

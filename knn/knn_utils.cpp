@@ -6,10 +6,8 @@ using namespace poseidon::util;
 namespace KNN
 {
 
-std::filesystem::path current_path(__FILE__);
 int data_nums = 100;
 int dimension = 10;
-int N = 16384;
 int NUM = 128;
 int num_threads = 8;
 
