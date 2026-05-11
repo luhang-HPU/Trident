@@ -4,7 +4,7 @@ add_executable(knn knn.cpp knn_utils.cpp)
 target_link_libraries(knn poseidon_shared)
 
 set(EXE_OUTPUT_DIR $<TARGET_FILE_DIR:knn>)
-get_filename_component(SOURCE_FILE_PATH "train.jsonl" ABSOLUTE)
+get_filename_component(SOURCE_FILE_PATH "dataset/train.jsonl" ABSOLUTE)
 
 option(KNN_BUILD_TESTS "Build tests for KNN" OFF)
 if(KNN_BUILD_TESTS)
