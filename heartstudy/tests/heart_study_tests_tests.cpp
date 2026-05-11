@@ -1,3 +1,7 @@
+#include <gtest/gtest.h>
+#include <chrono>
+#include <random>
+
 #include "poseidon/poseidon_context.h"
 #include "poseidon/ckks_encoder.h"
 #include "poseidon/plaintext.h"
@@ -12,27 +16,29 @@ using namespace std;
 using namespace poseidon;
 using namespace poseidon::util;
 
-int main() {
+namespace HEART_STUDY_TEST
+{
 
+void heart_study() {
     cout << BANNER  << endl;
     cout << "POSEIDON SOFTWARE  VERSION:" <<POSEIDON_VERSION << endl;
     cout << "" << endl;
 
     ParametersLiteral ckks_param_literal{
-            CKKS,
-            15,
-            14,
-            40,
-            5,
-            0,
-            0,
-            {},
-            {}
+        CKKS,
+        15,
+        14,
+        40,
+        5,
+        0,
+        0,
+        {},
+        {}
     };
-    vector<uint32_t> logQTmp{31,31,31,31,31,31,31,31,31,31, 31,31,31,31,31,31,31,31,31,31};
-    vector<uint32_t> logPTmp{31,31,31,31,31,31,31,31,31,31, 31,31,31,31,31,31,31,31,31,31};
+        vector<uint32_t> logQTmp{31,31,31,31,31,31,31,31,31,31, 31,31,31,31,31,31,31,31,31,31};
+        vector<uint32_t> logPTmp{31,31,31,31,31,31,31,31,31,31, 31,31,31,31,31,31,31,31,31,31};
 
-    ckks_param_literal.set_log_modulus(logQTmp,logPTmp);
+        ckks_param_literal.set_log_modulus(logQTmp,logPTmp);
     PoseidonContext context = PoseidonFactory::get_instance()->create_poseidon_context(ckks_param_literal);
 
     //=====================init data ============================
@@ -190,10 +196,13 @@ int main() {
     double x = coef_age * age + coef_sbp * sbp + coef_dbp * dbp + coef_chl * chl + coef_height * height + coef_weight * weight;
 
     printf("expected answer = %.8f \n",exp(x) / (exp(x) + 1));
-
-
-
-
-
-    return 0;
 }
+
+TEST(HeartStudyTest, Degree32768)
+{
+    heart_study();
+}
+
+
+
+}  // namespace PIRBGVTEST

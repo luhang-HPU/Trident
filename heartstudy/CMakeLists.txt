@@ -1,4 +1,11 @@
-cmake_minimum_required(VERSION 3.12)
-
 add_executable(heartstudy heartstudy.cpp)
 target_link_libraries(heartstudy poseidon_shared)
+
+option(HEART_STUDY_BUILD_TESTS "Build tests for heart study" OFF)
+if(HEART_STUDY_BUILD_TESTS)
+    add_executable(heart_study_tests)
+    add_subdirectory(tests)
+    target_include_directories(heart_study_tests PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>)
+    target_link_libraries(heart_study_tests poseidon_shared GTest::gtest)
+endif()
+message(STATUS "Heart study tests build success")
