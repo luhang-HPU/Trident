@@ -346,22 +346,6 @@ vector<pair<apsi::Item, apsi::Label>> init_server_data(const std::string filenam
     return sender_items;
 }
 
-void print_progress(int distance, const string &name)
-{
-    for (int progress = 0; progress <= 100; ++progress)
-    {
-        float percent = 100.0 * progress / 100;
-        std::cout << " " << name << ": [";
-        int pos = 50 * progress / 100;
-        for (int i = 0; i < 50; ++i)
-            std::cout << (i <= pos ? '=' : ' ');
-        std::cout << "] " << int(percent) << "%\r";
-        std::cout.flush();
-        usleep(distance);
-    }
-    std::cout << std::endl;
-}
-
 char rand_ew()
 {
     int rand = std::rand() % 2;
