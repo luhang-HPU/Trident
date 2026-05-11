@@ -159,18 +159,6 @@ int knn_test(uint32_t log_degree)
     return 0;
 }
 
-//    TEST(KNNTest, Degree8192)
-//    {
-//        data_nums = 100;
-//        knn_test(13);
-//    }
-//
-//    TEST(KNNTest, Degree16384)
-//    {
-//        data_nums = 100;
-//        knn_test(14);
-//    }
-
     TEST(KNNTest, Degree32768)
     {
         data_nums = 100;

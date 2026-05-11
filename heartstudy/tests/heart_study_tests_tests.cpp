@@ -196,9 +196,9 @@ void heart_study(uint32_t log_degree, uint32_t p_size) {
     printf("expected answer = %.8f \n",exp(x) / (exp(x) + 1));
 }
 
-TEST(HeartStudyTest, Degree32768)
+TEST(HeartStudyTest, Degree8192)
 {
-    heart_study(15, 20);
+    heart_study(13, 10);
 }
 
 TEST(HeartStudyTest, Degree16384)
@@ -206,10 +206,11 @@ TEST(HeartStudyTest, Degree16384)
     heart_study(14, 15);
 }
 
-TEST(HeartStudyTest, Degree8192)
+
+TEST(HeartStudyTest, Degree32768)
 {
-    heart_study(13, 10);
+    heart_study(15, 20);
 }
 
 
-}  // namespace PIRBGVTEST
+}
