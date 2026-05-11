@@ -13,26 +13,11 @@ using namespace poseidon;
 using namespace poseidon::util;
 
 int main() {
-
     cout << BANNER  << endl;
-    cout << "POSEIDON SOFTWARE  VERSION:" <<POSEIDON_VERSION << endl;
+    cout << "POSEIDON SOFTWARE VERSION:" <<POSEIDON_VERSION << endl;
     cout << "" << endl;
 
-    ParametersLiteral ckks_param_literal{
-            CKKS,
-            15,
-            14,
-            40,
-            5,
-            0,
-            0,
-            {},
-            {}
-    };
-    vector<uint32_t> logQTmp{31,31,31,31,31,31,31,31,31,31, 31,31,31,31,31,31,31,31,31,31};
-    vector<uint32_t> logPTmp{31,31,31,31,31,31,31,31,31,31, 31,31,31,31,31,31,31,31,31,31};
-
-    ckks_param_literal.set_log_modulus(logQTmp,logPTmp);
+    ParametersLiteralDefault ckks_param_literal(CKKS, 32768, poseidon::sec_level_type::none);
     PoseidonContext context = PoseidonFactory::get_instance()->create_poseidon_context(ckks_param_literal);
 
     //=====================init data ============================
@@ -155,27 +140,25 @@ int main() {
     ckks_eva->multiply_relin_dynamic(cipher_x, cipher_x, cipher_x_square, relinKeys);
     ckks_eva->rescale_dynamic(cipher_x_square,cipher_x_square,scale);
     ckks_eva->multiply_const(cipher_x_square, taylor_coef_9, scale,cipher_result,ckks_encoder);
+    ckks_eva->rescale_dynamic(cipher_result,cipher_result,scale);
     ckks_eva->add_const(cipher_result, taylor_coef_7, cipher_result,ckks_encoder);
 
-    ckks_eva->rescale_dynamic(cipher_result,cipher_result,scale);
     ckks_eva->multiply_relin_dynamic(cipher_result, cipher_x_square, cipher_result, relinKeys);
+    ckks_eva->rescale_dynamic(cipher_result,cipher_result,scale);
     ckks_eva->add_const(cipher_result, taylor_coef_5, cipher_result,ckks_encoder);
 
-
-    ckks_eva->rescale_dynamic(cipher_result,cipher_result,scale);
     ckks_eva->multiply_relin_dynamic(cipher_result, cipher_x_square, cipher_result, relinKeys);
+    ckks_eva->rescale_dynamic(cipher_result,cipher_result,scale);
     ckks_eva->add_const(cipher_result, taylor_coef_3, cipher_result,ckks_encoder);
 
-
-    ckks_eva->rescale_dynamic(cipher_result,cipher_result,scale);
     ckks_eva->multiply_relin_dynamic(cipher_result, cipher_x_square, cipher_result, relinKeys);
+    ckks_eva->rescale_dynamic(cipher_result,cipher_result,scale);
     ckks_eva->add_const(cipher_result, taylor_coef_1, cipher_result,ckks_encoder);
 
-
     ckks_eva->multiply_relin_dynamic(cipher_result, cipher_x, cipher_result, relinKeys);
+    ckks_eva->rescale_dynamic(cipher_result,cipher_result,scale);
     ckks_eva->add_const(cipher_result, taylor_coef_0, cipher_result,ckks_encoder);
 
-    ckks_eva->read(cipher_result);
     auto stop = chrono::high_resolution_clock::now();
     auto duration = chrono::duration_cast<chrono::microseconds>(stop - start);
     cout << "EXP TIME: " << duration.count() << " microseconds"<< endl;
@@ -190,10 +173,6 @@ int main() {
     double x = coef_age * age + coef_sbp * sbp + coef_dbp * dbp + coef_chl * chl + coef_height * height + coef_weight * weight;
 
     printf("expected answer = %.8f \n",exp(x) / (exp(x) + 1));
-
-
-
-
 
     return 0;
 }

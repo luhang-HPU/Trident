@@ -19,26 +19,26 @@ using namespace poseidon::util;
 namespace HEART_STUDY_TEST
 {
 
-void heart_study() {
+void heart_study(uint32_t log_degree, uint32_t p_size) {
     cout << BANNER  << endl;
-    cout << "POSEIDON SOFTWARE  VERSION:" <<POSEIDON_VERSION << endl;
+    cout << "POSEIDON SOFTWARE VERSION:" <<POSEIDON_VERSION << endl;
     cout << "" << endl;
 
     ParametersLiteral ckks_param_literal{
         CKKS,
-        15,
-        14,
-        40,
+        log_degree,
+        log_degree - 1,
+        31,
         5,
         0,
         0,
         {},
         {}
     };
-        vector<uint32_t> logQTmp{31,31,31,31,31,31,31,31,31,31, 31,31,31,31,31,31,31,31,31,31};
-        vector<uint32_t> logPTmp{31,31,31,31,31,31,31,31,31,31, 31,31,31,31,31,31,31,31,31,31};
+    vector<uint32_t> logQTmp(p_size, 31);
+    vector<uint32_t> logPTmp{31};
 
-        ckks_param_literal.set_log_modulus(logQTmp,logPTmp);
+    ckks_param_literal.set_log_modulus(logQTmp,logPTmp);
     PoseidonContext context = PoseidonFactory::get_instance()->create_poseidon_context(ckks_param_literal);
 
     //=====================init data ============================
@@ -161,27 +161,25 @@ void heart_study() {
     ckks_eva->multiply_relin_dynamic(cipher_x, cipher_x, cipher_x_square, relinKeys);
     ckks_eva->rescale_dynamic(cipher_x_square,cipher_x_square,scale);
     ckks_eva->multiply_const(cipher_x_square, taylor_coef_9, scale,cipher_result,ckks_encoder);
+    ckks_eva->rescale_dynamic(cipher_result,cipher_result,scale);
     ckks_eva->add_const(cipher_result, taylor_coef_7, cipher_result,ckks_encoder);
 
-    ckks_eva->rescale_dynamic(cipher_result,cipher_result,scale);
     ckks_eva->multiply_relin_dynamic(cipher_result, cipher_x_square, cipher_result, relinKeys);
+    ckks_eva->rescale_dynamic(cipher_result,cipher_result,scale);
     ckks_eva->add_const(cipher_result, taylor_coef_5, cipher_result,ckks_encoder);
 
-
-    ckks_eva->rescale_dynamic(cipher_result,cipher_result,scale);
     ckks_eva->multiply_relin_dynamic(cipher_result, cipher_x_square, cipher_result, relinKeys);
+    ckks_eva->rescale_dynamic(cipher_result,cipher_result,scale);
     ckks_eva->add_const(cipher_result, taylor_coef_3, cipher_result,ckks_encoder);
 
-
-    ckks_eva->rescale_dynamic(cipher_result,cipher_result,scale);
     ckks_eva->multiply_relin_dynamic(cipher_result, cipher_x_square, cipher_result, relinKeys);
+    ckks_eva->rescale_dynamic(cipher_result,cipher_result,scale);
     ckks_eva->add_const(cipher_result, taylor_coef_1, cipher_result,ckks_encoder);
 
-
     ckks_eva->multiply_relin_dynamic(cipher_result, cipher_x, cipher_result, relinKeys);
+    ckks_eva->rescale_dynamic(cipher_result,cipher_result,scale);
     ckks_eva->add_const(cipher_result, taylor_coef_0, cipher_result,ckks_encoder);
 
-    ckks_eva->read(cipher_result);
     auto stop = chrono::high_resolution_clock::now();
     auto duration = chrono::duration_cast<chrono::microseconds>(stop - start);
     cout << "EXP TIME: " << duration.count() << " microseconds"<< endl;
@@ -200,9 +198,18 @@ void heart_study() {
 
 TEST(HeartStudyTest, Degree32768)
 {
-    heart_study();
+    heart_study(15, 20);
 }
 
+TEST(HeartStudyTest, Degree16384)
+{
+    heart_study(14, 15);
+}
+
+TEST(HeartStudyTest, Degree8192)
+{
+    heart_study(13, 10);
+}
 
 
 }  // namespace PIRBGVTEST
