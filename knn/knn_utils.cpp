@@ -160,6 +160,8 @@ encode_and_encrypt_mt(const CKKSEncoder &encoder, const Encryptor &encryptor,
     std::vector<Ciphertext> vec_ciph;
     vec_ciph.resize(message.size());
     const int work_load = (message.size() + num_threads - 1) / num_threads;
+
+    std::vector<future<void>> futures;
     for (int w = 0; w < num_threads; ++w)
     {
         int start = w * work_load;
@@ -167,7 +169,7 @@ encode_and_encrypt_mt(const CKKSEncoder &encoder, const Encryptor &encryptor,
 
         if (end > start)
         {
-            thread_pool.enqueue(
+            auto ret = thread_pool.enqueue(
                 [&](size_t s, size_t e)
                 {
                     for (size_t i = s; i < e; ++i)
@@ -176,8 +178,15 @@ encode_and_encrypt_mt(const CKKSEncoder &encoder, const Encryptor &encryptor,
                     }
                 },
                 start, end);
+            futures.push_back(std::move(ret));
         }
     }
+
+    for (auto &fut : futures)
+    {
+        fut.get();
+    }
+
     return vec_ciph;
 }
 
@@ -185,6 +194,8 @@ void generate_glaios_mt(KeyGenerator &kgen, vector<vector<int>> step, GaloisKeys
 {
     ThreadPool thread_pool(num_threads);
     const int work_load = (step.size() + num_threads - 1) / num_threads;
+
+    std::vector<future<void>> futures;
     for (int w = 0; w < num_threads; ++w)
     {
         int start = w * work_load;
@@ -192,7 +203,7 @@ void generate_glaios_mt(KeyGenerator &kgen, vector<vector<int>> step, GaloisKeys
 
         if (end > start)
         {
-            thread_pool.enqueue(
+            auto ret = thread_pool.enqueue(
                 [&](size_t s, size_t e)
                 {
                     for (size_t i = s; i < e; ++i)
@@ -201,7 +212,13 @@ void generate_glaios_mt(KeyGenerator &kgen, vector<vector<int>> step, GaloisKeys
                     }
                 },
                 start, end);
+            futures.push_back(std::move(ret));
         }
+    }
+
+    for (auto &fut : futures)
+    {
+        fut.get();
     }
 }
 

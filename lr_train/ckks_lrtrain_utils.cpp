@@ -8,6 +8,14 @@
 
 using namespace poseidon;
 
+namespace lr_train
+{
+
+int EPOCHS = 50;
+double learning_rate = 0.95;
+int m = 780;      // row size of train set
+int n = 9;      // column size of train set
+
 namespace check
 {
 long get_process_memory(int pid)
@@ -15,14 +23,17 @@ long get_process_memory(int pid)
     std::string filename = "/proc/" + to_string(pid) + "/status";
 
     std::ifstream file(filename);
-    if (!file.is_open()) {
+    if (!file.is_open())
+    {
         std::cerr << "cannot open file: " << filename << std::endl;
         return -1;
     }
 
     std::string line;
-    while (std::getline(file, line)) {
-        if (line.find("VmRSS:") != std::string::npos) {
+    while (std::getline(file, line))
+    {
+        if (line.find("VmRSS:") != std::string::npos)
+        {
             std::istringstream iss(line);
             std::string label;
             long rss;
@@ -36,10 +47,7 @@ long get_process_memory(int pid)
 }
 }
 
-double sigmoid(double x)
-{
-    return (0.5 + 0.197 * x - 0.004 * x * x * x);
-}
+double sigmoid(double x) { return (0.5 + 0.197 * x - 0.004 * x * x * x); }
 
 Ciphertext sigmoid_approx(const Ciphertext &ciph, const PolynomialVector &polys,
                           const CKKSEncoder &encoder, std::shared_ptr<EvaluatorCkksBase> eva,
@@ -92,7 +100,7 @@ void print_weight_and_bias(const std::vector<std::complex<double>> &weight)
     std::cout << std::endl;
 }
 
-void read_file(std::vector<std::vector<std::complex<double>>> &matrix, const std::string& file)
+void read_file(std::vector<std::vector<std::complex<double>>> &matrix, const std::string &file)
 {
     std::ifstream in_file(file, ios::in);
     if (!in_file)
@@ -111,7 +119,7 @@ void read_file(std::vector<std::vector<std::complex<double>>> &matrix, const std
     }
 }
 
-void read_file(std::vector<std::complex<double>> &matrix, const std::string& file)
+void read_file(std::vector<std::complex<double>> &matrix, const std::string &file)
 {
     std::ifstream in_file(file, ios::in);
     if (!in_file)
@@ -127,9 +135,7 @@ void read_file(std::vector<std::complex<double>> &matrix, const std::string& fil
     }
 }
 
-void preprocess(int block_size,
-                int block_num,
-                std::vector<std::vector<std::complex<double>>> &x,
+void preprocess(int block_size, int block_num, std::vector<std::vector<std::complex<double>>> &x,
                 std::vector<std::vector<std::complex<double>>> &x_transpose,
                 std::vector<std::vector<std::complex<double>>> &x_diag_T)
 {
@@ -140,7 +146,8 @@ void preprocess(int block_size,
 
     int row_added = block_size - (m % block_size);
     x.resize(x.size() + row_added);
-    std::fill_n(x.end() - row_added, row_added, std::vector<std::complex<double>>(block_size, {0.0, 0.0}));
+    std::fill_n(x.end() - row_added, row_added,
+                std::vector<std::complex<double>>(block_size, {0.0, 0.0}));
 
     for (auto i = 0; i < n; ++i)
     {
@@ -216,7 +223,9 @@ int get_size(int min, int max)
     return num;
 }
 
-Ciphertext accumulate_block_matrix(const std::shared_ptr<EvaluatorCkksBase> eva, const GaloisKeys &rot_key, const Ciphertext &ciph, int block_size)
+Ciphertext accumulate_block_matrix(const std::shared_ptr<EvaluatorCkksBase> eva,
+                                   const GaloisKeys &rot_key, const Ciphertext &ciph,
+                                   int block_size)
 {
     Ciphertext ciph_sum = ciph;
     for (auto i = 1; i < block_size; i <<= 1)
@@ -228,7 +237,9 @@ Ciphertext accumulate_block_matrix(const std::shared_ptr<EvaluatorCkksBase> eva,
     return ciph_sum;
 }
 
-Ciphertext accumulate_slot_matrix(const std::shared_ptr<EvaluatorCkksBase> eva, const GaloisKeys &rot_key, const Ciphertext &ciph, int block_size, int block_num)
+Ciphertext accumulate_slot_matrix(const std::shared_ptr<EvaluatorCkksBase> eva,
+                                  const GaloisKeys &rot_key, const Ciphertext &ciph, int block_size,
+                                  int block_num)
 {
     Ciphertext ciph_sum = ciph;
     for (auto i = 1; i < block_num; i <<= 1)
@@ -240,7 +251,8 @@ Ciphertext accumulate_slot_matrix(const std::shared_ptr<EvaluatorCkksBase> eva, 
     return ciph_sum;
 }
 
-std::vector<std::complex<double>> vector_to_block_message(const std::vector<std::complex<double>> &vec, int cnt, int block_size)
+std::vector<std::complex<double>>
+vector_to_block_message(const std::vector<std::complex<double>> &vec, int cnt, int block_size)
 {
     std::vector<std::complex<double>> ans;
     for (auto i = 0; i < cnt; ++i)
@@ -254,3 +266,4 @@ std::vector<std::complex<double>> vector_to_block_message(const std::vector<std:
     return ans;
 }
 
+}

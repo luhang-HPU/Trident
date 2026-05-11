@@ -17,7 +17,7 @@ int main(int argc, char *argv[])
     // 参数设置
     PoseidonFactory::get_instance()->set_device_type(DEVICE_SOFTWARE);
     uint32_t q_def = 32;
-    uint32_t log_degree = 15;
+    uint32_t log_degree = 14;
 
     ParametersLiteral ckks_param_literal{CKKS, log_degree, log_degree - 1, q_def, 5, 1, 0, {}, {}};
     vector<uint32_t> logQTmp(21, 32);

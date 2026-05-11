@@ -65,7 +65,7 @@ if (LR_TRAIN)
     add_subdirectory(lr_train)
 endif()
 
-option(HEARTSTUDY "Build HEARTSTUDY for POSEIDON" OFF)
+option(HEARTSTUDY "Build HEARTSTUDY for POSEIDON" ON)
 message(STATUS "HEARTSTUDY: ${HEARTSTUDY}")
 if (HEARTSTUDY)
     add_subdirectory(heartstudy)
