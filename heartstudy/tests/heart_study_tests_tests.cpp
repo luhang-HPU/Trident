@@ -1,3 +1,7 @@
+#include <gtest/gtest.h>
+#include <chrono>
+#include <random>
+
 #include "poseidon/poseidon_context.h"
 #include "poseidon/ckks_encoder.h"
 #include "poseidon/plaintext.h"
@@ -12,12 +16,29 @@ using namespace std;
 using namespace poseidon;
 using namespace poseidon::util;
 
-int main() {
+namespace HEART_STUDY_TEST
+{
+
+void heart_study(uint32_t log_degree, uint32_t p_size) {
     cout << BANNER  << endl;
     cout << "POSEIDON SOFTWARE VERSION:" <<POSEIDON_VERSION << endl;
     cout << "" << endl;
 
-    ParametersLiteralDefault ckks_param_literal(CKKS, 32768, poseidon::sec_level_type::none);
+    ParametersLiteral ckks_param_literal{
+        CKKS,
+        log_degree,
+        log_degree - 1,
+        31,
+        5,
+        0,
+        0,
+        {},
+        {}
+    };
+    vector<uint32_t> logQTmp(p_size, 31);
+    vector<uint32_t> logPTmp{31};
+
+    ckks_param_literal.set_log_modulus(logQTmp,logPTmp);
     PoseidonContext context = PoseidonFactory::get_instance()->create_poseidon_context(ckks_param_literal);
 
     //=====================init data ============================
@@ -173,6 +194,23 @@ int main() {
     double x = coef_age * age + coef_sbp * sbp + coef_dbp * dbp + coef_chl * chl + coef_height * height + coef_weight * weight;
 
     printf("expected answer = %.8f \n",exp(x) / (exp(x) + 1));
+}
 
-    return 0;
+TEST(HeartStudyTest, Degree8192)
+{
+    heart_study(13, 10);
+}
+
+TEST(HeartStudyTest, Degree16384)
+{
+    heart_study(14, 15);
+}
+
+
+TEST(HeartStudyTest, Degree32768)
+{
+    heart_study(15, 20);
+}
+
+
 }

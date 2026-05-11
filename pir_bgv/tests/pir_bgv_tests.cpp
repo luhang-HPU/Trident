@@ -15,10 +15,10 @@ using namespace std;
 namespace PIR_BGV_TEST
 {
 
-int pir_bgv_test(int degree)
+int pir_bgv_test(uint32_t degree, uint64_t _number_of_items = 1 << 16, uint64_t _size_per_item = 288)
 {
-    uint64_t number_of_items = 1 << 10;
-    uint64_t size_per_item = 120;  // in bytes
+    uint64_t number_of_items = _number_of_items;
+    uint64_t size_per_item = _size_per_item;  // in bytes
     uint32_t N = degree;
 
     // Recommended values: (logt, d) = (20, 2).
@@ -196,20 +196,50 @@ int pir_bgv_test(int degree)
 }
 
 
-    TEST(PIRTest, Degree8192)
-    {
-        pir_bgv_test(8192);
-    }
+TEST(PIRBGVTest, Degree8192)
+{
+    pir_bgv_test(8192, 1 << 8, 288);
+}
 
-    TEST(PIRTest, Degree16384)
-    {
-        pir_bgv_test(16384);
-    }
+TEST(PIRBGVTest, Degree8192_Item)
+{
+    pir_bgv_test(8192, 1 << 12, 288);
+}
 
-    TEST(PIRTest, Degree32768)
-    {
-        pir_bgv_test(32768);
-    }
+TEST(PIRBGVTest, Degree8192_Item_Size)
+{
+    pir_bgv_test(8192, 1 << 16, 288);
+}
+
+TEST(PIRBGVTest, Degree16384)
+{
+    pir_bgv_test(16384, 1 << 8, 288);
+}
+
+TEST(PIRBGVTest, Degree16384_Item)
+{
+    pir_bgv_test(16384, 1 << 12, 288);
+}
+
+TEST(PIRBGVTest, Degree16384_Item_Size)
+{
+    pir_bgv_test(16384, 1 << 16, 288);
+}
+
+TEST(PIRBGVTest, Degree32768)
+{
+    pir_bgv_test(32768, 1 << 8, 288);
+}
+
+TEST(PIRBGVTest, Degree32768_Item)
+{
+    pir_bgv_test(32768, 1 << 12, 288);
+}
+
+TEST(PIRBGVTest, Degree32768_Item_Size)
+{
+    pir_bgv_test(32768, 1 << 16, 288);
+}
 
 
 }  // namespace PIRBGVTEST
