@@ -5,7 +5,7 @@
 using namespace KNN;
 
 
-namespace CKKS_LRTRAIN_TEST
+namespace KNN_TEST
 {
 
 int knn_test(uint32_t log_degree)
