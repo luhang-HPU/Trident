@@ -12,86 +12,93 @@
 #include "poseidon/util/debug.h"
 #include "poseidon/util/json.h"
 #include "poseidon/util/precision.h"
-#include "poseidon/util/random_sample.h"
-#include "poseidon/util/thread_pool.h"
 
+#include <cstdint>
+#include <complex>
 #include <filesystem>
-#include <iostream>
-#include <fstream>
+#include <memory>
 #include <string>
 #include <vector>
 
-using namespace std;
-using namespace poseidon;
-
 namespace KNN
 {
-extern int data_nums;
-extern int dimension;
-extern int NUM;
-extern int num_threads;
 
-Ciphertext encode_and_encrypt(const CKKSEncoder &encoder, const Encryptor &encryptor,
-                              std::vector<std::complex<double>> &message, double scale);
+using Complex = std::complex<double>;
+using ComplexVec = std::vector<Complex>;
+using ComplexMatrix = std::vector<ComplexVec>;
 
-std::vector<Ciphertext> encode_and_encrypt(const CKKSEncoder &encoder, const Encryptor &encryptor,
-                                           std::vector<std::vector<std::complex<double>>> &message,
-                                           double scale);
+struct RuntimeOptions
+{
+    uint32_t log_degree = 15;
+    std::string dataset_file;
+    std::string predictions_file;
+};
 
-std::vector<std::complex<double>> decrypt_and_decode(const CKKSEncoder &encoder,
-                                                     Decryptor &decryptor, const Ciphertext &ciph);
+RuntimeOptions make_default_options();
+RuntimeOptions parse_options(int argc, char *argv[]);
+int run_knn(const RuntimeOptions &options);
 
-void read_jsonl_query(const std::string &file,
-                      std::vector<std::vector<std::complex<double>>> &query);
+poseidon::Ciphertext encode_and_encrypt(const poseidon::CKKSEncoder &encoder,
+                                        const poseidon::Encryptor &encryptor,
+                                        const ComplexVec &message, double scale);
 
-void read_jsonl_data(const std::string &file,
-                     std::vector<std::vector<std::complex<double>>> &matrix_data);
+std::vector<poseidon::Ciphertext> encode_and_encrypt(const poseidon::CKKSEncoder &encoder,
+                                                     const poseidon::Encryptor &encryptor,
+                                                     const ComplexMatrix &message,
+                                                     double scale);
 
-Ciphertext encode_and_encrypt(const CKKSEncoder &encoder, const Encryptor &encryptor,
-                              std::vector<std::complex<double>> &message, double scale);
+ComplexVec decrypt_and_decode(const poseidon::CKKSEncoder &encoder,
+                              poseidon::Decryptor &decryptor,
+                              const poseidon::Ciphertext &ciph);
 
-std::vector<Ciphertext> encode_and_encrypt(const CKKSEncoder &encoder, const Encryptor &encryptor,
-                                           std::vector<std::vector<std::complex<double>>> &message,
-                                           double scale);
+void read_jsonl_query(const std::string &file, ComplexMatrix &query, size_t slot_count);
+void read_jsonl_data(const std::string &file, ComplexMatrix &matrix_data);
 
-std::vector<std::complex<double>> decrypt_and_decode(const CKKSEncoder &encoder,
-                                                     Decryptor &decryptor, const Ciphertext &ciph);
+void encode_and_encrypt(const poseidon::CKKSEncoder &encoder,
+                        const poseidon::Encryptor &encryptor,
+                        const ComplexVec &message, double scale,
+                        poseidon::Ciphertext &ciph);
 
-void encode_and_encrypt(const CKKSEncoder &encoder, const Encryptor &encryptor,
-                        std::vector<std::complex<double>> &message, double scale, Ciphertext &ciph);
+std::vector<poseidon::Ciphertext> encode_and_encrypt_mt(const poseidon::CKKSEncoder &encoder,
+                                                        const poseidon::Encryptor &encryptor,
+                                                        const ComplexMatrix &message,
+                                                        double scale);
 
-std::vector<Ciphertext>
-encode_and_encrypt_mt(const CKKSEncoder &encoder, const Encryptor &encryptor,
-                      std::vector<std::vector<std::complex<double>>> &message, double scale);
+void sub_and_square(const std::shared_ptr<poseidon::EvaluatorCkksBase> &ckks_eva,
+                    std::vector<poseidon::Ciphertext> &ciph_data,
+                    const std::vector<poseidon::Ciphertext> &ciph_query,
+                    const poseidon::RelinKeys &relin_keys, double scale);
 
-void generate_glaios_mt(KeyGenerator &kgen, vector<vector<int>> step, GaloisKeys &rot_keys);
+void match_param_id(poseidon::Ciphertext &ciph1, poseidon::Ciphertext &ciph2,
+                    std::shared_ptr<poseidon::EvaluatorCkksBase> eva);
 
-void sub_and_square(const std::shared_ptr<EvaluatorCkksBase> &ckks_eva,
-                    std::vector<Ciphertext> &ciph_data, const std::vector<Ciphertext> &ciph_query,
-                    const poseidon::RelinKeys &relin_keys, const double scale);
+void match_scale(poseidon::Ciphertext &ciph1, poseidon::Ciphertext &ciph2,
+                 const poseidon::CKKSEncoder &encoder,
+                 std::shared_ptr<poseidon::EvaluatorCkksBase> eva, double scale);
 
-void match_param_id(Ciphertext &ciph1, Ciphertext &ciph2, std::shared_ptr<EvaluatorCkksBase> eva);
+poseidon::Ciphertext sign_1(const poseidon::Ciphertext &ciph,
+                            const poseidon::PolynomialVector &polys_1,
+                            const poseidon::PolynomialVector &polys_2,
+                            const poseidon::CKKSEncoder &encoder,
+                            std::shared_ptr<poseidon::EvaluatorCkksBase> eva,
+                            const poseidon::RelinKeys &relin_keys);
 
-void match_scale(Ciphertext &ciph1, Ciphertext &ciph2, const CKKSEncoder &encoder,
-                 std::shared_ptr<EvaluatorCkksBase> eva, double scale);
+poseidon::Ciphertext sign_2(const poseidon::Ciphertext &ciph,
+                            const poseidon::PolynomialVector &polys,
+                            const poseidon::CKKSEncoder &encoder,
+                            std::shared_ptr<poseidon::EvaluatorCkksBase> eva,
+                            const poseidon::RelinKeys &relin_keys);
 
-// sign_1 第一次sign 近似拟合
-Ciphertext sign_1(const Ciphertext &ciph, const PolynomialVector &polys_1,
-                  const PolynomialVector &polys_2, const CKKSEncoder &encoder,
-                  std::shared_ptr<EvaluatorCkksBase> eva, const RelinKeys &relin_keys);
+void writePredictions(const std::vector<int> &data, const std::string &predictions_file);
 
-// sign_2 第二次拟合
-Ciphertext sign_2(const Ciphertext &ciph, const PolynomialVector &polys, const CKKSEncoder &encoder,
-                  std::shared_ptr<EvaluatorCkksBase> eva, const RelinKeys &relin_keys);
+poseidon::Ciphertext accumulate_top_n_block(const poseidon::Ciphertext &ciph, int n,
+                                            const poseidon::CKKSEncoder &encoder,
+                                            const poseidon::Encryptor &enc,
+                                            std::shared_ptr<poseidon::EvaluatorCkksBase> ckks_eva,
+                                            const poseidon::GaloisKeys &rot_keys);
 
-void writePredictions(const std::vector<int> &data, std::string predictions_file);
+std::vector<int> decode_predictions(const ComplexVec &decoded);
 
-Ciphertext accumulate_top_n_block(const Ciphertext &ciph, int n, const CKKSEncoder &encoder,
-                                  const Encryptor &enc, std::shared_ptr<EvaluatorCkksBase> ckks_eva,
-                                  const GaloisKeys rot_keys);
+} // namespace KNN
 
-string get_current_path();
-
-}
-
-#endif  // POSEIDON_KNN_UTILS_H
+#endif
