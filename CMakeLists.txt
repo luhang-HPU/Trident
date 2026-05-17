@@ -3,6 +3,8 @@ project(APP_POSEIDON)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_C_STANDARD 99)
 
+include(FetchContent)
+
 # 根据ASAN的值来设置编译器标志  
 option(ASAN "Enable AddressSanitizer" OFF)
 message(STATUS "ASAN: ${ASAN}")
