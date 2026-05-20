@@ -1,0 +1,10 @@
+{
+  "format": "poseidon_resnet20_weights_v1",
+  "source": "chenyaofo_cifar10_resnet20",
+  "activation": "relu_bn_folded",
+  "num_classes": 10,
+  "layout": "chw",
+  "dtype": "float32_little_endian",
+  "note": "BatchNorm has been folded into conv weights/bias. Public ReLU checkpoints are useful for loading tests, but HE accuracy requires weights trained for the polynomial activation used by Trident.",
+  "files": "*.f32"
+}
