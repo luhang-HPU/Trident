@@ -1,0 +1,20 @@
+nohup: ignoring input
+Stage2 sparse layout needs 32768 slots; using log-degree 16
+Rotation steps: 2777
+Generating hybrid rotation keys: 30 keys for sparse stage
+Rotation keys generated in 1400.4 seconds
+Plain HE-friendly ResNet-20 logits: -138.747, -544.673, 733.362, -27.0109, -77.3816, 479.438, 307.003, 28.4376, -151.753, -608.676
+Encrypted full HE conv1 complete
+Encrypted full HE stage1 block0 complete
+Encrypted full HE stage1 block1 complete
+Encrypted full HE stage1 block2 complete
+Encrypted full HE stage2 block0 sparse complete
+Encrypted full HE stage2 block1 sparse complete
+Encrypted full HE stage2 block2 sparse complete
+Encrypted full HE stage2->stage3 bridge complete
+Encrypted full HE stage3 block0 sparse complete
+Encrypted full HE stage3 block1 sparse complete
+Encrypted full HE stage3 block2 sparse complete
+Encrypted full HE ResNet-20 logits: -142.025, -400.9, 525.932, 16.57, 15.4322, 334.796, 220.903, 100.174, -127.21, -543.668
+Encrypted full HE ResNet-20 logits max error: 207.43
+Full HE compute time: 12233.7 seconds
