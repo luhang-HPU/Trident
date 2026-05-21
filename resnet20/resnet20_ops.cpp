@@ -19,6 +19,8 @@ constexpr int kSparseConvBabyStep = 128;
 
 TensorShape logical_shape_from_physical(const TensorShape &physical_shape, size_t spacing)
 {
+    // 稀疏张量保留原始物理高/宽，但只有每隔 `spacing` 的槽位才是真正有效值。
+    // 这个辅助函数返回这些有效槽位对应的逻辑张量形状。
     if (spacing == 0 || physical_shape.height % spacing != 0 ||
         physical_shape.width % spacing != 0)
     {
@@ -34,6 +36,9 @@ void visit_sparse_conv_terms(
     size_t output_physical_width, size_t output_spacing,
     const std::function<void(size_t, size_t, double)> &visitor)
 {
+    // 枚举稀疏布局下卷积里的所有非零线性项。
+    // visitor 会收到 (输入槽位, 输出槽位, 权重)，这些信息足够构造旋转步长、
+    // 明文 mask，或者明文参考变换。
     const TensorShape input_logical_shape =
         logical_shape_from_physical(input_physical_shape, input_spacing);
     const TensorShape output_logical_shape = conv2d_output_shape(input_logical_shape, weights);
@@ -118,6 +123,8 @@ int positive_mod(int value, int modulus)
 
 poseidon::Ciphertext divide_decoded_value(const poseidon::Ciphertext &input, double divisor)
 {
+    // CKKS 近似值可以理解成 encoded_integer / scale。只修改元数据里的 scale，
+    // 等价于改变解码值；把 scale 乘以 `divisor` 就能实现除法，而且不消耗 level。
     if (divisor <= 0.0)
     {
         throw std::invalid_argument("divide_decoded_value: divisor must be positive");
@@ -148,6 +155,10 @@ poseidon::Ciphertext apprelu_sign_round(
     const poseidon::CKKSEncoder &encoder,
     double scale)
 {
+    // 一轮奇多项式符号增强：
+    // p(x) = 0.5 * (3x - x^3)。AppReLU 先在 x/bound 上迭代这个近似符号函数，
+    // 再计算 0.5 * x * (1 + sign_approx)。它比完整 ReLU 电路便宜，
+    // 但仍然比 square 激活消耗更多乘法深度。
     poseidon::Ciphertext square;
     evaluator.multiply_relin(input, input, square, relin_keys);
     evaluator.rescale_dynamic(square, square, scale);
@@ -178,6 +189,8 @@ poseidon::Ciphertext sparse_conv_encrypted(const poseidon::Ciphertext &input,
                                            size_t output_physical_width,
                                            size_t output_spacing)
 {
+    // BSGS 风格的稀疏卷积。每个卷积项都表示成 rotate-and-mask 的贡献。
+    // 这里把旋转拆成 baby step 和 giant step，使原始输入的 baby rotations 可以被复用。
     const TensorShape input_logical_shape =
         logical_shape_from_physical(input_physical_shape, input_spacing);
     const TensorShape output_logical_shape = conv2d_output_shape(input_logical_shape, weights);
@@ -205,6 +218,8 @@ poseidon::Ciphertext sparse_conv_encrypted(const poseidon::Ciphertext &input,
             const size_t mask_index =
                 static_cast<size_t>(positive_mod(static_cast<int>(output_index) + giant,
                                                  static_cast<int>(slot_count)));
+            // mask 放在最后一次 giant rotation 之前。先做 baby rotation，
+            // 再用 multiply_plain 选中对应贡献，最后 giant rotation 把它移动到真实输出槽位。
             mask[mask_index] += std::complex<double>(weight, 0.0);
         });
 
@@ -751,6 +766,8 @@ poseidon::Ciphertext sparse_residual_block_encrypted(
 std::vector<int> sparse_to_compact_rotation_steps(const TensorShape &input_physical_shape,
                                                   size_t spacing)
 {
+    // bridge 没有做一个巨大的任意置换，而是拆成三次结构化压紧：
+    // 先压列，再压行，最后压 channel block。
     const TensorShape output_shape = logical_shape_from_physical(input_physical_shape, spacing);
     std::set<int> steps;
 
@@ -784,6 +801,9 @@ poseidon::Ciphertext sparse_to_compact_encrypted(
     const poseidon::GaloisKeys &galois_keys,
     double scale, size_t slot_count)
 {
+    // 将 stage2 的稀疏输出压成 stage3 需要的 compact 输入：
+    // 物理 32x32、spacing=2 -> 逻辑 16x16。这样需要三轮 multiply-mask，
+    // 但避免了成千上万个一次性旋转。
     const TensorShape output_shape = logical_shape_from_physical(input_physical_shape, spacing);
     if (input_physical_shape.size() > slot_count || output_shape.size() > slot_count)
     {
@@ -855,6 +875,7 @@ poseidon::Ciphertext sparse_to_compact_encrypted(
     }
     poseidon::Ciphertext compact_columns = apply_masked_shifts(input, column_masks);
 
+    // 第 2 步：把有效行挪到一起。此时每一行内部的列已经是 compact 的。
     std::map<int, std::vector<std::complex<double>>> row_masks;
     const size_t row_step = spacing * input_physical_shape.width - output_shape.width;
     for (size_t c = 0; c < input_physical_shape.channels; ++c)
@@ -872,6 +893,8 @@ poseidon::Ciphertext sparse_to_compact_encrypted(
     }
     poseidon::Ciphertext compact_rows = apply_masked_shifts(compact_columns, row_masks);
 
+    // 第 3 步：压紧 channel block。稀疏物理 channel 比 compact 逻辑 channel 更大，
+    // 所以第 c 个 channel block 需要左移 c * (physical-logical)。
     std::map<int, std::vector<std::complex<double>>> channel_masks;
     const size_t physical_channel_size = input_physical_shape.height * input_physical_shape.width;
     const size_t compact_channel_size = output_shape.height * output_shape.width;
@@ -894,6 +917,8 @@ poseidon::Ciphertext sparse_to_compact_encrypted(
 std::vector<int> sparse_global_average_pool_rotation_steps(
     const TensorShape &input_physical_shape, size_t spacing)
 {
+    // GAP 先在每个 channel 内累加所有有效稀疏位置，
+    // 再把每个 channel 的和移动到 slots [0, channels)。
     const TensorShape logical_shape = logical_shape_from_physical(input_physical_shape, spacing);
     std::set<int> steps;
     for (size_t shift = spacing; shift < logical_shape.width * spacing; shift <<= 1)

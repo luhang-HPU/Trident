@@ -32,6 +32,21 @@ double elapsed_seconds(Clock::time_point start, Clock::time_point end)
     return std::chrono::duration_cast<std::chrono::duration<double>>(end - start).count();
 }
 
+void print_profile_step(bool enabled, const std::string &label,
+                        Clock::time_point &last, Clock::time_point total_start)
+{
+    if (!enabled)
+    {
+        return;
+    }
+
+    const auto now = Clock::now();
+    std::cout << "[profile] " << label
+              << ": step=" << elapsed_seconds(last, now)
+              << "s total=" << elapsed_seconds(total_start, now) << "s" << std::endl;
+    last = now;
+}
+
 void print_usage(const char *program)
 {
     std::cout << "Usage: " << program
@@ -41,6 +56,7 @@ void print_usage(const char *program)
               << " [--run-stage2-stage3-bridge] [--run-stage2-stage3-block0]"
               << " [--run-stage2-stage3]"
               << " [--run-full-he] [--run-stage3-tail] [--plain-only]"
+              << " [--profile]"
               << " [--activation square|apprelu] [--apprelu-bound value]"
               << " [--apprelu-rounds count]"
               << " [--scale-bits bits]"
@@ -80,6 +96,9 @@ std::vector<int> make_hybrid_rotation_key_steps(const std::vector<int> &rotation
                                                 uint32_t log_slots,
                                                 size_t direct_rotation_key_count)
 {
+    // 稀疏卷积会产生很多逻辑旋转。如果给每个旋转都生成 key，时间和内存都很重。
+    // 这里默认保留 +/- 2 的幂次旋转，并可选加入少量代价高的直接旋转。
+    // 没有直接 key 的旋转仍然可以由 key-switch 层组合出来。
     std::set<int> selected;
     const int max_power = 1 << (log_slots - 1);
     for (int step = 1; step <= max_power; step <<= 1)
@@ -155,6 +174,8 @@ Tensor forward_stage_plain(Tensor input, const std::vector<ResidualBlockWeights>
 Tensor embed_sparse_plain(const Tensor &compact, size_t physical_height, size_t physical_width,
                           size_t spacing)
 {
+    // 稀疏 HE 布局的明文参考实现：逻辑值按 `spacing` 间隔放在高/宽方向上，
+    // 中间空出来的位置用于表达下采样后的稀疏物理布局。
     Tensor sparse({compact.shape.channels, physical_height, physical_width});
     for (size_t c = 0; c < compact.shape.channels; ++c)
     {
@@ -176,6 +197,7 @@ Tensor embed_sparse_plain(const Tensor &compact, size_t physical_height, size_t 
 
 Tensor compact_sparse_plain(const Tensor &sparse, size_t spacing)
 {
+    // embed_sparse_plain 的逆操作，用来对照密文 sparse_to_compact bridge 的结果。
     if (spacing == 0 || sparse.shape.height % spacing != 0 ||
         sparse.shape.width % spacing != 0)
     {
@@ -286,6 +308,10 @@ RuntimeOptions parse_options(int argc, char *argv[])
         {
             options.plain_only = true;
         }
+        else if (arg == "--profile")
+        {
+            options.profile = true;
+        }
         else if (arg == "--activation" && i + 1 < argc)
         {
             const std::string value = argv[++i];
@@ -378,6 +404,7 @@ int run_resnet20(const RuntimeOptions &options)
 {
     if (options.plain_only)
     {
+        // 激活函数/权重实验的快速路径：跳过 CKKS context、旋转 key 生成和全部密文算子。
         const auto weights = load_or_make_weights(options.parameters_dir);
         const auto input = make_toy_input();
         const Tensor logits = forward_plain(input, weights, options.activation);
@@ -403,6 +430,8 @@ int run_resnet20(const RuntimeOptions &options)
     const bool needs_stage2_sparse_slots =
         options.run_full_he || run_sparse_stage2 || run_connected_stage2_stage3 ||
         options.run_stage2_stage3_bridge;
+    // stage2 稀疏布局需要 32 channels x 32 x 32 个物理槽位，也就是 32768 个 CKKS slots。
+    // 如果用户给的 log-degree 太小，这里自动升到能容纳该布局的参数。
     const uint32_t log_degree =
         needs_stage2_sparse_slots && options.log_degree < 16
             ? 16
@@ -417,6 +446,8 @@ int run_resnet20(const RuntimeOptions &options)
                                                   log_degree - 1, options.scale_bits, 5,
                                                   1, 0, {}, {}};
     const bool uses_apprelu = options.activation.kind == ActivationKind::AppReLU;
+    // q_count 是 modulus chain 的长度。AppReLU 和完整 ResNet 会比 square smoke test
+    // 消耗更多层级，因为每次激活都包含额外乘法。
     const size_t q_count =
         options.run_full_he ? options.full_he_q_count :
         options.run_stage2_stage3 ? 28 :
@@ -470,6 +501,9 @@ int run_resnet20(const RuntimeOptions &options)
     std::vector<std::vector<int>> rotation_step_groups;
     if (options.run_full_he)
     {
+        // 完整密文路径：
+        // compact conv1/stage1 -> sparse stage2 -> sparse-to-compact bridge ->
+        // sparse stage3 -> sparse GAP -> FC。
         if (weights.stage1.empty() || weights.stage2.empty() || weights.stage3.empty())
         {
             throw std::invalid_argument("ResNet-20 full HE requires all residual stages");
@@ -497,6 +531,8 @@ int run_resnet20(const RuntimeOptions &options)
         }
 
         rotation_step_groups.push_back(sparse_to_compact_rotation_steps(sparse_stage2_shape, 2));
+        // stage2 输出逻辑上的 32x16x16，但实际存储在物理 32x32x32 稀疏布局中。
+        // stage3 需要 compact 的 32x16x16 输入，因此这里需要 bridge 把稀疏结果压紧。
         TensorShape compact_stage2_shape{weights.stage2.front().conv2.out_channels,
                                          stage1_input_shape.height / 2,
                                          stage1_input_shape.width / 2};
@@ -517,6 +553,8 @@ int run_resnet20(const RuntimeOptions &options)
     }
     else if (run_connected_stage2_stage3)
     {
+        // bridge 开发时使用的诊断路径：从合成的 stage2 输入开始，
+        // 只验证 stage2 -> bridge -> stage3，不跑 conv1/stage1。
         if (weights.stage2.empty() || weights.stage3.empty())
         {
             throw std::invalid_argument("ResNet-20 connected stage requires stage2 and stage3");
@@ -556,6 +594,8 @@ int run_resnet20(const RuntimeOptions &options)
     }
     else if (options.run_stage2_stage3_bridge)
     {
+        // 单独测试 bridge：先把 compact 数据嵌入稀疏物理槽位，
+        // 再运行密文 bridge，并和 compact_sparse_plain 对比。
         const Tensor bridge_sparse_input =
             embed_sparse_plain(bridge_operator_input, 32, 32, 2);
         rotation_step_groups.push_back(
@@ -637,6 +677,8 @@ int run_resnet20(const RuntimeOptions &options)
     const int previous_max_threads = omp_get_max_threads();
     omp_set_num_threads(1);
 #endif
+    // 观察到 OpenMP 多线程生成 key 时容易给 Poseidon memory pool 带来压力。
+    // 这里生成旋转 key 时临时切成单线程，优先保证稳定性。
     const auto keygen_start = Clock::now();
     if (options.run_full_he || run_sparse_stage2 || run_sparse_stage3 ||
         run_connected_stage2_stage3 || options.run_stage2_stage3_bridge ||
@@ -678,13 +720,18 @@ int run_resnet20(const RuntimeOptions &options)
 
     if (options.run_full_he)
     {
+        // `plain` 张量同步跑同一条明文网络，便于完整密文推理结束后报告 logits 误差。
         const auto compute_start = Clock::now();
+        auto profile_last = compute_start;
         poseidon::Ciphertext cipher =
             encrypt_vector(encoder, encryptor, input.values, scale, slot_count);
+        print_profile_step(options.profile, "encrypt input", profile_last, compute_start);
 
         cipher = conv2d_encrypted(cipher, input.shape, weights.conv1, encoder, *evaluator,
                                   galois_keys, scale, slot_count);
+        print_profile_step(options.profile, "conv1 convolution", profile_last, compute_start);
         activation_inplace(cipher, *evaluator, relin_keys, encoder, scale, options.activation);
+        print_profile_step(options.profile, "conv1 activation", profile_last, compute_start);
         Tensor plain = conv1_activation_plain;
         std::cout << "Encrypted full HE conv1 complete" << std::endl;
 
@@ -693,6 +740,9 @@ int run_resnet20(const RuntimeOptions &options)
             cipher = residual_block_encrypted(cipher, plain.shape, weights.stage1[block_index],
                                               encoder, *evaluator, galois_keys, relin_keys,
                                               scale, slot_count, options.activation);
+            print_profile_step(options.profile,
+                               "stage1 block" + std::to_string(block_index),
+                               profile_last, compute_start);
             plain = residual_block_plain(plain, weights.stage1[block_index], options.activation);
             std::cout << "Encrypted full HE stage1 block" << block_index
                       << " complete" << std::endl;
@@ -702,9 +752,13 @@ int run_resnet20(const RuntimeOptions &options)
             cipher, plain.shape, weights.stage2.front(), encoder, *evaluator, galois_keys,
             relin_keys, scale, slot_count, plain.shape.height, plain.shape.width, 2,
             options.activation);
+        print_profile_step(options.profile, "stage2 block0 sparse", profile_last,
+                           compute_start);
         plain = residual_block_plain(plain, weights.stage2.front(), options.activation);
         std::cout << "Encrypted full HE stage2 block0 sparse complete" << std::endl;
 
+        // 第一个 stage2 block 之后，逻辑 32x16x16 数据存放在物理 32x32x32 槽位中，
+        // spacing=2。后续 stage2 block 都保持这个稀疏布局。
         TensorShape sparse_stage2_shape{plain.shape.channels, plain.shape.height * 2,
                                         plain.shape.width * 2};
         for (size_t block_index = 1; block_index < weights.stage2.size(); ++block_index)
@@ -712,6 +766,9 @@ int run_resnet20(const RuntimeOptions &options)
             cipher = sparse_residual_block_encrypted(
                 cipher, sparse_stage2_shape, weights.stage2[block_index], encoder, *evaluator,
                 galois_keys, relin_keys, scale, slot_count, 2, options.activation);
+            print_profile_step(options.profile,
+                               "stage2 block" + std::to_string(block_index) + " sparse",
+                               profile_last, compute_start);
             plain = residual_block_plain(plain, weights.stage2[block_index], options.activation);
             std::cout << "Encrypted full HE stage2 block" << block_index
                       << " sparse complete" << std::endl;
@@ -719,12 +776,18 @@ int run_resnet20(const RuntimeOptions &options)
 
         cipher = sparse_to_compact_encrypted(cipher, sparse_stage2_shape, 2, encoder,
                                              *evaluator, galois_keys, scale, slot_count);
+        print_profile_step(options.profile, "stage2->stage3 bridge", profile_last,
+                           compute_start);
         std::cout << "Encrypted full HE stage2->stage3 bridge complete" << std::endl;
 
+        // stage3 在 stride-2 下采样后也使用稀疏布局：
+        // 逻辑 64x8x8 数据存放在物理 64x16x16 槽位中，spacing=2。
         cipher = sparse_downsample_block_encrypted(
             cipher, plain.shape, weights.stage3.front(), encoder, *evaluator, galois_keys,
             relin_keys, scale, slot_count, plain.shape.height, plain.shape.width, 2,
             options.activation);
+        print_profile_step(options.profile, "stage3 block0 sparse", profile_last,
+                           compute_start);
         plain = residual_block_plain(plain, weights.stage3.front(), options.activation);
         std::cout << "Encrypted full HE stage3 block0 sparse complete" << std::endl;
 
@@ -735,6 +798,9 @@ int run_resnet20(const RuntimeOptions &options)
             cipher = sparse_residual_block_encrypted(
                 cipher, sparse_stage3_shape, weights.stage3[block_index], encoder, *evaluator,
                 galois_keys, relin_keys, scale, slot_count, 2, options.activation);
+            print_profile_step(options.profile,
+                               "stage3 block" + std::to_string(block_index) + " sparse",
+                               profile_last, compute_start);
             plain = residual_block_plain(plain, weights.stage3[block_index], options.activation);
             std::cout << "Encrypted full HE stage3 block" << block_index
                       << " sparse complete" << std::endl;
@@ -743,12 +809,16 @@ int run_resnet20(const RuntimeOptions &options)
         cipher = sparse_global_average_pool_encrypted(cipher, sparse_stage3_shape, 2, encoder,
                                                       *evaluator, galois_keys, scale,
                                                       slot_count);
+        print_profile_step(options.profile, "stage3 sparse global average pool",
+                           profile_last, compute_start);
         cipher = linear_encrypted(cipher, weights.fc_weight, weights.fc_bias, weights.fc_in,
                                   weights.fc_out, encoder, *evaluator, galois_keys, scale,
                                   slot_count);
+        print_profile_step(options.profile, "fc linear", profile_last, compute_start);
 
         const Tensor expected_logits = linear_plain(global_average_pool_plain(plain), weights);
         const auto decoded_logits = decrypt_vector(encoder, decryptor, cipher);
+        print_profile_step(options.profile, "decrypt logits", profile_last, compute_start);
         const auto compute_end = Clock::now();
         const double logits_max_error = max_abs_error(decoded_logits, expected_logits.values);
 
