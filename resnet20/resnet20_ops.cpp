@@ -15,7 +15,8 @@ namespace ResNet20
 namespace
 {
 
-constexpr int kSparseConvBabyStep = 128;
+constexpr int kConvBabyStep = 512;
+constexpr int kSparseConvBabyStep = 512;
 
 TensorShape logical_shape_from_physical(const TensorShape &physical_shape, size_t spacing)
 {
@@ -28,6 +29,12 @@ TensorShape logical_shape_from_physical(const TensorShape &physical_shape, size_
     }
     return {physical_shape.channels, physical_shape.height / spacing,
             physical_shape.width / spacing};
+}
+
+int positive_mod(int value, int modulus)
+{
+    int result = value % modulus;
+    return result < 0 ? result + modulus : result;
 }
 
 void visit_sparse_conv_terms(
@@ -107,18 +114,18 @@ std::vector<int> sparse_conv_rotation_steps(const TensorShape &input_physical_sh
         [&](size_t input_index, size_t output_index, double)
         {
             const int step = static_cast<int>(input_index) - static_cast<int>(output_index);
-            if (step != 0)
+            const int baby = positive_mod(step, kSparseConvBabyStep);
+            const int giant = step - baby;
+            if (baby != 0)
             {
-                steps.insert(step);
+                steps.insert(baby);
+            }
+            if (giant != 0)
+            {
+                steps.insert(giant);
             }
         });
     return {steps.begin(), steps.end()};
-}
-
-int positive_mod(int value, int modulus)
-{
-    int result = value % modulus;
-    return result < 0 ? result + modulus : result;
 }
 
 poseidon::Ciphertext divide_decoded_value(const poseidon::Ciphertext &input, double divisor)
@@ -228,12 +235,6 @@ poseidon::Ciphertext sparse_conv_encrypted(const poseidon::Ciphertext &input,
     {
         for (const auto &[baby, mask] : baby_masks)
         {
-            if (std::all_of(mask.begin(), mask.end(),
-                            [](const std::complex<double> &value)
-                            { return value.real() == 0.0 && value.imag() == 0.0; }))
-            {
-                continue;
-            }
             baby_steps.insert(baby);
         }
     }
@@ -259,13 +260,6 @@ poseidon::Ciphertext sparse_conv_encrypted(const poseidon::Ciphertext &input,
         bool inner_initialized = false;
         for (const auto &[baby, mask] : baby_masks)
         {
-            if (std::all_of(mask.begin(), mask.end(),
-                            [](const std::complex<double> &value)
-                            { return value.real() == 0.0 && value.imag() == 0.0; }))
-            {
-                continue;
-            }
-
             poseidon::Plaintext plain_mask;
             encoder.encode(mask, input.parms_id(), scale, plain_mask);
 
@@ -390,9 +384,15 @@ std::vector<int> conv2d_rotation_steps(const TensorShape &input_shape,
                                 oh * output_shape.width + ow;
                             const int step =
                                 static_cast<int>(input_index) - static_cast<int>(output_index);
-                            if (step != 0)
+                            const int baby = positive_mod(step, kConvBabyStep);
+                            const int giant = step - baby;
+                            if (baby != 0)
                             {
-                                steps.insert(step);
+                                steps.insert(baby);
+                            }
+                            if (giant != 0)
+                            {
+                                steps.insert(giant);
                             }
                         }
                     }
@@ -418,7 +418,9 @@ poseidon::Ciphertext conv2d_encrypted(const poseidon::Ciphertext &input,
         throw std::invalid_argument("conv2d_encrypted: packed tensor does not fit in slots");
     }
 
-    std::map<int, std::vector<std::complex<double>>> masks_by_step;
+    // compact 卷积也使用 BSGS：把完整 rotation step 拆成 baby + giant。
+    // 这样 baby rotations 可以在同一层内复用，减少 conv1/stage1 的 key-switch 次数。
+    std::map<int, std::map<int, std::vector<std::complex<double>>>> masks_by_giant_baby;
 
     for (size_t oc = 0; oc < weights.out_channels; ++oc)
     {
@@ -452,7 +454,9 @@ poseidon::Ciphertext conv2d_encrypted(const poseidon::Ciphertext &input,
                                 oh * output_shape.width + ow;
                             const int step =
                                 static_cast<int>(input_index) - static_cast<int>(output_index);
-                            auto &mask = masks_by_step[step];
+                            const int baby = positive_mod(step, kConvBabyStep);
+                            const int giant = step - baby;
+                            auto &mask = masks_by_giant_baby[giant][baby];
                             if (mask.empty())
                             {
                                 mask.assign(slot_count, {0.0, 0.0});
@@ -462,7 +466,11 @@ poseidon::Ciphertext conv2d_encrypted(const poseidon::Ciphertext &input,
                                 ((oc * weights.in_channels + ic) * weights.kernel_h + kh) *
                                     weights.kernel_w +
                                 kw;
-                            mask[input_index] +=
+                            const size_t mask_index =
+                                static_cast<size_t>(positive_mod(
+                                    static_cast<int>(output_index) + giant,
+                                    static_cast<int>(slot_count)));
+                            mask[mask_index] +=
                                 std::complex<double>(weights.weights[weight_index], 0.0);
                         }
                     }
@@ -471,37 +479,70 @@ poseidon::Ciphertext conv2d_encrypted(const poseidon::Ciphertext &input,
         }
     }
 
+    std::set<int> baby_steps;
+    for (const auto &[_, baby_masks] : masks_by_giant_baby)
+    {
+        for (const auto &[baby, mask] : baby_masks)
+        {
+            baby_steps.insert(baby);
+        }
+    }
+
+    std::map<int, poseidon::Ciphertext> baby_rotations;
+    for (int baby : baby_steps)
+    {
+        if (baby == 0)
+        {
+            baby_rotations[baby] = input;
+        }
+        else
+        {
+            evaluator.rotate(input, baby_rotations[baby], baby, galois_keys);
+        }
+    }
+
     poseidon::Ciphertext result;
     bool initialized = false;
 
-    for (const auto &[step, mask] : masks_by_step)
+    for (const auto &[giant, baby_masks] : masks_by_giant_baby)
     {
-        if (std::all_of(mask.begin(), mask.end(),
-                        [](const std::complex<double> &value)
-                        { return value.real() == 0.0 && value.imag() == 0.0; }))
+        poseidon::Ciphertext inner;
+        bool inner_initialized = false;
+        for (const auto &[baby, mask] : baby_masks)
+        {
+            poseidon::Plaintext plain_mask;
+            encoder.encode(mask, input.parms_id(), scale, plain_mask);
+
+            poseidon::Ciphertext term;
+            evaluator.multiply_plain(baby_rotations.at(baby), plain_mask, term);
+            if (!inner_initialized)
+            {
+                inner = term;
+                inner_initialized = true;
+            }
+            else
+            {
+                evaluator.add(inner, term, inner);
+            }
+        }
+        if (!inner_initialized)
         {
             continue;
         }
 
-        poseidon::Plaintext plain_mask;
-        encoder.encode(mask, input.parms_id(), scale, plain_mask);
-
-        poseidon::Ciphertext term;
-        evaluator.multiply_plain(input, plain_mask, term);
-
-        if (step != 0)
+        if (giant != 0)
         {
-            evaluator.rotate(term, term, step, galois_keys);
+            evaluator.rotate(inner, inner, giant, galois_keys);
         }
 
         if (!initialized)
         {
-            result = term;
+            result = inner;
             initialized = true;
         }
         else
         {
-            evaluator.add(result, term, result);
+            evaluator.add(result, inner, result);
         }
     }
 

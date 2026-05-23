@@ -45,8 +45,14 @@ struct RuntimeOptions
     bool run_stage3_tail = false;
     bool plain_only = false;
     bool profile = false;
+    bool enable_bootstrap = false;
+    bool bootstrap_after_stage1 = true;
+    bool bootstrap_after_stage2_block0 = false;
+    bool bootstrap_after_stage2_block1 = false;
+    bool bootstrap_after_stage2 = true;
+    bool bootstrap_after_stage3_block1 = true;
     uint32_t scale_bits = 32;
-    size_t full_he_q_count = 52;
+    size_t full_he_q_count = 42;
     size_t stage2_direct_rotation_keys = 0;
     ActivationOptions activation;
     std::string parameters_dir;
