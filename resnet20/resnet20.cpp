@@ -3,6 +3,7 @@
 #include "resnet20_ops.h"
 #include "resnet20_params.h"
 #include "resnet20_plain.h"
+#include "poseidon/advance/homomorphic_mod.h"
 #include "poseidon/factory/poseidon_factory.h"
 #include "poseidon/keygenerator.h"
 
@@ -56,7 +57,8 @@ void print_usage(const char *program)
               << " [--run-stage2-stage3-bridge] [--run-stage2-stage3-block0]"
               << " [--run-stage2-stage3]"
               << " [--run-full-he] [--run-stage3-tail] [--plain-only]"
-              << " [--profile]"
+              << " [--profile] [--enable-bootstrap]"
+              << " [--bootstrap-points stage1,stage2b0,stage2b1,stage2,stage3b1|none]"
               << " [--activation square|apprelu] [--apprelu-bound value]"
               << " [--apprelu-rounds count]"
               << " [--scale-bits bits]"
@@ -132,6 +134,127 @@ std::vector<int> make_hybrid_rotation_key_steps(const std::vector<int> &rotation
         selected.insert(scored[i].second);
     }
     return {selected.begin(), selected.end()};
+}
+
+void parse_bootstrap_points(RuntimeOptions &options, const std::string &spec)
+{
+    options.bootstrap_after_stage1 = false;
+    options.bootstrap_after_stage2_block0 = false;
+    options.bootstrap_after_stage2_block1 = false;
+    options.bootstrap_after_stage2 = false;
+    options.bootstrap_after_stage3_block1 = false;
+
+    if (spec == "none")
+    {
+        options.enable_bootstrap = false;
+        return;
+    }
+
+    options.enable_bootstrap = true;
+    size_t begin = 0;
+    while (begin <= spec.size())
+    {
+        const size_t end = spec.find(',', begin);
+        const std::string token =
+            spec.substr(begin, end == std::string::npos ? std::string::npos : end - begin);
+        if (token == "all" || token == "default")
+        {
+            options.bootstrap_after_stage1 = true;
+            options.bootstrap_after_stage2_block0 = false;
+            options.bootstrap_after_stage2_block1 = false;
+            options.bootstrap_after_stage2 = true;
+            options.bootstrap_after_stage3_block1 = true;
+        }
+        else if (token == "stage1" || token == "after-stage1")
+        {
+            options.bootstrap_after_stage1 = true;
+        }
+        else if (token == "stage2b0" || token == "stage2-block0" ||
+                 token == "after-stage2-block0")
+        {
+            options.bootstrap_after_stage2_block0 = true;
+        }
+        else if (token == "stage2b1" || token == "stage2-block1" ||
+                 token == "after-stage2-block1")
+        {
+            options.bootstrap_after_stage2_block1 = true;
+        }
+        else if (token == "stage2" || token == "after-stage2")
+        {
+            options.bootstrap_after_stage2 = true;
+        }
+        else if (token == "stage3b1" || token == "stage3-block1" ||
+                 token == "after-stage3-block1")
+        {
+            options.bootstrap_after_stage3_block1 = true;
+        }
+        else
+        {
+            throw std::invalid_argument("unknown bootstrap point: " + token);
+        }
+
+        if (end == std::string::npos)
+        {
+            break;
+        }
+        begin = end + 1;
+    }
+}
+
+std::string bootstrap_points_label(const RuntimeOptions &options)
+{
+    std::string label;
+    const auto append = [&](const std::string &point)
+    {
+        if (!label.empty())
+        {
+            label += ",";
+        }
+        label += point;
+    };
+
+    if (options.bootstrap_after_stage1)
+    {
+        append("stage1");
+    }
+    if (options.bootstrap_after_stage2_block0)
+    {
+        append("stage2b0");
+    }
+    if (options.bootstrap_after_stage2_block1)
+    {
+        append("stage2b1");
+    }
+    if (options.bootstrap_after_stage2)
+    {
+        append("stage2");
+    }
+    if (options.bootstrap_after_stage3_block1)
+    {
+        append("stage3b1");
+    }
+    return label.empty() ? "none" : label;
+}
+
+void bootstrap_inplace(const std::string &label,
+                       poseidon::Ciphertext &cipher,
+                       const poseidon::PoseidonContext &context,
+                       poseidon::EvaluatorCkksBase &evaluator,
+                       const poseidon::RelinKeys &relin_keys,
+                       const poseidon::GaloisKeys &galois_keys,
+                       const poseidon::CKKSEncoder &encoder,
+                       double bootstrap_scale)
+{
+    const auto start = Clock::now();
+    std::cout << "Bootstrap " << label << " start: level=" << cipher.level()
+              << " scale=" << cipher.scale() << std::endl;
+    poseidon::EvalModPoly eval_mod_poly(context, poseidon::CosDiscrete, bootstrap_scale, 1, 9, 3,
+                                        16, 0, 30);
+    evaluator.bootstrap(cipher, cipher, relin_keys, galois_keys, encoder, eval_mod_poly);
+    const auto end = Clock::now();
+    std::cout << "Bootstrap " << label << " complete: level=" << cipher.level()
+              << " scale=" << cipher.scale()
+              << " time=" << elapsed_seconds(start, end) << " seconds" << std::endl;
 }
 
 double max_abs_error(const std::vector<double> &actual, const std::vector<double> &expected)
@@ -312,6 +435,24 @@ RuntimeOptions parse_options(int argc, char *argv[])
         {
             options.profile = true;
         }
+        else if (arg == "--enable-bootstrap")
+        {
+            options.enable_bootstrap = true;
+            if (!options.bootstrap_after_stage1 && !options.bootstrap_after_stage2_block0 &&
+                !options.bootstrap_after_stage2_block1 && !options.bootstrap_after_stage2 &&
+                !options.bootstrap_after_stage3_block1)
+            {
+                options.bootstrap_after_stage1 = true;
+                options.bootstrap_after_stage2_block0 = false;
+                options.bootstrap_after_stage2_block1 = false;
+                options.bootstrap_after_stage2 = true;
+                options.bootstrap_after_stage3_block1 = true;
+            }
+        }
+        else if (arg == "--bootstrap-points" && i + 1 < argc)
+        {
+            parse_bootstrap_points(options, argv[++i]);
+        }
         else if (arg == "--activation" && i + 1 < argc)
         {
             const std::string value = argv[++i];
@@ -418,6 +559,8 @@ int run_resnet20(const RuntimeOptions &options)
     }
 
     poseidon::PoseidonFactory::get_instance()->set_device_type(poseidon::DEVICE_SOFTWARE);
+    const auto setup_start = Clock::now();
+    auto setup_last = setup_start;
 
     const bool run_connected_stage2_stage3 =
         !options.run_full_he && (options.run_stage2_stage3 || options.run_stage2_stage3_block0);
@@ -454,12 +597,30 @@ int run_resnet20(const RuntimeOptions &options)
         options.run_stage2_stage3_block0 ? 22 :
         uses_apprelu ? 24 :
         (options.run_stage1 || options.run_stage2 || options.run_stage3) ? 18 : 10;
+    if (options.run_full_he)
+    {
+        const size_t estimated_log_qp = q_count * options.scale_bits + 60;
+        std::cout << "Full HE modulus budget estimate: logQ+logP ~= "
+                  << estimated_log_qp << " bits" << std::endl;
+        if (options.enable_bootstrap)
+        {
+            std::cout << "Bootstrap points: " << bootstrap_points_label(options) << std::endl;
+        }
+        if (log_degree == 16 && estimated_log_qp > 1772)
+        {
+            std::cout << "Warning: log-degree 16 with this modulus budget may exceed the "
+                         "usual 128-bit security budget; reduce --full-he-q-count or "
+                         "enable bootstrapping."
+                      << std::endl;
+        }
+    }
     std::vector<uint32_t> log_q(q_count, options.scale_bits);
     std::vector<uint32_t> log_p(1, 60);
     ckks_param_literal.set_log_modulus(log_q, log_p);
 
     auto context =
         poseidon::PoseidonFactory::get_instance()->create_poseidon_context(ckks_param_literal);
+    print_profile_step(options.profile, "setup create CKKS context", setup_last, setup_start);
     const double scale = std::pow(2.0, options.scale_bits);
     const size_t slot_count = context.parameters_literal()->degree() >> 1;
 
@@ -468,15 +629,20 @@ int run_resnet20(const RuntimeOptions &options)
     poseidon::GaloisKeys galois_keys;
     poseidon::KeyGenerator keygen(context);
     keygen.create_public_key(public_key);
+    print_profile_step(options.profile, "setup create public key", setup_last, setup_start);
     keygen.create_relin_keys(relin_keys);
+    print_profile_step(options.profile, "setup create relin keys", setup_last, setup_start);
 
     poseidon::CKKSEncoder encoder(context);
     poseidon::Encryptor encryptor(context, public_key, keygen.secret_key());
     poseidon::Decryptor decryptor(context, keygen.secret_key());
     auto evaluator = poseidon::PoseidonFactory::get_instance()->create_ckks_evaluator(context);
+    print_profile_step(options.profile, "setup create encoder/evaluator", setup_last,
+                       setup_start);
 
     const auto weights = load_or_make_weights(options.parameters_dir);
     const auto input = make_toy_input();
+    print_profile_step(options.profile, "setup load weights/input", setup_last, setup_start);
     if (input.values.size() > slot_count)
     {
         throw std::invalid_argument("ResNet-20 input does not fit in one ciphertext");
@@ -487,6 +653,7 @@ int run_resnet20(const RuntimeOptions &options)
         throw std::invalid_argument("ResNet-20 conv1 output does not fit in one ciphertext");
     }
     const Tensor conv1_activation_plain = activate_plain(conv1_plain, options.activation);
+    print_profile_step(options.profile, "setup plain conv1 reference", setup_last, setup_start);
     const Tensor stage2_operator_input =
         (run_sparse_stage2 || run_connected_stage2_stage3)
             ? make_operator_test_tensor({16, 32, 32})
@@ -501,6 +668,8 @@ int run_resnet20(const RuntimeOptions &options)
     std::vector<std::vector<int>> rotation_step_groups;
     if (options.run_full_he)
     {
+        const auto rotation_plan_start = Clock::now();
+        auto rotation_plan_last = rotation_plan_start;
         // 完整密文路径：
         // compact conv1/stage1 -> sparse stage2 -> sparse-to-compact bridge ->
         // sparse stage3 -> sparse GAP -> FC。
@@ -510,27 +679,40 @@ int run_resnet20(const RuntimeOptions &options)
         }
 
         rotation_step_groups.push_back(conv2d_rotation_steps(input.shape, weights.conv1));
+        print_profile_step(options.profile, "rotation plan conv1", rotation_plan_last,
+                           rotation_plan_start);
         TensorShape stage1_input_shape = conv1_activation_plain.shape;
-        for (const auto &block : weights.stage1)
+        for (size_t block_index = 0; block_index < weights.stage1.size(); ++block_index)
         {
+            const auto &block = weights.stage1[block_index];
             add_residual_block_rotation_steps(rotation_step_groups, stage1_input_shape, block);
             stage1_input_shape =
                 conv2d_output_shape(conv2d_output_shape(stage1_input_shape, block.conv1),
                                     block.conv2);
+            print_profile_step(options.profile,
+                               "rotation plan stage1 block" + std::to_string(block_index),
+                               rotation_plan_last, rotation_plan_start);
         }
 
         rotation_step_groups.push_back(sparse_downsample_block_rotation_steps(
             stage1_input_shape, weights.stage2.front(), stage1_input_shape.height,
             stage1_input_shape.width, 2));
+        print_profile_step(options.profile, "rotation plan stage2 block0 sparse",
+                           rotation_plan_last, rotation_plan_start);
         TensorShape sparse_stage2_shape{weights.stage2.front().conv2.out_channels,
                                         stage1_input_shape.height, stage1_input_shape.width};
         for (size_t block_index = 1; block_index < weights.stage2.size(); ++block_index)
         {
             rotation_step_groups.push_back(sparse_residual_block_rotation_steps(
                 sparse_stage2_shape, weights.stage2[block_index], 2));
+            print_profile_step(options.profile,
+                               "rotation plan stage2 block" + std::to_string(block_index),
+                               rotation_plan_last, rotation_plan_start);
         }
 
         rotation_step_groups.push_back(sparse_to_compact_rotation_steps(sparse_stage2_shape, 2));
+        print_profile_step(options.profile, "rotation plan stage2->stage3 bridge",
+                           rotation_plan_last, rotation_plan_start);
         // stage2 输出逻辑上的 32x16x16，但实际存储在物理 32x32x32 稀疏布局中。
         // stage3 需要 compact 的 32x16x16 输入，因此这里需要 bridge 把稀疏结果压紧。
         TensorShape compact_stage2_shape{weights.stage2.front().conv2.out_channels,
@@ -539,6 +721,8 @@ int run_resnet20(const RuntimeOptions &options)
         rotation_step_groups.push_back(sparse_downsample_block_rotation_steps(
             compact_stage2_shape, weights.stage3.front(), compact_stage2_shape.height,
             compact_stage2_shape.width, 2));
+        print_profile_step(options.profile, "rotation plan stage3 block0 sparse",
+                           rotation_plan_last, rotation_plan_start);
         TensorShape sparse_stage3_shape{weights.stage3.front().conv2.out_channels,
                                         compact_stage2_shape.height,
                                         compact_stage2_shape.width};
@@ -546,10 +730,17 @@ int run_resnet20(const RuntimeOptions &options)
         {
             rotation_step_groups.push_back(sparse_residual_block_rotation_steps(
                 sparse_stage3_shape, weights.stage3[block_index], 2));
+            print_profile_step(options.profile,
+                               "rotation plan stage3 block" + std::to_string(block_index),
+                               rotation_plan_last, rotation_plan_start);
         }
         rotation_step_groups.push_back(
             sparse_global_average_pool_rotation_steps(sparse_stage3_shape, 2));
+        print_profile_step(options.profile, "rotation plan stage3 sparse GAP",
+                           rotation_plan_last, rotation_plan_start);
         rotation_step_groups.push_back(linear_rotation_steps(weights.fc_in, weights.fc_out));
+        print_profile_step(options.profile, "rotation plan fc", rotation_plan_last,
+                           rotation_plan_start);
     }
     else if (run_connected_stage2_stage3)
     {
@@ -672,6 +863,7 @@ int run_resnet20(const RuntimeOptions &options)
     }
 
     const auto rotation_steps = merge_rotation_steps(rotation_step_groups);
+    print_profile_step(options.profile, "setup plan rotation steps", setup_last, setup_start);
     std::cout << "Rotation steps: " << rotation_steps.size() << std::endl;
 #ifdef _OPENMP
     const int previous_max_threads = omp_get_max_threads();
@@ -680,7 +872,12 @@ int run_resnet20(const RuntimeOptions &options)
     // 观察到 OpenMP 多线程生成 key 时容易给 Poseidon memory pool 带来压力。
     // 这里生成旋转 key 时临时切成单线程，优先保证稳定性。
     const auto keygen_start = Clock::now();
-    if (options.run_full_he || run_sparse_stage2 || run_sparse_stage3 ||
+    if (options.enable_bootstrap)
+    {
+        std::cout << "Generating full rotation keys for bootstrapping" << std::endl;
+        keygen.create_galois_keys(galois_keys);
+    }
+    else if (options.run_full_he || run_sparse_stage2 || run_sparse_stage3 ||
         run_connected_stage2_stage3 || options.run_stage2_stage3_bridge ||
         options.run_stage3_tail)
     {
@@ -747,6 +944,13 @@ int run_resnet20(const RuntimeOptions &options)
             std::cout << "Encrypted full HE stage1 block" << block_index
                       << " complete" << std::endl;
         }
+        if (options.enable_bootstrap && options.bootstrap_after_stage1)
+        {
+            bootstrap_inplace("after stage1", cipher, context, *evaluator, relin_keys,
+                              galois_keys, encoder, scale);
+            print_profile_step(options.profile, "bootstrap after stage1", profile_last,
+                               compute_start);
+        }
 
         cipher = sparse_downsample_block_encrypted(
             cipher, plain.shape, weights.stage2.front(), encoder, *evaluator, galois_keys,
@@ -756,6 +960,13 @@ int run_resnet20(const RuntimeOptions &options)
                            compute_start);
         plain = residual_block_plain(plain, weights.stage2.front(), options.activation);
         std::cout << "Encrypted full HE stage2 block0 sparse complete" << std::endl;
+        if (options.enable_bootstrap && options.bootstrap_after_stage2_block0)
+        {
+            bootstrap_inplace("after stage2 block0", cipher, context, *evaluator,
+                              relin_keys, galois_keys, encoder, scale);
+            print_profile_step(options.profile, "bootstrap after stage2 block0",
+                               profile_last, compute_start);
+        }
 
         // 第一个 stage2 block 之后，逻辑 32x16x16 数据存放在物理 32x32x32 槽位中，
         // spacing=2。后续 stage2 block 都保持这个稀疏布局。
@@ -772,6 +983,21 @@ int run_resnet20(const RuntimeOptions &options)
             plain = residual_block_plain(plain, weights.stage2[block_index], options.activation);
             std::cout << "Encrypted full HE stage2 block" << block_index
                       << " sparse complete" << std::endl;
+            if (options.enable_bootstrap && options.bootstrap_after_stage2_block1 &&
+                block_index == 1)
+            {
+                bootstrap_inplace("after stage2 block1", cipher, context, *evaluator,
+                                  relin_keys, galois_keys, encoder, scale);
+                print_profile_step(options.profile, "bootstrap after stage2 block1",
+                                   profile_last, compute_start);
+            }
+        }
+        if (options.enable_bootstrap && options.bootstrap_after_stage2)
+        {
+            bootstrap_inplace("after stage2", cipher, context, *evaluator, relin_keys,
+                              galois_keys, encoder, scale);
+            print_profile_step(options.profile, "bootstrap after stage2", profile_last,
+                               compute_start);
         }
 
         cipher = sparse_to_compact_encrypted(cipher, sparse_stage2_shape, 2, encoder,
@@ -804,6 +1030,14 @@ int run_resnet20(const RuntimeOptions &options)
             plain = residual_block_plain(plain, weights.stage3[block_index], options.activation);
             std::cout << "Encrypted full HE stage3 block" << block_index
                       << " sparse complete" << std::endl;
+            if (options.enable_bootstrap && options.bootstrap_after_stage3_block1 &&
+                block_index == 1)
+            {
+                bootstrap_inplace("after stage3 block1", cipher, context, *evaluator,
+                                  relin_keys, galois_keys, encoder, scale);
+                print_profile_step(options.profile, "bootstrap after stage3 block1",
+                                   profile_last, compute_start);
+            }
         }
 
         cipher = sparse_global_average_pool_encrypted(cipher, sparse_stage3_shape, 2, encoder,
