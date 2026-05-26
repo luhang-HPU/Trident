@@ -145,8 +145,8 @@ void validate_manifest(const std::filesystem::path &manifest_path)
     }
 
     const auto activation = manifest.value("activation", "");
-    if (activation != "relu_bn_folded" && activation != "square_bn_folded" &&
-        activation != "square")
+    if (activation != "relu_bn_folded" && activation != "apprelu_bn_folded" &&
+        activation != "square_bn_folded" && activation != "square")
     {
         throw std::invalid_argument(
             "unsupported activation metadata in manifest: " + activation);
