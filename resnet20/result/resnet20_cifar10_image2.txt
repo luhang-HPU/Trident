@@ -1,0 +1,19 @@
+image_id: 2
+weights_root: "/home/guoshuai/github/FHE-MP-CNN/pretrained_parameters/resnet20_new"
+data_root: "/home/guoshuai/github/FHE-MP-CNN/testFile"
+input_layout: chw
+weight_layout: oihw
+layer 0: shape=(16, 32, 32), min=0, max=3.49347, mean=0.500388
+block 1: shape=(16, 32, 32), min=0, max=4.91549, mean=0.593887
+block 2: shape=(16, 32, 32), min=0, max=6.28296, mean=0.781218
+block 3: shape=(16, 32, 32), min=0, max=4.64832, mean=0.921077
+block 4: shape=(32, 16, 16), min=0, max=3.98878, mean=0.59961
+block 5: shape=(32, 16, 16), min=0, max=3.98135, mean=0.606738
+block 6: shape=(32, 16, 16), min=0, max=4.93802, mean=0.581528
+block 7: shape=(64, 8, 8), min=0, max=5.1348, mean=0.418376
+block 8: shape=(64, 8, 8), min=0, max=4.85801, mean=0.356139
+block 9: shape=(64, 8, 8), min=0, max=10.3772, mean=0.903709
+logits: (6.347632, 18.990610, -3.914518, -11.216991, -9.508251, -9.230918, -8.414821, -9.866885, 20.083628, 6.736166)
+image label: 8
+inferred label: 8
+total time : 73 ms

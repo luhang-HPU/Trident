@@ -1,0 +1,538 @@
+image_id: 0
+weights_root: "/home/guoshuai/github/FHE-MP-CNN/pretrained_parameters/resnet20_new"
+data_root: "/home/guoshuai/github/FHE-MP-CNN/testFile"
+input_layout: chw
+weight_layout: oihw
+mode: he
+he_block_limit: 3
+he_activation: fhe_mp_cnn_relu
+relu_coeffs_path: "/home/guoshuai/github/FHE-MP-CNN/cnn_ckks/result/d13.txt"
+he_approximation_boundary: 40
+he_run_start
+he_run_plaintext_reference_ready
+he setup context+evaluator time : 4230 ms
+he setup public key time : 265 ms
+he setup relin key time : 5981 ms
+he setup galois key time : 189640 ms
+he setup activation/bootstrap config time : 27 ms
+he packed input log_slots : 15
+he packed input replication_p : 8
+he packed input base_slots : 3072
+he packed input roundtrip mse : 1.3053e-14
+he stem path : packed
+he stem packed pre-rotation ready
+he stem packed group 0 time : 37260 ms
+he stem packed group 1 time : 42785 ms
+he stem packed output replication done
+he stem packed conv time : 194484 ms
+he stem packed output replication_p : 2
+he stem packed conv stats metadata: level=28, scale=128, log2_scale=7, coeff_modulus_size=29
+he stem packed conv stats: active_slots=16384, min=-67959.3, max=224314, mean=17.4291
+he stem packed scale-adjust time : 8 ms
+he stem packed bn time : 74 ms
+he stem packed bn stats metadata: level=28, scale=1.09951e+12, log2_scale=40, coeff_modulus_size=29
+he stem packed bn stats: active_slots=16384, min=-0.0163258, max=0.0346433, mean=0.00807361
+he stem packed channel 0 component 0 time : 16129 ms
+he stem packed channel 0 component 0 stats: active_slots=32768, min=-0.199019, max=0.411647, mean=0.0976273
+he stem packed channel 0 component 1 time : 11124 ms
+he stem packed channel 0 component 1 stats: active_slots=32768, min=-0.846234, max=0.91603, mean=0.290159
+he stem packed channel 0 component 2 time : 9144 ms
+he stem packed channel 0 component 2 stats: active_slots=32768, min=-0.500031, max=0.50005, mean=0.163591
+he stem packed channel 0 sign_half before bias: level=9, scale=1.09951e+12, log2_scale=40, coeff_modulus_size=10
+he stem packed channel 0 original before final multiply: level=28, scale=1.09951e+12, log2_scale=40, coeff_modulus_size=29
+he stem packed channel 0 biased gate stats: active_slots=32768, min=-3.09957e-05, max=1.00005, mean=0.663591
+he stem packed channel 0 sign_half after bias: level=9, scale=1.09951e+12, log2_scale=40, coeff_modulus_size=10
+he stem packed channel 0 gate after level align stats: active_slots=32768, min=-3.09957e-05, max=1.00005, mean=0.663591
+he stem packed channel 0 original after level align stats: active_slots=32768, min=-0.0163258, max=0.0346435, mean=0.00807361
+he stem packed channel 0 gate after align: level=9, scale=1.09951e+12, log2_scale=40, coeff_modulus_size=10
+he stem packed channel 0 original after align: level=9, scale=1.09951e+12, log2_scale=40, coeff_modulus_size=10
+he stem packed channel 0 relu result metadata: level=8, scale=1.71799e+10, log2_scale=34, coeff_modulus_size=9
+he stem packed packed relu time : 37545 ms
+he stem packed relu total time : 37554 ms
+he stem packed relu stats metadata: level=8, scale=1.71799e+10, log2_scale=34, coeff_modulus_size=9
+he stem packed relu stats: active_slots=16384, min=-0.000110861, max=0.034642, mean=0.0101852
+he stem unpack time : 64 ms
+layer 0 (decrypted): shape=(16, 32, 32), min=-0.000110861, max=0.034642, mean=0.0101852
+he block 1 conv1 path : packed
+he stem packed pre-rotation ready
+he stem packed group 0 time : 6879 ms
+he stem packed group 1 time : 7406 ms
+he stem packed group 2 time : 7160 ms
+he stem packed group 3 time : 7042 ms
+he stem packed group 4 time : 6850 ms
+he stem packed group 5 time : 6944 ms
+he stem packed group 6 time : 6866 ms
+he stem packed group 7 time : 6726 ms
+he stem packed output replication done
+he block 1 packed conv1 time : 68301 ms
+he block 1 packed bn1 time : 18 ms
+he block 1 packed bootstrap1 time : 182055 ms
+he block 1 packed relu1 channel 0 component 0 time : 1704 ms
+he block 1 packed relu1 channel 0 component 0 stats: active_slots=32768, min=-0.900915, max=0.808536, mean=-0.0413928
+[2026-06-01 12:50:59] ==================== run_start ====================
+[2026-06-01 12:50:59] session timestamp: 2026-06-01 12:50:59
+[2026-06-01 12:50:59] image_id: 0
+[2026-06-01 12:50:59] weights_root: "/home/guoshuai/github/FHE-MP-CNN/pretrained_parameters/resnet20_new"
+[2026-06-01 12:50:59] data_root: "/home/guoshuai/github/FHE-MP-CNN/testFile"
+[2026-06-01 12:50:59] input_layout: chw
+[2026-06-01 12:50:59] weight_layout: oihw
+[2026-06-01 12:50:59] mode: he
+[2026-06-01 12:50:59] he_block_limit: 3
+[2026-06-01 12:50:59] he_activation: fhe_mp_cnn_relu
+[2026-06-01 12:50:59] relu_coeffs_path: "/home/guoshuai/github/FHE-MP-CNN/cnn_ckks/result/d13.txt"
+[2026-06-01 12:50:59] he_approximation_boundary: 40
+[2026-06-01 12:50:59] he_run_start
+[2026-06-01 12:50:59] he_run_plaintext_reference_ready
+[2026-06-01 12:51:04] he setup context+evaluator time : 4568 ms
+[2026-06-01 12:51:04] he setup public key time : 341 ms
+[2026-06-01 12:51:10] he setup relin key time : 6184 ms
+[2026-06-01 12:54:28] he setup galois key time : 198132 ms
+[2026-06-01 12:54:28] he setup activation/bootstrap config time : 27 ms
+[2026-06-01 12:54:29] he packed input log_slots : 15
+[2026-06-01 12:54:29] he packed input replication_p : 8
+[2026-06-01 12:54:29] he packed input base_slots : 3072
+[2026-06-01 12:54:29] he packed input roundtrip mse : 1.27923e-14
+[2026-06-01 12:54:29] he stem path : packed
+[2026-06-01 12:56:20] he stem packed pre-rotation ready
+[2026-06-01 12:56:57] he stem packed group 0 time : 37609 ms
+[2026-06-01 12:57:40] he stem packed group 1 time : 43070 ms
+[2026-06-01 12:57:42] he stem packed output replication done
+[2026-06-01 12:57:42] he stem packed conv time : 192694 ms
+[2026-06-01 12:57:42] he stem packed output replication_p : 2
+[2026-06-01 12:57:42] he stem packed conv stats metadata: level=28, scale=128, log2_scale=7, coeff_modulus_size=29
+[2026-06-01 12:57:43] he stem packed conv stats: active_slots=16384, min=-60784.2, max=211933, mean=13.8985
+[2026-06-01 12:57:43] he stem packed scale-adjust time : 9 ms
+[2026-06-01 12:57:43] he stem packed bn time : 76 ms
+[2026-06-01 12:57:43] he stem packed bn stats metadata: level=28, scale=1.09951e+12, log2_scale=40, coeff_modulus_size=29
+[2026-06-01 12:57:43] he stem packed bn stats: active_slots=16384, min=-0.0163258, max=0.0346434, mean=0.00807361
+[2026-06-01 12:58:00] he stem packed channel 0 component 0 time : 17120 ms
+[2026-06-01 12:58:01] he stem packed channel 0 component 0 stats: active_slots=32768, min=-0.199024, max=0.411647, mean=0.0976273
+[2026-06-01 12:58:11] he stem packed channel 0 component 1 time : 10489 ms
+[2026-06-01 12:58:11] he stem packed channel 0 component 1 stats: active_slots=32768, min=-0.846229, max=0.916028, mean=0.290159
+[2026-06-01 12:58:20] he stem packed channel 0 component 2 time : 8270 ms
+[2026-06-01 12:58:20] he stem packed channel 0 component 2 stats: active_slots=32768, min=-0.500029, max=0.50005, mean=0.163591
+[2026-06-01 12:58:20] he stem packed channel 0 sign_half before bias: level=9, scale=1.09951e+12, log2_scale=40, coeff_modulus_size=10
+[2026-06-01 12:58:20] he stem packed channel 0 original before final multiply: level=28, scale=1.09951e+12, log2_scale=40, coeff_modulus_size=29
+[2026-06-01 12:58:20] he stem packed channel 0 biased gate stats: active_slots=32768, min=-2.89742e-05, max=1.00005, mean=0.663591
+[2026-06-01 12:58:20] he stem packed channel 0 sign_half after bias: level=9, scale=1.09951e+12, log2_scale=40, coeff_modulus_size=10
+[2026-06-01 12:58:20] he stem packed channel 0 gate after level align stats: active_slots=32768, min=-2.89742e-05, max=1.00005, mean=0.663591
+[2026-06-01 12:58:20] he stem packed channel 0 original after level align stats: active_slots=32768, min=-0.0163262, max=0.0346434, mean=0.00807361
+[2026-06-01 12:58:20] he stem packed channel 0 gate after align: level=9, scale=1.09951e+12, log2_scale=40, coeff_modulus_size=10
+[2026-06-01 12:58:20] he stem packed channel 0 original after align: level=9, scale=1.09951e+12, log2_scale=40, coeff_modulus_size=10
+[2026-06-01 12:58:20] he stem packed channel 0 relu result metadata: level=8, scale=1.71799e+10, log2_scale=34, coeff_modulus_size=9
+[2026-06-01 12:58:20] he stem packed packed relu time : 36998 ms
+[2026-06-01 12:58:20] he stem packed relu total time : 37007 ms
+[2026-06-01 12:58:20] he stem packed relu stats metadata: level=8, scale=1.71799e+10, log2_scale=34, coeff_modulus_size=9
+[2026-06-01 12:58:20] he stem packed relu stats: active_slots=16384, min=-0.000110849, max=0.0346422, mean=0.0101852
+[2026-06-01 12:58:20] he stem unpack time : 61 ms
+[2026-06-01 12:58:20] layer 0 (decrypted): shape=(16, 32, 32), min=-0.000110849, max=0.0346422, mean=0.0101852
+he block 1 conv1 path : packed
+[2026-06-01 12:58:32] he stem packed pre-rotation ready
+[2026-06-01 12:58:38] he stem packed group 0 time : 6253 ms
+[2026-06-01 12:58:45] he stem packed group 1 time : 6577 ms
+[2026-06-01 12:58:51] he stem packed group 2 time : 6339 ms
+[2026-06-01 12:58:57] he stem packed group 3 time : 6177 ms
+[2026-06-01 12:59:03] he stem packed group 4 time : 6459 ms
+[2026-06-01 12:59:10] he stem packed group 5 time : 6315 ms
+[2026-06-01 12:59:16] he stem packed group 6 time : 5974 ms
+[2026-06-01 12:59:22] he stem packed group 7 time : 5954 ms
+[2026-06-01 12:59:22] he stem packed output replication done
+[2026-06-01 12:59:22] he block 1 packed conv1 time : 61581 ms
+[2026-06-01 12:59:22] he block 1 packed bn1 time : 16 ms
+[2026-06-01 12:59:22] he block 1 packed bn1 stats metadata: level=6, scale=1.09951e+12, log2_scale=40, coeff_modulus_size=7
+[2026-06-01 12:59:22] he block 1 packed bn1 stats: active_slots=16384, min=-0.0681402, max=0.0505658, mean=-0.00413336
+[2026-06-01 13:02:07] he block 1 packed bootstrap1 time : 164588 ms
+[2026-06-01 13:02:07] he block 1 packed bootstrap1 stats metadata: level=7, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=8
+[2026-06-01 13:02:07] he block 1 packed bootstrap1 stats: active_slots=16384, min=-0.126724, max=0.0774648, mean=-0.00629657
+[2026-06-01 13:02:08] he block 1 packed relu1 channel 0 component 0 time : 1535 ms
+[2026-06-01 13:02:08] he block 1 packed relu1 channel 0 component 0 stats: active_slots=32768, min=-1.00701, max=0.812338, mean=-0.0704284
+[2026-06-01 13:27:43] ==================== run_start ====================
+[2026-06-01 13:27:43] session timestamp: 2026-06-01 13:27:43
+[2026-06-01 13:27:43] image_id: 0
+[2026-06-01 13:27:43] weights_root: "/home/guoshuai/github/FHE-MP-CNN/pretrained_parameters/resnet20_new"
+[2026-06-01 13:27:43] data_root: "/home/guoshuai/github/FHE-MP-CNN/testFile"
+[2026-06-01 13:27:43] input_layout: chw
+[2026-06-01 13:27:43] weight_layout: oihw
+[2026-06-01 13:27:43] mode: he
+[2026-06-01 13:27:43] he_block_limit: 3
+[2026-06-01 13:27:43] he_activation: fhe_mp_cnn_relu
+[2026-06-01 13:27:43] relu_coeffs_path: "/home/guoshuai/github/FHE-MP-CNN/cnn_ckks/result/d13.txt"
+[2026-06-01 13:27:43] he_approximation_boundary: 40
+[2026-06-01 13:27:43] he_run_start
+[2026-06-01 13:27:43] he_run_plaintext_reference_ready
+[2026-06-01 13:27:50] he setup context+evaluator time : 6953 ms
+[2026-06-01 13:27:50] he setup public key time : 361 ms
+[2026-06-01 13:28:01] he setup relin key time : 10437 ms
+[2026-06-01 13:33:51] he setup galois key time : 349619 ms
+[2026-06-01 13:33:51] he setup activation/bootstrap config time : 28 ms
+[2026-06-01 13:33:51] he setup reference log_scale : 46
+[2026-06-01 13:33:51] he setup reference scale : 7.03687e+13
+[2026-06-01 13:33:51] he packed input log_slots : 15
+[2026-06-01 13:33:51] he packed input replication_p : 8
+[2026-06-01 13:33:51] he packed input base_slots : 3072
+[2026-06-01 13:33:52] he packed input roundtrip mse : 3.03682e-18
+[2026-06-01 13:33:52] he stem path : packed
+[2026-06-01 13:37:43] he stem packed pre-rotation ready
+[2026-06-01 13:38:51] he stem packed group 0 time : 68434 ms
+[2026-06-01 13:40:05] he stem packed group 1 time : 73798 ms
+[2026-06-01 13:40:08] he stem packed output replication done
+[2026-06-01 13:40:08] he stem packed conv time : 375981 ms
+[2026-06-01 13:40:08] he stem packed output replication_p : 2
+[2026-06-01 13:40:08] he stem packed conv stats metadata: level=38, scale=2.14748e+09, log2_scale=31, coeff_modulus_size=39
+[2026-06-01 13:40:09] he stem packed conv stats: active_slots=16384, min=-0.071821, max=0.0678133, mean=-2.95725e-05
+[2026-06-01 13:40:09] he stem packed scale-adjust time : 11 ms
+[2026-06-01 13:40:09] he stem packed bn time : 90 ms
+[2026-06-01 13:40:09] he stem packed bn stats metadata: level=38, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=39
+[2026-06-01 13:40:10] he stem packed bn stats: active_slots=16384, min=-0.0163274, max=0.0346444, mean=0.00807361
+[2026-06-01 13:40:39] he stem packed channel 0 component 0 time : 28853 ms
+[2026-06-01 13:40:39] he stem packed channel 0 component 0 stats: active_slots=32768, min=-0.199038, max=0.411658, mean=0.0976273
+[2026-06-01 13:41:00] he stem packed channel 0 component 1 time : 20669 ms
+[2026-06-01 13:41:01] he stem packed channel 0 component 1 stats: active_slots=32768, min=-0.846251, max=0.916029, mean=0.290158
+[2026-06-01 13:41:19] he stem packed channel 0 component 2 time : 18178 ms
+[2026-06-01 13:41:19] he stem packed channel 0 component 2 stats: active_slots=32768, min=-0.500025, max=0.50005, mean=0.16359
+[2026-06-01 13:41:19] he stem packed channel 0 sign_half before bias: level=18, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=19
+[2026-06-01 13:41:19] he stem packed channel 0 original before final multiply: level=38, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=39
+[2026-06-01 13:41:19] he stem packed channel 0 biased gate stats: active_slots=32768, min=-2.4747e-05, max=1.00005, mean=0.66359
+[2026-06-01 13:41:19] he stem packed channel 0 sign_half after bias: level=18, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=19
+[2026-06-01 13:41:19] he stem packed channel 0 gate after level align stats: active_slots=32768, min=-2.4747e-05, max=1.00005, mean=0.66359
+[2026-06-01 13:41:20] he stem packed channel 0 original after level align stats: active_slots=32768, min=-0.0163274, max=0.0346444, mean=0.00807361
+[2026-06-01 13:41:20] he stem packed channel 0 gate after align: level=18, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=19
+[2026-06-01 13:41:20] he stem packed channel 0 original after align: level=18, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=19
+[2026-06-01 13:41:21] he stem packed channel 0 relu result metadata: level=17, scale=7.03688e+13, log2_scale=46, coeff_modulus_size=18
+[2026-06-01 13:41:21] he stem packed packed relu time : 70630 ms
+[2026-06-01 13:41:21] he stem packed relu total time : 70642 ms
+[2026-06-01 13:41:21] he stem packed relu stats metadata: level=17, scale=7.03688e+13, log2_scale=46, coeff_modulus_size=18
+[2026-06-01 13:41:21] he stem packed relu stats: active_slots=16384, min=-0.000110811, max=0.0346432, mean=0.0101852
+[2026-06-01 13:41:21] he stem unpack time : 220 ms
+[2026-06-01 13:41:21] layer 0 (decrypted): shape=(16, 32, 32), min=-0.000110811, max=0.0346432, mean=0.0101852
+he block 1 conv1 path : packed
+[2026-06-01 13:42:05] he stem packed pre-rotation ready
+[2026-06-01 13:42:30] he stem packed group 0 time : 24266 ms
+[2026-06-01 13:42:56] he stem packed group 1 time : 26272 ms
+[2026-06-01 13:43:21] he stem packed group 2 time : 24943 ms
+[2026-06-01 13:43:45] he stem packed group 3 time : 24619 ms
+[2026-06-01 13:44:10] he stem packed group 4 time : 24665 ms
+[2026-06-01 13:44:34] he stem packed group 5 time : 23733 ms
+[2026-06-01 13:44:58] he stem packed group 6 time : 23997 ms
+[2026-06-01 13:45:21] he stem packed group 7 time : 23347 ms
+[2026-06-01 13:45:22] he stem packed output replication done
+[2026-06-01 13:45:22] he block 1 packed conv1 time : 240731 ms
+[2026-06-01 13:45:22] he block 1 packed bn1 time : 43 ms
+[2026-06-01 13:45:22] he block 1 packed bn1 stats metadata: level=15, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=16
+[2026-06-01 13:45:22] he block 1 packed bn1 stats: active_slots=16384, min=-0.0480255, max=0.0300801, mean=-0.00327671
+[2026-06-01 13:51:52] he block 1 packed bootstrap1 time : 389561 ms
+[2026-06-01 13:51:52] he block 1 packed bootstrap1 stats metadata: level=18, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=19
+[2026-06-01 13:51:52] he block 1 packed bootstrap1 stats: active_slots=16384, min=-0.768181, max=0.481947, mean=-0.0524566
+[2026-06-01 13:52:00] he block 1 packed relu1 channel 0 component 0 time : 8194 ms
+[2026-06-01 13:52:00] he block 1 packed relu1 channel 0 component 0 stats: active_slots=32768, min=-0.975797, max=0.976047, mean=0.0233426
+[2026-06-01 13:52:05] he block 1 packed relu1 channel 0 component 1 time : 4784 ms
+[2026-06-01 13:52:05] he block 1 packed relu1 channel 0 component 1 stats: active_slots=32768, min=-0.918319, max=0.919599, mean=-0.0285517
+[2026-06-01 13:52:08] he block 1 packed relu1 channel 0 component 2 time : 3018 ms
+[2026-06-01 13:52:08] he block 1 packed relu1 channel 0 component 2 stats: active_slots=32768, min=-0.500383, max=0.500322, mean=-0.0588349
+[2026-06-01 13:52:08] he block 1 packed relu1 channel 0 sign_half before bias: level=2, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=3
+[2026-06-01 13:52:08] he block 1 packed relu1 channel 0 original before final multiply: level=18, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=19
+[2026-06-01 13:52:08] he block 1 packed relu1 channel 0 biased gate stats: active_slots=32768, min=-0.00038329, max=1.00032, mean=0.441165
+[2026-06-01 13:52:08] he block 1 packed relu1 channel 0 sign_half after bias: level=2, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=3
+[2026-06-01 13:52:08] he block 1 packed relu1 channel 0 gate after level align stats: active_slots=32768, min=-0.00038329, max=1.00032, mean=0.441165
+[2026-06-01 13:52:08] he block 1 packed relu1 channel 0 original after level align stats: active_slots=32768, min=-0.768288, max=0.481947, mean=-0.0524522
+[2026-06-01 13:52:08] he block 1 packed relu1 channel 0 gate after align: level=2, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=3
+[2026-06-01 13:52:08] he block 1 packed relu1 channel 0 original after align: level=2, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=3
+[2026-06-01 13:52:08] he block 1 packed relu1 channel 0 relu result metadata: level=1, scale=7.03688e+13, log2_scale=46, coeff_modulus_size=2
+[2026-06-01 13:52:08] he block 1 packed relu1 packed relu time : 16416 ms
+[2026-06-01 13:52:08] he block 1 packed relu1 time : 16429 ms
+he block 1 conv2 path : packed
+[2026-06-01 13:52:10] he stem packed pre-rotation ready
+[2026-06-01 14:00:40] ==================== run_start ====================
+[2026-06-01 14:00:40] session timestamp: 2026-06-01 14:00:40
+[2026-06-01 14:00:40] image_id: 0
+[2026-06-01 14:00:40] weights_root: "/home/guoshuai/github/FHE-MP-CNN/pretrained_parameters/resnet20_new"
+[2026-06-01 14:00:40] data_root: "/home/guoshuai/github/FHE-MP-CNN/testFile"
+[2026-06-01 14:00:40] input_layout: chw
+[2026-06-01 14:00:40] weight_layout: oihw
+[2026-06-01 14:00:40] mode: he
+[2026-06-01 14:00:40] he_block_limit: 3
+[2026-06-01 14:00:40] he_activation: fhe_mp_cnn_relu
+[2026-06-01 14:00:40] relu_coeffs_path: "/home/guoshuai/github/FHE-MP-CNN/cnn_ckks/result/d13.txt"
+[2026-06-01 14:00:40] he_approximation_boundary: 40
+[2026-06-01 14:00:40] he_run_start
+[2026-06-01 14:00:40] he_run_plaintext_reference_ready
+[2026-06-01 14:00:49] he setup context+evaluator time : 8362 ms
+[2026-06-01 14:00:49] he setup public key time : 425 ms
+[2026-06-01 14:01:02] he setup relin key time : 13019 ms
+[2026-06-01 14:07:28] he setup galois key time : 385741 ms
+[2026-06-01 14:07:28] he setup activation/bootstrap config time : 27 ms
+[2026-06-01 14:07:28] he setup reference log_scale : 46
+[2026-06-01 14:07:28] he setup reference scale : 7.03687e+13
+[2026-06-01 14:07:29] he packed input log_slots : 15
+[2026-06-01 14:07:29] he packed input replication_p : 8
+[2026-06-01 14:07:29] he packed input base_slots : 3072
+[2026-06-01 14:07:30] he packed input roundtrip mse : 3.26726e-18
+[2026-06-01 14:07:30] he stem path : packed
+[2026-06-01 14:11:14] he stem packed pre-rotation ready
+[2026-06-01 14:12:32] he stem packed group 0 time : 77217 ms
+[2026-06-01 14:13:51] he stem packed group 1 time : 79025 ms
+[2026-06-01 14:13:54] he stem packed output replication done
+[2026-06-01 14:13:54] he stem packed conv time : 383943 ms
+[2026-06-01 14:13:54] he stem packed output replication_p : 2
+[2026-06-01 14:13:54] he stem packed conv stats metadata: level=40, scale=2.14748e+09, log2_scale=31, coeff_modulus_size=41
+[2026-06-01 14:13:54] he stem packed conv stats: active_slots=16384, min=-0.071659, max=0.0677289, mean=-2.92536e-05
+[2026-06-01 14:13:55] he stem packed scale-adjust time : 12 ms
+[2026-06-01 14:13:55] he stem packed bn time : 97 ms
+[2026-06-01 14:13:55] he stem packed bn stats metadata: level=40, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=41
+[2026-06-01 14:13:55] he stem packed bn stats: active_slots=16384, min=-0.0163274, max=0.0346444, mean=0.00807361
+[2026-06-01 14:14:29] he stem packed channel 0 component 0 time : 33389 ms
+[2026-06-01 14:14:30] he stem packed channel 0 component 0 stats: active_slots=32768, min=-0.199038, max=0.411658, mean=0.0976273
+[2026-06-01 14:14:53] he stem packed channel 0 component 1 time : 23175 ms
+[2026-06-01 14:14:53] he stem packed channel 0 component 1 stats: active_slots=32768, min=-0.846251, max=0.916029, mean=0.290158
+[2026-06-01 14:15:15] he stem packed channel 0 component 2 time : 21618 ms
+[2026-06-01 14:15:15] he stem packed channel 0 component 2 stats: active_slots=32768, min=-0.500025, max=0.50005, mean=0.16359
+[2026-06-01 14:15:15] he stem packed channel 0 sign_half before bias: level=20, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=21
+[2026-06-01 14:15:15] he stem packed channel 0 original before final multiply: level=40, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=41
+[2026-06-01 14:15:15] he stem packed channel 0 biased gate stats: active_slots=32768, min=-2.47467e-05, max=1.00005, mean=0.66359
+[2026-06-01 14:15:15] he stem packed channel 0 sign_half after bias: level=20, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=21
+[2026-06-01 14:15:16] he stem packed channel 0 gate after level align stats: active_slots=32768, min=-2.47467e-05, max=1.00005, mean=0.66359
+[2026-06-01 14:15:16] he stem packed channel 0 original after level align stats: active_slots=32768, min=-0.0163274, max=0.0346444, mean=0.00807361
+[2026-06-01 14:15:16] he stem packed channel 0 gate after align: level=20, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=21
+[2026-06-01 14:15:16] he stem packed channel 0 original after align: level=20, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=21
+[2026-06-01 14:15:17] he stem packed channel 0 relu result metadata: level=19, scale=7.03688e+13, log2_scale=46, coeff_modulus_size=20
+[2026-06-01 14:15:17] he stem packed packed relu time : 81647 ms
+[2026-06-01 14:15:17] he stem packed relu total time : 81661 ms
+[2026-06-01 14:15:17] he stem packed relu stats metadata: level=19, scale=7.03688e+13, log2_scale=46, coeff_modulus_size=20
+[2026-06-01 14:15:17] he stem packed relu stats: active_slots=16384, min=-0.000110811, max=0.0346432, mean=0.0101852
+[2026-06-01 14:15:18] he stem unpack time : 245 ms
+[2026-06-01 14:15:18] layer 0 (decrypted): shape=(16, 32, 32), min=-0.000110811, max=0.0346432, mean=0.0101852
+he block 1 conv1 path : packed
+[2026-06-01 14:16:10] he stem packed pre-rotation ready
+[2026-06-01 14:16:40] he stem packed group 0 time : 29547 ms
+[2026-06-01 14:17:12] he stem packed group 1 time : 32494 ms
+[2026-06-01 14:17:43] he stem packed group 2 time : 30782 ms
+[2026-06-01 14:18:13] he stem packed group 3 time : 30183 ms
+[2026-06-01 14:18:43] he stem packed group 4 time : 30060 ms
+[2026-06-01 14:19:13] he stem packed group 5 time : 29773 ms
+[2026-06-01 14:19:42] he stem packed group 6 time : 28680 ms
+[2026-06-01 14:20:10] he stem packed group 7 time : 28181 ms
+[2026-06-01 14:20:11] he stem packed output replication done
+[2026-06-01 14:20:11] he block 1 packed conv1 time : 292927 ms
+[2026-06-01 14:20:11] he block 1 packed bn1 time : 49 ms
+[2026-06-01 14:20:11] he block 1 packed bn1 stats metadata: level=17, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=18
+[2026-06-01 14:20:11] he block 1 packed bn1 stats: active_slots=16384, min=-0.0480255, max=0.0300801, mean=-0.00327671
+[2026-06-01 14:26:51] he block 1 packed bootstrap1 time : 400095 ms
+[2026-06-01 14:26:51] he block 1 packed bootstrap1 stats metadata: level=20, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=21
+[2026-06-01 14:26:51] he block 1 packed bootstrap1 stats: active_slots=16384, min=-0.769097, max=0.481529, mean=-0.0525466
+[2026-06-01 14:27:01] he block 1 packed relu1 channel 0 component 0 time : 9250 ms
+[2026-06-01 14:27:01] he block 1 packed relu1 channel 0 component 0 stats: active_slots=32768, min=-0.9758, max=0.976062, mean=0.0236804
+[2026-06-01 14:27:06] he block 1 packed relu1 channel 0 component 1 time : 5456 ms
+[2026-06-01 14:27:06] he block 1 packed relu1 channel 0 component 1 stats: active_slots=32768, min=-0.918088, max=0.918173, mean=-0.0276166
+[2026-06-01 14:27:10] he block 1 packed relu1 channel 0 component 2 time : 3958 ms
+[2026-06-01 14:27:10] he block 1 packed relu1 channel 0 component 2 stats: active_slots=32768, min=-0.500329, max=0.500283, mean=-0.0588299
+[2026-06-01 14:27:10] he block 1 packed relu1 channel 0 sign_half before bias: level=4, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=5
+[2026-06-01 14:27:10] he block 1 packed relu1 channel 0 original before final multiply: level=20, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=21
+[2026-06-01 14:27:10] he block 1 packed relu1 channel 0 biased gate stats: active_slots=32768, min=-0.000329165, max=1.00028, mean=0.44117
+[2026-06-01 14:27:10] he block 1 packed relu1 channel 0 sign_half after bias: level=4, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=5
+[2026-06-01 14:27:10] he block 1 packed relu1 channel 0 gate after level align stats: active_slots=32768, min=-0.000329165, max=1.00028, mean=0.44117
+[2026-06-01 14:27:10] he block 1 packed relu1 channel 0 original after level align stats: active_slots=32768, min=-0.769097, max=0.481553, mean=-0.0525457
+[2026-06-01 14:27:10] he block 1 packed relu1 channel 0 gate after align: level=4, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=5
+[2026-06-01 14:27:10] he block 1 packed relu1 channel 0 original after align: level=4, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=5
+[2026-06-01 14:27:11] he block 1 packed relu1 channel 0 relu result metadata: level=3, scale=7.03688e+13, log2_scale=46, coeff_modulus_size=4
+[2026-06-01 14:27:11] he block 1 packed relu1 packed relu time : 19216 ms
+[2026-06-01 14:27:11] he block 1 packed relu1 time : 19233 ms
+he block 1 conv2 path : packed
+[2026-06-01 14:27:14] he stem packed pre-rotation ready
+[2026-06-01 14:27:15] he stem packed group 0 time : 1567 ms
+[2026-06-01 14:27:17] he stem packed group 1 time : 1649 ms
+[2026-06-01 14:27:19] he stem packed group 2 time : 1604 ms
+[2026-06-01 14:27:20] he stem packed group 3 time : 1645 ms
+[2026-06-01 14:27:22] he stem packed group 4 time : 1654 ms
+[2026-06-01 14:27:23] he stem packed group 5 time : 1609 ms
+[2026-06-01 14:27:25] he stem packed group 6 time : 1573 ms
+[2026-06-01 14:27:27] he stem packed group 7 time : 1570 ms
+[2026-06-01 14:27:27] he stem packed output replication done
+[2026-06-01 14:27:27] he block 1 packed conv2 time : 16126 ms
+[2026-06-01 14:27:27] he block 1 packed bn2 time : 6 ms
+[2026-06-01 14:27:27] he block 1 packed bn2 stats metadata: level=1, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=2
+[2026-06-01 14:27:27] he block 1 packed bn2 stats: active_slots=16384, min=-0.274723, max=0.442641, mean=-0.0140054
+[2026-06-01 14:27:27] he block 1 packed add time : 28 ms
+[2026-06-01 14:27:27] he block 1 packed add stats metadata: level=1, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=2
+[2026-06-01 14:27:27] he block 1 packed add stats: active_slots=16384, min=-0.263536, max=0.45383, mean=-0.00382022
+[2026-06-01 14:33:57] he block 1 packed bootstrap2 time : 390645 ms
+[2026-06-01 14:33:57] he block 1 packed bootstrap2 stats metadata: level=20, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=21
+[2026-06-01 14:33:58] he block 1 packed bootstrap2 stats: active_slots=16384, min=-4.21607, max=7.26147, mean=-0.0612425
+[2026-06-01 14:34:07] he block 1 packed relu2 channel 0 component 0 time : 9581 ms
+[2026-06-01 14:34:07] he block 1 packed relu2 channel 0 component 0 stats: active_slots=32768, min=-6.31427e+16, max=1.57106e+13, mean=-2.1553e+13
+[2026-06-01 14:34:25] he block 1 packed relu2 channel 0 component 1 time : 17160 ms
+[2026-06-01 14:34:25] he block 1 packed relu2 channel 0 component 1 stats: active_slots=32768, min=-2.10854e+142, max=1.97528e+142, mean=1.18056e+139
+[2026-06-01 14:34:40] he block 1 packed relu2 channel 0 component 2 time : 14826 ms
+[2026-06-01 14:34:40] he block 1 packed relu2 channel 0 component 2 stats: active_slots=32768, min=-1.75498e+59, max=1.75946e+59, mean=2.49404e+56
+[2026-06-01 14:34:40] he block 1 packed relu2 channel 0 sign_half before bias: level=4, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=5
+[2026-06-01 14:34:40] he block 1 packed relu2 channel 0 original before final multiply: level=20, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=21
+[2026-06-01 14:34:40] he block 1 packed relu2 channel 0 biased gate stats: active_slots=32768, min=-1.75498e+59, max=1.75946e+59, mean=2.49404e+56
+[2026-06-01 14:34:40] he block 1 packed relu2 channel 0 sign_half after bias: level=4, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=5
+[2026-06-01 14:34:40] he block 1 packed relu2 channel 0 gate after level align stats: active_slots=32768, min=-1.75498e+59, max=1.75946e+59, mean=2.49404e+56
+[2026-06-01 14:34:40] he block 1 packed relu2 channel 0 original after level align stats: active_slots=32768, min=-4.21648, max=7.26147, mean=-0.061242
+[2026-06-01 14:34:40] he block 1 packed relu2 channel 0 gate after align: level=4, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=5
+[2026-06-01 14:34:40] he block 1 packed relu2 channel 0 original after align: level=4, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=5
+[2026-06-01 14:34:40] he block 1 packed relu2 channel 0 relu result metadata: level=3, scale=7.03688e+13, log2_scale=46, coeff_modulus_size=4
+[2026-06-01 14:34:40] he block 1 packed relu2 packed relu time : 42622 ms
+[2026-06-01 14:34:40] he block 1 packed relu2 time : 42640 ms
+[2026-06-01 14:34:53] block 1 (decrypted): shape=(16, 32, 32), min=0, max=0, mean=0
+he block 2 conv1 path : packed
+[2026-06-01 14:35:07] he stem packed pre-rotation ready
+[2026-06-01 14:35:11] he stem packed group 0 time : 4225 ms
+[2026-06-01 14:35:14] he stem packed group 1 time : 3194 ms
+[2026-06-01 14:35:17] he stem packed group 2 time : 2379 ms
+[2026-06-01 14:35:19] he stem packed group 3 time : 2019 ms
+[2026-06-01 14:35:21] he stem packed group 4 time : 1949 ms
+[2026-06-01 14:35:23] he stem packed group 5 time : 1922 ms
+[2026-06-01 14:35:24] he stem packed group 6 time : 1640 ms
+[2026-06-01 14:35:26] he stem packed group 7 time : 1479 ms
+[2026-06-01 14:35:26] he stem packed output replication done
+[2026-06-01 14:35:26] he block 2 packed conv1 time : 32493 ms
+[2026-06-01 14:35:26] he block 2 packed bn1 time : 19 ms
+[2026-06-01 14:35:26] he block 2 packed bn1 stats metadata: level=1, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=2
+[2026-06-01 14:35:26] he block 2 packed bn1 stats: active_slots=16384, min=-3.29305e+17, max=3.22925e+17, mean=-4.26023e+14
+[2026-06-01 14:41:19] he block 2 packed bootstrap1 time : 353056 ms
+[2026-06-01 14:41:19] he block 2 packed bootstrap1 stats metadata: level=20, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=21
+[2026-06-01 14:41:19] he block 2 packed bootstrap1 stats: active_slots=16384, min=-27397.3, max=31592.7, mean=61.9903
+[2026-06-01 14:41:27] he block 2 packed relu1 channel 0 component 0 time : 8128 ms
+[2026-06-01 14:41:28] he block 2 packed relu1 channel 0 component 0 stats: active_slots=32768, min=-9.84566e+70, max=3.5885e+71, mean=1.89706e+67
+[2026-06-01 14:41:33] he block 2 packed relu1 channel 0 component 1 time : 5030 ms
+[2026-06-01 14:41:33] he block 2 packed relu1 channel 0 component 1 stats: active_slots=32768, min=-2.05312e+142, max=2.10007e+142, mean=-2.59208e+139
+[2026-06-01 14:41:36] he block 2 packed relu1 channel 0 component 2 time : 3650 ms
+[2026-06-01 14:41:36] he block 2 packed relu1 channel 0 component 2 stats: active_slots=32768, min=-1.56837e+59, max=1.71906e+59, mean=3.64483e+56
+[2026-06-01 14:41:36] he block 2 packed relu1 channel 0 sign_half before bias: level=4, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=5
+[2026-06-01 14:41:36] he block 2 packed relu1 channel 0 original before final multiply: level=20, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=21
+[2026-06-01 14:41:36] he block 2 packed relu1 channel 0 biased gate stats: active_slots=32768, min=-1.56837e+59, max=1.71906e+59, mean=3.64483e+56
+[2026-06-01 14:41:36] he block 2 packed relu1 channel 0 sign_half after bias: level=4, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=5
+[2026-06-01 14:41:36] he block 2 packed relu1 channel 0 gate after level align stats: active_slots=32768, min=-1.56837e+59, max=1.71906e+59, mean=3.64483e+56
+[2026-06-01 14:41:36] he block 2 packed relu1 channel 0 original after level align stats: active_slots=32768, min=-27397.3, max=31592.7, mean=61.9903
+[2026-06-01 14:41:36] he block 2 packed relu1 channel 0 gate after align: level=4, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=5
+[2026-06-01 14:41:36] he block 2 packed relu1 channel 0 original after align: level=4, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=5
+[2026-06-01 14:41:36] he block 2 packed relu1 channel 0 relu result metadata: level=3, scale=7.03688e+13, log2_scale=46, coeff_modulus_size=4
+[2026-06-01 14:41:36] he block 2 packed relu1 packed relu time : 17273 ms
+[2026-06-01 14:41:36] he block 2 packed relu1 time : 17281 ms
+he block 2 conv2 path : packed
+[2026-06-01 14:41:39] he stem packed pre-rotation ready
+[2026-06-01 14:41:41] he stem packed group 0 time : 1503 ms
+[2026-06-01 14:41:43] he stem packed group 1 time : 1627 ms
+[2026-06-01 14:41:44] he stem packed group 2 time : 1634 ms
+[2026-06-01 14:41:46] he stem packed group 3 time : 1552 ms
+[2026-06-01 14:41:47] he stem packed group 4 time : 1547 ms
+[2026-06-01 14:41:49] he stem packed group 5 time : 1560 ms
+[2026-06-01 14:41:50] he stem packed group 6 time : 1562 ms
+[2026-06-01 14:41:52] he stem packed group 7 time : 1452 ms
+[2026-06-01 14:41:52] he stem packed output replication done
+[2026-06-01 14:41:52] he block 2 packed conv2 time : 15442 ms
+[2026-06-01 14:41:52] he block 2 packed bn2 time : 6 ms
+[2026-06-01 14:41:52] he block 2 packed bn2 stats metadata: level=1, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=2
+[2026-06-01 14:41:52] he block 2 packed bn2 stats: active_slots=16384, min=-3.19777e+17, max=3.7799e+17, mean=9.14023e+14
+[2026-06-01 14:41:52] he block 2 packed add time : 4 ms
+[2026-06-01 14:41:52] he block 2 packed add stats metadata: level=1, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=2
+[2026-06-01 14:41:52] he block 2 packed add stats: active_slots=16384, min=-4.72272e+17, max=4.68679e+17, mean=-1.88155e+15
+[2026-06-01 14:47:31] he block 2 packed bootstrap2 time : 338778 ms
+[2026-06-01 14:47:31] he block 2 packed bootstrap2 stats metadata: level=20, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=21
+[2026-06-01 14:47:31] he block 2 packed bootstrap2 stats: active_slots=16384, min=-44503.4, max=40952.4, mean=98.1825
+[2026-06-01 14:47:39] he block 2 packed relu2 channel 0 component 0 time : 8247 ms
+[2026-06-01 14:47:39] he block 2 packed relu2 channel 0 component 0 stats: active_slots=32768, min=-9.55954e+73, max=7.80674e+73, mean=-3.11392e+69
+[2026-06-01 14:47:44] he block 2 packed relu2 channel 0 component 1 time : 5018 ms
+[2026-06-01 14:47:45] he block 2 packed relu2 channel 0 component 1 stats: active_slots=32768, min=-1.99672e+142, max=2.00028e+142, mean=4.042e+139
+[2026-06-01 14:47:48] he block 2 packed relu2 channel 0 component 2 time : 3637 ms
+[2026-06-01 14:47:48] he block 2 packed relu2 channel 0 component 2 stats: active_slots=32768, min=-1.52564e+59, max=1.76038e+59, mean=-2.95926e+56
+[2026-06-01 14:47:48] he block 2 packed relu2 channel 0 sign_half before bias: level=4, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=5
+[2026-06-01 14:47:48] he block 2 packed relu2 channel 0 original before final multiply: level=20, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=21
+[2026-06-01 14:47:48] he block 2 packed relu2 channel 0 biased gate stats: active_slots=32768, min=-1.52564e+59, max=1.76038e+59, mean=-2.95926e+56
+[2026-06-01 14:47:48] he block 2 packed relu2 channel 0 sign_half after bias: level=4, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=5
+[2026-06-01 14:47:48] he block 2 packed relu2 channel 0 gate after level align stats: active_slots=32768, min=-1.52564e+59, max=1.76038e+59, mean=-2.95926e+56
+[2026-06-01 14:47:48] he block 2 packed relu2 channel 0 original after level align stats: active_slots=32768, min=-44503.4, max=46518.6, mean=81.4199
+[2026-06-01 14:47:48] he block 2 packed relu2 channel 0 gate after align: level=4, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=5
+[2026-06-01 14:47:48] he block 2 packed relu2 channel 0 original after align: level=4, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=5
+[2026-06-01 14:47:48] he block 2 packed relu2 channel 0 relu result metadata: level=3, scale=7.03688e+13, log2_scale=46, coeff_modulus_size=4
+[2026-06-01 14:47:48] he block 2 packed relu2 packed relu time : 17359 ms
+[2026-06-01 14:47:48] he block 2 packed relu2 time : 17366 ms
+[2026-06-01 14:47:51] block 2 (decrypted): shape=(16, 32, 32), min=0, max=0, mean=0
+he block 3 conv1 path : packed
+[2026-06-01 14:47:54] he stem packed pre-rotation ready
+[2026-06-01 14:47:56] he stem packed group 0 time : 1484 ms
+[2026-06-01 14:47:57] he stem packed group 1 time : 1597 ms
+[2026-06-01 14:47:59] he stem packed group 2 time : 1652 ms
+[2026-06-01 14:48:01] he stem packed group 3 time : 1558 ms
+[2026-06-01 14:48:02] he stem packed group 4 time : 1548 ms
+[2026-06-01 14:48:04] he stem packed group 5 time : 1537 ms
+[2026-06-01 14:48:05] he stem packed group 6 time : 1567 ms
+[2026-06-01 14:48:07] he stem packed group 7 time : 1455 ms
+[2026-06-01 14:48:07] he stem packed output replication done
+[2026-06-01 14:48:07] he block 3 packed conv1 time : 15428 ms
+[2026-06-01 14:48:07] he block 3 packed bn1 time : 6 ms
+[2026-06-01 14:48:07] he block 3 packed bn1 stats metadata: level=1, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=2
+[2026-06-01 14:48:07] he block 3 packed bn1 stats: active_slots=16384, min=-3.0483e+17, max=3.23458e+17, mean=-8.4562e+14
+[2026-06-01 14:53:46] he block 3 packed bootstrap1 time : 339741 ms
+[2026-06-01 14:53:46] he block 3 packed bootstrap1 stats metadata: level=20, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=21
+[2026-06-01 14:53:47] he block 3 packed bootstrap1 stats: active_slots=16384, min=-27992.1, max=26770.7, mean=-80.9886
+[2026-06-01 14:53:55] he block 3 packed relu1 channel 0 component 0 time : 8250 ms
+[2026-06-01 14:53:55] he block 3 packed relu1 channel 0 component 0 stats: active_slots=32768, min=-5.97344e+70, max=7.64482e+70, mean=1.76908e+67
+[2026-06-01 14:54:00] he block 3 packed relu1 channel 0 component 1 time : 5198 ms
+[2026-06-01 14:54:00] he block 3 packed relu1 channel 0 component 1 stats: active_slots=32768, min=-2.00218e+142, max=2.06968e+142, mean=3.65589e+139
+[2026-06-01 14:54:04] he block 3 packed relu1 channel 0 component 2 time : 3733 ms
+[2026-06-01 14:54:04] he block 3 packed relu1 channel 0 component 2 stats: active_slots=32768, min=-1.81757e+59, max=1.65442e+59, mean=-2.72294e+56
+[2026-06-01 14:54:04] he block 3 packed relu1 channel 0 sign_half before bias: level=4, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=5
+[2026-06-01 14:54:04] he block 3 packed relu1 channel 0 original before final multiply: level=20, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=21
+[2026-06-01 14:54:04] he block 3 packed relu1 channel 0 biased gate stats: active_slots=32768, min=-1.81757e+59, max=1.65442e+59, mean=-2.72294e+56
+[2026-06-01 14:54:04] he block 3 packed relu1 channel 0 sign_half after bias: level=4, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=5
+[2026-06-01 14:54:04] he block 3 packed relu1 channel 0 gate after level align stats: active_slots=32768, min=-1.81757e+59, max=1.65442e+59, mean=-2.72294e+56
+[2026-06-01 14:54:04] he block 3 packed relu1 channel 0 original after level align stats: active_slots=32768, min=-27992.1, max=26770.7, mean=-80.9886
+[2026-06-01 14:54:04] he block 3 packed relu1 channel 0 gate after align: level=4, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=5
+[2026-06-01 14:54:04] he block 3 packed relu1 channel 0 original after align: level=4, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=5
+[2026-06-01 14:54:04] he block 3 packed relu1 channel 0 relu result metadata: level=3, scale=7.03688e+13, log2_scale=46, coeff_modulus_size=4
+[2026-06-01 14:54:04] he block 3 packed relu1 packed relu time : 17661 ms
+[2026-06-01 14:54:04] he block 3 packed relu1 time : 17668 ms
+he block 3 conv2 path : packed
+[2026-06-01 14:54:07] he stem packed pre-rotation ready
+[2026-06-01 14:54:09] he stem packed group 0 time : 1532 ms
+[2026-06-01 14:54:11] he stem packed group 1 time : 1649 ms
+[2026-06-01 14:54:12] he stem packed group 2 time : 1557 ms
+[2026-06-01 14:54:14] he stem packed group 3 time : 1527 ms
+[2026-06-01 14:54:15] he stem packed group 4 time : 1537 ms
+[2026-06-01 14:54:17] he stem packed group 5 time : 1571 ms
+[2026-06-01 14:54:18] he stem packed group 6 time : 1487 ms
+[2026-06-01 14:54:20] he stem packed group 7 time : 1455 ms
+[2026-06-01 14:54:20] he stem packed output replication done
+[2026-06-01 14:54:20] he block 3 packed conv2 time : 15361 ms
+[2026-06-01 14:54:20] he block 3 packed bn2 time : 6 ms
+[2026-06-01 14:54:20] he block 3 packed bn2 stats metadata: level=1, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=2
+[2026-06-01 14:54:20] he block 3 packed bn2 stats: active_slots=16384, min=-3.66459e+17, max=3.43086e+17, mean=5.98449e+14
+[2026-06-01 14:54:20] he block 3 packed add time : 2 ms
+[2026-06-01 14:54:20] he block 3 packed add stats metadata: level=1, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=2
+[2026-06-01 14:54:20] he block 3 packed add stats: active_slots=16384, min=-4.2965e+17, max=4.21791e+17, mean=-1.37339e+15
+[2026-06-01 15:00:07] he block 3 packed bootstrap2 time : 346849 ms
+[2026-06-01 15:00:07] he block 3 packed bootstrap2 stats metadata: level=20, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=21
+[2026-06-01 15:00:07] he block 3 packed bootstrap2 stats: active_slots=16384, min=-45307.9, max=38604.9, mean=44.7439
+[2026-06-01 15:00:15] he block 3 packed relu2 channel 0 component 0 time : 8148 ms
+[2026-06-01 15:00:15] he block 3 packed relu2 channel 0 component 0 stats: active_slots=32768, min=-6.63284e+73, max=7.17261e+73, mean=5.41291e+69
+[2026-06-01 15:00:20] he block 3 packed relu2 channel 0 component 1 time : 5099 ms
+[2026-06-01 15:00:20] he block 3 packed relu2 channel 0 component 1 stats: active_slots=32768, min=-1.94656e+142, max=1.96697e+142, mean=-1.83231e+139
+[2026-06-01 15:00:24] he block 3 packed relu2 channel 0 component 2 time : 3521 ms
+[2026-06-01 15:00:24] he block 3 packed relu2 channel 0 component 2 stats: active_slots=32768, min=-1.62822e+59, max=1.59179e+59, mean=1.48409e+56
+[2026-06-01 15:00:24] he block 3 packed relu2 channel 0 sign_half before bias: level=4, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=5
+[2026-06-01 15:00:24] he block 3 packed relu2 channel 0 original before final multiply: level=20, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=21
+[2026-06-01 15:00:24] he block 3 packed relu2 channel 0 biased gate stats: active_slots=32768, min=-1.62822e+59, max=1.59179e+59, mean=1.48409e+56
+[2026-06-01 15:00:24] he block 3 packed relu2 channel 0 sign_half after bias: level=4, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=5
+[2026-06-01 15:00:24] he block 3 packed relu2 channel 0 gate after level align stats: active_slots=32768, min=-1.62822e+59, max=1.59179e+59, mean=1.48409e+56
+[2026-06-01 15:00:24] he block 3 packed relu2 channel 0 original after level align stats: active_slots=32768, min=-45307.9, max=43426.4, mean=8.13315
+[2026-06-01 15:00:24] he block 3 packed relu2 channel 0 gate after align: level=4, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=5
+[2026-06-01 15:00:24] he block 3 packed relu2 channel 0 original after align: level=4, scale=7.03687e+13, log2_scale=46, coeff_modulus_size=5
+[2026-06-01 15:00:24] he block 3 packed relu2 channel 0 relu result metadata: level=3, scale=7.03688e+13, log2_scale=46, coeff_modulus_size=4
+[2026-06-01 15:00:24] he block 3 packed relu2 packed relu time : 17228 ms
+[2026-06-01 15:00:24] he block 3 packed relu2 time : 17234 ms
+[2026-06-01 15:00:27] block 3 (decrypted): shape=(16, 32, 32), min=0, max=0, mean=0
+[2026-06-01 15:00:27] he_completed_blocks: 3
+[2026-06-01 15:00:27] plaintext_completed_blocks: 3
+[2026-06-01 15:00:27] plaintext_reference_stats_begin
+[2026-06-01 14:00:40] layer 0: shape=(16, 32, 32), min=0, max=3.41889, mean=0.475256
+[2026-06-01 14:00:40] block 1: shape=(16, 32, 32), min=0, max=6.08985, mean=0.605184
+[2026-06-01 14:00:40] block 2: shape=(16, 32, 32), min=0, max=7.46961, mean=0.792467
+[2026-06-01 14:00:40] block 3: shape=(16, 32, 32), min=0, max=5.80548, mean=0.941325
+[2026-06-01 15:00:27] plaintext_reference_stats_end
+[2026-06-01 15:00:27] he_plaintext_feature_mse: 3.43515e+89
+[2026-06-01 15:00:27] he_logits: unavailable (network stopped before final 64x8x8 feature map)
+[2026-06-01 15:00:27] image label: 3
+[2026-06-01 15:00:27] inferred label: -1
+[2026-06-01 15:00:27] total time : 3586727 ms

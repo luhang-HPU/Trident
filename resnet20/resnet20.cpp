@@ -1,1346 +1,3607 @@
-#include "resnet20.h"
-
-#include "resnet20_ops.h"
-#include "resnet20_params.h"
-#include "resnet20_plain.h"
-#include "poseidon/advance/homomorphic_mod.h"
+#include "poseidon/ckks_encoder.h"
+#include "poseidon/decryptor.h"
+#include "poseidon/encryptor.h"
 #include "poseidon/factory/poseidon_factory.h"
 #include "poseidon/keygenerator.h"
+#include "poseidon/parameters_literal.h"
+#include "poseidon/advance/homomorphic_mod.h"
+#include "poseidon/advance/homomorphic_linear_transform.h"
+#include "poseidon/advance/util/chebyshev_interpolation.h"
+#include "poseidon/evaluator/evaluator_ckks_base.h"
+#include "poseidon/util/debug.h"
 
 #include <algorithm>
-#include <cstdlib>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <complex>
+#include <cstdlib>
+#include <filesystem>
+#include <functional>
+#include <fstream>
+#include <iomanip>
 #include <iostream>
-#include <set>
+#include <limits>
+#include <numeric>
+#include <sstream>
 #include <stdexcept>
+#include <string>
+#include <string_view>
+#include <ctime>
+#include <tuple>
+#include <unordered_map>
 #include <utility>
-#ifdef _OPENMP
-#include <omp.h>
-#endif
+#include <vector>
 
-namespace ResNet20
-{
+namespace fs = std::filesystem;
+using namespace poseidon;
 
 namespace
 {
+constexpr int kImageSize = 32;
+constexpr int kInputChannels = 3;
+constexpr int kStemChannels = 16;
+constexpr int kBlocksPerStage = 3;
+constexpr int kClasses = 10;
+constexpr double kBatchNormEpsilon = 1e-5;
+constexpr double kFheMpCnnApproximationBoundary = 40.0;
+constexpr int kFheMpCnnLogScale = 46;
+constexpr double kFheMpCnnScale = static_cast<double>(1ULL << kFheMpCnnLogScale);
 
-using Clock = std::chrono::steady_clock;
-
-double elapsed_seconds(Clock::time_point start, Clock::time_point end)
+enum class InputLayout
 {
-    return std::chrono::duration_cast<std::chrono::duration<double>>(end - start).count();
+    kHwc,
+    kChw
+};
+
+enum class WeightLayout
+{
+    kOihw,
+    kHwio
+};
+
+enum class RunMode
+{
+    kPlaintext,
+    kHe
+};
+
+enum class HeActivation
+{
+    kFheMpCnnRelu
+};
+
+struct Options
+{
+    int start_image_id = -1;
+    int end_image_id = -1;
+    fs::path weights_root;
+    fs::path data_root;
+    InputLayout input_layout = InputLayout::kChw;
+    WeightLayout weight_layout = WeightLayout::kOihw;
+    RunMode mode = RunMode::kPlaintext;
+    bool poseidon_roundtrip = false;
+    int he_block_limit = 3;
+    HeActivation he_activation = HeActivation::kFheMpCnnRelu;
+    fs::path relu_coeffs_path;
+};
+
+struct Tensor3D
+{
+    int channels = 0;
+    int height = 0;
+    int width = 0;
+    std::vector<double> values;
+
+    Tensor3D() = default;
+
+    Tensor3D(int c, int h, int w)
+        : channels(c), height(h), width(w), values(static_cast<size_t>(c * h * w), 0.0)
+    {
+    }
+
+    double &operator()(int c, int h, int w)
+    {
+        return values[static_cast<size_t>((c * height + h) * width + w)];
+    }
+
+    double operator()(int c, int h, int w) const
+    {
+        return values[static_cast<size_t>((c * height + h) * width + w)];
+    }
+};
+
+struct BatchNormParams
+{
+    std::vector<double> bias;
+    std::vector<double> running_mean;
+    std::vector<double> running_var;
+    std::vector<double> weight;
+};
+
+struct ConvBlockParams
+{
+    std::vector<double> conv1_weight;
+    BatchNormParams bn1;
+    std::vector<double> conv2_weight;
+    BatchNormParams bn2;
+    int conv1_in_channels = 0;
+    int conv1_out_channels = 0;
+    int conv2_in_channels = 0;
+    int conv2_out_channels = 0;
+};
+
+struct ResNet20Weights
+{
+    std::vector<double> stem_conv_weight;
+    BatchNormParams stem_bn;
+    std::vector<std::vector<ConvBlockParams>> stages;
+    std::vector<double> linear_weight;
+    std::vector<double> linear_bias;
+};
+
+struct PlainForwardResult
+{
+    Tensor3D feature_map;
+    std::vector<double> logits;
+    bool has_logits = false;
+    int completed_blocks = 0;
+};
+
+struct HeForwardResult
+{
+    Tensor3D decrypted_feature_map;
+    std::vector<double> logits;
+    bool has_logits = false;
+    int completed_blocks = 0;
+};
+
+std::string to_string(InputLayout layout)
+{
+    return layout == InputLayout::kHwc ? "hwc" : "chw";
 }
 
-void print_profile_step(bool enabled, const std::string &label,
-                        Clock::time_point &last, Clock::time_point total_start)
+std::string to_string(WeightLayout layout)
 {
-    if (!enabled)
-    {
-        return;
-    }
-
-    const auto now = Clock::now();
-    std::cout << "[profile] " << label
-              << ": step=" << elapsed_seconds(last, now)
-              << "s total=" << elapsed_seconds(total_start, now) << "s" << std::endl;
-    last = now;
+    return layout == WeightLayout::kOihw ? "oihw" : "hwio";
 }
 
-void print_usage(const char *program)
+std::string to_string(RunMode mode)
 {
-    std::cout << "Usage: " << program
-              << " [--log-degree 15|16] [--parameters path] [--no-full-plain]"
-              << " [--run-block0] [--run-stage1] [--run-stage2-block0] [--run-stage2]"
-              << " [--run-stage3-block0] [--run-stage3]"
-              << " [--run-stage2-stage3-bridge] [--run-stage2-stage3-block0]"
-              << " [--run-stage2-stage3]"
-              << " [--run-full-he] [--run-stage3-tail] [--plain-only]"
-              << " [--profile] [--enable-bootstrap]"
-              << " [--bootstrap-points stage1,stage2b0,stage2b1,stage2,stage3b1|none]"
-              << " [--activation square|apprelu] [--apprelu-bound value]"
-              << " [--apprelu-rounds count]"
-              << " [--scale-bits bits]"
-              << " [--full-he-q-count count]"
-              << " [--stage2-direct-keys count]"
-              << std::endl;
+    return mode == RunMode::kPlaintext ? "plaintext" : "he";
 }
 
-std::vector<int> merge_rotation_steps(const std::vector<std::vector<int>> &groups)
+std::string to_string(HeActivation activation)
 {
-    std::set<int> merged;
-    for (const auto &group : groups)
-    {
-        merged.insert(group.begin(), group.end());
-    }
-    return {merged.begin(), merged.end()};
+    return activation == HeActivation::kFheMpCnnRelu ? "fhe_mp_cnn_relu" : "unknown";
 }
 
-int naf_weight(int step)
+[[noreturn]] void usage_and_exit(const char *argv0)
 {
-    int n = std::abs(step);
-    int weight = 0;
-    while (n > 0)
-    {
-        if (n & 1)
-        {
-            const int u = 2 - (n & 3);
-            n -= u;
-            ++weight;
-        }
-        n >>= 1;
-    }
-    return weight;
+    std::cerr << "Usage: " << argv0 << " START_IMAGE END_IMAGE"
+              << " [--weights-root PATH] [--data-root PATH]"
+              << " [--input-layout hwc|chw] [--weight-layout oihw|hwio]"
+              << " [--mode plaintext|he] [--he-block-limit N]"
+              << " [--he-activation fhe_mp_cnn_relu|poly_relu]"
+              << " [--relu-coeffs PATH]"
+              << " [--poseidon-roundtrip]" << std::endl;
+    std::exit(1);
 }
 
-std::vector<int> make_hybrid_rotation_key_steps(const std::vector<int> &rotation_steps,
-                                                uint32_t log_slots,
-                                                size_t direct_rotation_key_count)
+fs::path default_weights_root()
 {
-    // 稀疏卷积会产生很多逻辑旋转。如果给每个旋转都生成 key，时间和内存都很重。
-    // 这里默认保留 +/- 2 的幂次旋转，并可选加入少量代价高的直接旋转。
-    // 没有直接 key 的旋转仍然可以由 key-switch 层组合出来。
-    std::set<int> selected;
-    const int max_power = 1 << (log_slots - 1);
-    for (int step = 1; step <= max_power; step <<= 1)
+    if (const char *env = std::getenv("TRIDENT_RESNET20_WEIGHTS_ROOT"))
     {
-        selected.insert(step);
-        selected.insert(-step);
+        return fs::path(env);
     }
-
-    std::vector<std::pair<int, int>> scored;
-    scored.reserve(rotation_steps.size());
-    for (int step : rotation_steps)
-    {
-        if (step != 0)
-        {
-            scored.push_back({naf_weight(step), step});
-        }
-    }
-    std::sort(scored.begin(), scored.end(),
-              [](const auto &lhs, const auto &rhs)
-              {
-                  if (lhs.first != rhs.first)
-                  {
-                      return lhs.first > rhs.first;
-                  }
-                  return std::abs(lhs.second) > std::abs(rhs.second);
-              });
-
-    const size_t direct_count = std::min(direct_rotation_key_count, scored.size());
-    for (size_t i = 0; i < direct_count; ++i)
-    {
-        selected.insert(scored[i].second);
-    }
-    return {selected.begin(), selected.end()};
+    return "/home/guoshuai/github/FHE-MP-CNN/pretrained_parameters/resnet20_new";
 }
 
-void parse_bootstrap_points(RuntimeOptions &options, const std::string &spec)
+fs::path default_data_root()
 {
-    options.bootstrap_after_stage1 = false;
-    options.bootstrap_after_stage2_block0 = false;
-    options.bootstrap_after_stage2_block1 = false;
-    options.bootstrap_after_stage2 = false;
-    options.bootstrap_after_stage3_block1 = false;
-
-    if (spec == "none")
+    if (const char *env = std::getenv("TRIDENT_RESNET20_DATA_ROOT"))
     {
-        options.enable_bootstrap = false;
-        return;
+        return fs::path(env);
+    }
+    return "/home/guoshuai/github/FHE-MP-CNN/testFile";
+}
+
+fs::path default_relu_coeffs_path()
+{
+    if (const char *env = std::getenv("TRIDENT_RESNET20_RELU_COEFFS"))
+    {
+        return fs::path(env);
+    }
+    return "/home/guoshuai/github/FHE-MP-CNN/cnn_ckks/result/d13.txt";
+}
+
+InputLayout parse_input_layout(const std::string &value)
+{
+    if (value == "hwc")
+    {
+        return InputLayout::kHwc;
+    }
+    if (value == "chw")
+    {
+        return InputLayout::kChw;
+    }
+    throw std::invalid_argument("unsupported --input-layout: " + value);
+}
+
+WeightLayout parse_weight_layout(const std::string &value)
+{
+    if (value == "oihw")
+    {
+        return WeightLayout::kOihw;
+    }
+    if (value == "hwio")
+    {
+        return WeightLayout::kHwio;
+    }
+    throw std::invalid_argument("unsupported --weight-layout: " + value);
+}
+
+RunMode parse_run_mode(const std::string &value)
+{
+    if (value == "plaintext")
+    {
+        return RunMode::kPlaintext;
+    }
+    if (value == "he")
+    {
+        return RunMode::kHe;
+    }
+    throw std::invalid_argument("unsupported --mode: " + value);
+}
+
+HeActivation parse_he_activation(const std::string &value)
+{
+    if (value == "fhe_mp_cnn_relu" || value == "poly_relu")
+    {
+        return HeActivation::kFheMpCnnRelu;
+    }
+    throw std::invalid_argument("unsupported --he-activation: " + value);
+}
+
+Options parse_options(int argc, char *argv[])
+{
+    if (argc < 3)
+    {
+        usage_and_exit(argv[0]);
     }
 
-    options.enable_bootstrap = true;
-    size_t begin = 0;
-    while (begin <= spec.size())
+    Options options;
+    options.relu_coeffs_path = default_relu_coeffs_path();
+    options.start_image_id = std::stoi(argv[1]);
+    options.end_image_id = std::stoi(argv[2]);
+    options.weights_root = default_weights_root();
+    options.data_root = default_data_root();
+
+    for (int i = 3; i < argc; ++i)
     {
-        const size_t end = spec.find(',', begin);
-        const std::string token =
-            spec.substr(begin, end == std::string::npos ? std::string::npos : end - begin);
-        if (token == "all" || token == "default")
+        const std::string arg = argv[i];
+        if (arg == "--weights-root" && i + 1 < argc)
         {
-            options.bootstrap_after_stage1 = true;
-            options.bootstrap_after_stage2_block0 = false;
-            options.bootstrap_after_stage2_block1 = false;
-            options.bootstrap_after_stage2 = true;
-            options.bootstrap_after_stage3_block1 = true;
+            options.weights_root = argv[++i];
         }
-        else if (token == "stage1" || token == "after-stage1")
+        else if (arg == "--data-root" && i + 1 < argc)
         {
-            options.bootstrap_after_stage1 = true;
+            options.data_root = argv[++i];
         }
-        else if (token == "stage2b0" || token == "stage2-block0" ||
-                 token == "after-stage2-block0")
+        else if (arg == "--input-layout" && i + 1 < argc)
         {
-            options.bootstrap_after_stage2_block0 = true;
+            options.input_layout = parse_input_layout(argv[++i]);
         }
-        else if (token == "stage2b1" || token == "stage2-block1" ||
-                 token == "after-stage2-block1")
+        else if (arg == "--weight-layout" && i + 1 < argc)
         {
-            options.bootstrap_after_stage2_block1 = true;
+            options.weight_layout = parse_weight_layout(argv[++i]);
         }
-        else if (token == "stage2" || token == "after-stage2")
+        else if (arg == "--mode" && i + 1 < argc)
         {
-            options.bootstrap_after_stage2 = true;
+            options.mode = parse_run_mode(argv[++i]);
         }
-        else if (token == "stage3b1" || token == "stage3-block1" ||
-                 token == "after-stage3-block1")
+        else if (arg == "--he-block-limit" && i + 1 < argc)
         {
-            options.bootstrap_after_stage3_block1 = true;
+            options.he_block_limit = std::stoi(argv[++i]);
+        }
+        else if (arg == "--he-activation" && i + 1 < argc)
+        {
+            options.he_activation = parse_he_activation(argv[++i]);
+        }
+        else if (arg == "--relu-coeffs" && i + 1 < argc)
+        {
+            options.relu_coeffs_path = argv[++i];
+        }
+        else if (arg == "--poseidon-roundtrip")
+        {
+            options.poseidon_roundtrip = true;
         }
         else
         {
-            throw std::invalid_argument("unknown bootstrap point: " + token);
+            usage_and_exit(argv[0]);
         }
-
-        if (end == std::string::npos)
-        {
-            break;
-        }
-        begin = end + 1;
     }
+
+    if (options.start_image_id < 0 || options.end_image_id < options.start_image_id)
+    {
+        throw std::invalid_argument("invalid image range");
+    }
+    if (options.he_block_limit < -1)
+    {
+        throw std::invalid_argument("invalid --he-block-limit");
+    }
+
+    return options;
 }
 
-std::string bootstrap_points_label(const RuntimeOptions &options)
+std::vector<double> read_vector_file(const fs::path &path)
 {
-    std::string label;
-    const auto append = [&](const std::string &point)
+    std::ifstream input(path);
+    if (!input.is_open())
     {
-        if (!label.empty())
+        throw std::runtime_error("cannot open file: " + path.string());
+    }
+
+    std::vector<double> values;
+    double value = 0.0;
+    while (input >> value)
+    {
+        values.push_back(value);
+    }
+    return values;
+}
+
+BatchNormParams load_batch_norm(const fs::path &root, const std::string &prefix)
+{
+    BatchNormParams params;
+    params.bias = read_vector_file(root / (prefix + "_bias.txt"));
+    params.running_mean = read_vector_file(root / (prefix + "_running_mean.txt"));
+    params.running_var = read_vector_file(root / (prefix + "_running_var.txt"));
+    params.weight = read_vector_file(root / (prefix + "_weight.txt"));
+    return params;
+}
+
+ResNet20Weights load_resnet20_weights(const fs::path &weights_root)
+{
+    ResNet20Weights weights;
+    weights.stem_conv_weight = read_vector_file(weights_root / "conv1_weight.txt");
+    weights.stem_bn = load_batch_norm(weights_root, "bn1");
+    weights.stages.resize(3);
+
+    for (int stage = 1; stage <= 3; ++stage)
+    {
+        const int stage_out_channels = stage == 1 ? 16 : (stage == 2 ? 32 : 64);
+        weights.stages[stage - 1].resize(kBlocksPerStage);
+        for (int block = 0; block < kBlocksPerStage; ++block)
         {
-            label += ",";
+            ConvBlockParams params;
+            params.conv1_weight =
+                read_vector_file(weights_root / ("layer" + std::to_string(stage) + "_" +
+                                                 std::to_string(block) + "_conv1_weight.txt"));
+            params.bn1 = load_batch_norm(weights_root, "layer" + std::to_string(stage) + "_" +
+                                                           std::to_string(block) + "_bn1");
+            params.conv2_weight =
+                read_vector_file(weights_root / ("layer" + std::to_string(stage) + "_" +
+                                                 std::to_string(block) + "_conv2_weight.txt"));
+            params.bn2 = load_batch_norm(weights_root, "layer" + std::to_string(stage) + "_" +
+                                                           std::to_string(block) + "_bn2");
+            params.conv1_out_channels = stage_out_channels;
+            params.conv2_in_channels = stage_out_channels;
+            params.conv2_out_channels = stage_out_channels;
+
+            if (stage == 1)
+            {
+                params.conv1_in_channels = 16;
+            }
+            else if (stage == 2 && block == 0)
+            {
+                params.conv1_in_channels = 16;
+            }
+            else if (stage == 2)
+            {
+                params.conv1_in_channels = 32;
+            }
+            else if (block == 0)
+            {
+                params.conv1_in_channels = 32;
+            }
+            else
+            {
+                params.conv1_in_channels = 64;
+            }
+
+            weights.stages[stage - 1][block] = std::move(params);
         }
-        label += point;
+    }
+
+    weights.linear_weight = read_vector_file(weights_root / "linear_weight.txt");
+    weights.linear_bias = read_vector_file(weights_root / "linear_bias.txt");
+    return weights;
+}
+
+Tensor3D decode_image(const std::vector<double> &flat_values, InputLayout layout)
+{
+    if (flat_values.size() != static_cast<size_t>(kImageSize * kImageSize * kInputChannels))
+    {
+        throw std::invalid_argument("unexpected image size");
+    }
+
+    Tensor3D image(kInputChannels, kImageSize, kImageSize);
+    if (layout == InputLayout::kHwc)
+    {
+        for (int h = 0; h < kImageSize; ++h)
+        {
+            for (int w = 0; w < kImageSize; ++w)
+            {
+                for (int c = 0; c < kInputChannels; ++c)
+                {
+                    const size_t index =
+                        static_cast<size_t>((h * kImageSize + w) * kInputChannels + c);
+                    image(c, h, w) = flat_values[index];
+                }
+            }
+        }
+    }
+    else
+    {
+        const int plane = kImageSize * kImageSize;
+        for (int c = 0; c < kInputChannels; ++c)
+        {
+            for (int h = 0; h < kImageSize; ++h)
+            {
+                for (int w = 0; w < kImageSize; ++w)
+                {
+                    const size_t index = static_cast<size_t>(c * plane + h * kImageSize + w);
+                    image(c, h, w) = flat_values[index];
+                }
+            }
+        }
+    }
+    return image;
+}
+
+std::vector<double> read_image_values(const fs::path &test_values_path, int image_id)
+{
+    std::ifstream input(test_values_path);
+    if (!input.is_open())
+    {
+        throw std::runtime_error("cannot open file: " + test_values_path.string());
+    }
+
+    const int image_span = kImageSize * kImageSize * kInputChannels;
+    const long long skip_count = static_cast<long long>(image_id) * image_span;
+    double value = 0.0;
+    for (long long i = 0; i < skip_count; ++i)
+    {
+        if (!(input >> value))
+        {
+            throw std::runtime_error("unexpected EOF while skipping test_values");
+        }
+    }
+
+    std::vector<double> values(image_span, 0.0);
+    for (int i = 0; i < image_span; ++i)
+    {
+        if (!(input >> values[i]))
+        {
+            throw std::runtime_error("unexpected EOF while reading image");
+        }
+    }
+    return values;
+}
+
+int read_image_label(const fs::path &label_path, int image_id)
+{
+    std::ifstream input(label_path);
+    if (!input.is_open())
+    {
+        throw std::runtime_error("cannot open file: " + label_path.string());
+    }
+
+    int label = -1;
+    for (int i = 0; i <= image_id; ++i)
+    {
+        if (!(input >> label))
+        {
+            throw std::runtime_error("unexpected EOF while reading labels");
+        }
+    }
+    return label;
+}
+
+double conv_weight_at(const std::vector<double> &weights, WeightLayout layout, int out_channel,
+                      int in_channel, int kernel_h, int kernel_w, int in_channels,
+                      int out_channels)
+{
+    if (layout == WeightLayout::kOihw)
+    {
+        const size_t index =
+            static_cast<size_t>(((out_channel * in_channels + in_channel) * 3 + kernel_h) * 3 +
+                                kernel_w);
+        return weights[index];
+    }
+
+    const size_t index =
+        static_cast<size_t>(((kernel_h * 3 + kernel_w) * in_channels + in_channel) * out_channels +
+                            out_channel);
+    return weights[index];
+}
+
+Tensor3D conv2d_same(const Tensor3D &input, const std::vector<double> &weights, int out_channels,
+                     int stride, WeightLayout layout)
+{
+    const int out_height = input.height / stride;
+    const int out_width = input.width / stride;
+    Tensor3D output(out_channels, out_height, out_width);
+
+    for (int oc = 0; oc < out_channels; ++oc)
+    {
+        for (int oh = 0; oh < out_height; ++oh)
+        {
+            for (int ow = 0; ow < out_width; ++ow)
+            {
+                double acc = 0.0;
+                for (int ic = 0; ic < input.channels; ++ic)
+                {
+                    for (int kh = 0; kh < 3; ++kh)
+                    {
+                        const int ih = oh * stride + kh - 1;
+                        if (ih < 0 || ih >= input.height)
+                        {
+                            continue;
+                        }
+                        for (int kw = 0; kw < 3; ++kw)
+                        {
+                            const int iw = ow * stride + kw - 1;
+                            if (iw < 0 || iw >= input.width)
+                            {
+                                continue;
+                            }
+                            acc += input(ic, ih, iw) * conv_weight_at(weights, layout, oc, ic, kh,
+                                                                     kw, input.channels,
+                                                                     out_channels);
+                        }
+                    }
+                }
+                output(oc, oh, ow) = acc;
+            }
+        }
+    }
+
+    return output;
+}
+
+Tensor3D apply_batch_norm(const Tensor3D &input, const BatchNormParams &params)
+{
+    if (static_cast<int>(params.bias.size()) != input.channels)
+    {
+        throw std::invalid_argument("batch norm parameter size mismatch");
+    }
+
+    Tensor3D output(input.channels, input.height, input.width);
+    for (int c = 0; c < input.channels; ++c)
+    {
+        const double inv = params.weight[c] / std::sqrt(params.running_var[c] + kBatchNormEpsilon);
+        const double shift = params.bias[c] - params.running_mean[c] * inv;
+        for (int h = 0; h < input.height; ++h)
+        {
+            for (int w = 0; w < input.width; ++w)
+            {
+                output(c, h, w) = input(c, h, w) * inv + shift;
+            }
+        }
+    }
+    return output;
+}
+
+double batch_norm_multiplier(const BatchNormParams &params, int channel)
+{
+    return params.weight[channel] /
+           std::sqrt(params.running_var[channel] + kBatchNormEpsilon);
+}
+
+double batch_norm_shift(const BatchNormParams &params, int channel)
+{
+    const double multiplier = batch_norm_multiplier(params, channel);
+    return params.bias[channel] - params.running_mean[channel] * multiplier;
+}
+
+Tensor3D relu(const Tensor3D &input)
+{
+    Tensor3D output = input;
+    for (double &value : output.values)
+    {
+        value = std::max(value, 0.0);
+    }
+    return output;
+}
+
+Tensor3D add(const Tensor3D &lhs, const Tensor3D &rhs)
+{
+    if (lhs.channels != rhs.channels || lhs.height != rhs.height || lhs.width != rhs.width)
+    {
+        throw std::invalid_argument("tensor add shape mismatch");
+    }
+
+    Tensor3D output(lhs.channels, lhs.height, lhs.width);
+    for (size_t i = 0; i < lhs.values.size(); ++i)
+    {
+        output.values[i] = lhs.values[i] + rhs.values[i];
+    }
+    return output;
+}
+
+Tensor3D shortcut_option_a(const Tensor3D &input, int out_channels)
+{
+    if (out_channels < input.channels || input.height % 2 != 0 || input.width % 2 != 0)
+    {
+        throw std::invalid_argument("invalid shortcut shape");
+    }
+
+    Tensor3D output(out_channels, input.height / 2, input.width / 2);
+    const int pad = (out_channels - input.channels) / 2;
+    for (int c = 0; c < input.channels; ++c)
+    {
+        for (int h = 0; h < output.height; ++h)
+        {
+            for (int w = 0; w < output.width; ++w)
+            {
+                output(c + pad, h, w) = input(c, h * 2, w * 2);
+            }
+        }
+    }
+    return output;
+}
+
+std::vector<double> global_average_pool(const Tensor3D &input)
+{
+    std::vector<double> pooled(static_cast<size_t>(input.channels), 0.0);
+    const double denom = static_cast<double>(input.height * input.width);
+    for (int c = 0; c < input.channels; ++c)
+    {
+        double sum = 0.0;
+        for (int h = 0; h < input.height; ++h)
+        {
+            for (int w = 0; w < input.width; ++w)
+            {
+                sum += input(c, h, w);
+            }
+        }
+        pooled[c] = sum / denom;
+    }
+    return pooled;
+}
+
+std::vector<double> linear(const std::vector<double> &input, const std::vector<double> &weights,
+                           const std::vector<double> &bias)
+{
+    if (input.size() != 64 || weights.size() != 10 * 64 || bias.size() != 10)
+    {
+        throw std::invalid_argument("unexpected linear layer shape");
+    }
+
+    std::vector<double> logits(kClasses, 0.0);
+    for (int out = 0; out < kClasses; ++out)
+    {
+        double value = bias[out];
+        for (size_t in = 0; in < input.size(); ++in)
+        {
+            value += weights[static_cast<size_t>(out * 64 + in)] * input[in];
+        }
+        logits[out] = value;
+    }
+    return logits;
+}
+
+struct TensorStats
+{
+    double min = std::numeric_limits<double>::max();
+    double max = std::numeric_limits<double>::lowest();
+    double mean = 0.0;
+};
+
+TensorStats summarize(const Tensor3D &tensor)
+{
+    TensorStats stats;
+    const double sum = std::accumulate(tensor.values.begin(), tensor.values.end(), 0.0);
+    for (double value : tensor.values)
+    {
+        stats.min = std::min(stats.min, value);
+        stats.max = std::max(stats.max, value);
+    }
+    stats.mean = sum / static_cast<double>(tensor.values.size());
+    return stats;
+}
+
+std::string current_wallclock_timestamp()
+{
+    const auto now = std::chrono::system_clock::now();
+    const std::time_t now_c = std::chrono::system_clock::to_time_t(now);
+    std::tm local_tm{};
+#if defined(_WIN32)
+    localtime_s(&local_tm, &now_c);
+#else
+    localtime_r(&now_c, &local_tm);
+#endif
+    std::ostringstream oss;
+    oss << std::put_time(&local_tm, "%Y-%m-%d %H:%M:%S");
+    return oss.str();
+}
+
+class TimestampedLogLine
+{
+public:
+    explicit TimestampedLogLine(std::ostream &output)
+        : output_(output)
+    {
+    }
+
+    ~TimestampedLogLine()
+    {
+        output_ << "[" << current_wallclock_timestamp() << "] " << buffer_.str() << '\n';
+    }
+
+    template <typename T>
+    TimestampedLogLine &operator<<(const T &value)
+    {
+        buffer_ << value;
+        return *this;
+    }
+
+    TimestampedLogLine &operator<<(std::ostream &(*manip)(std::ostream &))
+    {
+        manip(buffer_);
+        return *this;
+    }
+
+private:
+    std::ostream &output_;
+    std::ostringstream buffer_;
+};
+
+TimestampedLogLine timed_log(std::ostream &output)
+{
+    return TimestampedLogLine(output);
+}
+
+void log_decoded_vector_stats(std::ostream &log, std::string_view tag,
+                              const std::vector<std::complex<double>> &decoded, int active_slots)
+{
+    if (active_slots <= 0 || active_slots > static_cast<int>(decoded.size()))
+    {
+        throw std::invalid_argument("active slot range is invalid for decoded vector stats");
+    }
+
+    double min_value = std::numeric_limits<double>::infinity();
+    double max_value = -std::numeric_limits<double>::infinity();
+    double sum = 0.0;
+    for (int i = 0; i < active_slots; ++i)
+    {
+        const double value = decoded[static_cast<size_t>(i)].real();
+        min_value = std::min(min_value, value);
+        max_value = std::max(max_value, value);
+        sum += value;
+    }
+    timed_log(log) << tag << ": active_slots=" << active_slots << ", min=" << min_value
+                   << ", max=" << max_value << ", mean="
+                   << (sum / static_cast<double>(active_slots));
+}
+
+void log_tensor_stats(std::ostream &output, std::string_view name, const Tensor3D &tensor)
+{
+    const TensorStats stats = summarize(tensor);
+    timed_log(output) << name << ": shape=(" << tensor.channels << ", " << tensor.height << ", "
+                      << tensor.width << "), min=" << stats.min << ", max=" << stats.max
+                      << ", mean=" << stats.mean;
+}
+
+std::vector<std::complex<double>> poseidon_roundtrip_logits(const std::vector<double> &logits)
+{
+    ParametersLiteralDefault ckks_param_literal(CKKS, 16384, poseidon::sec_level_type::tc128);
+    PoseidonFactory::get_instance()->set_device_type(DEVICE_SOFTWARE);
+    auto context = PoseidonFactory::get_instance()->create_poseidon_context(ckks_param_literal);
+
+    KeyGenerator keygen(context);
+    PublicKey public_key;
+    keygen.create_public_key(public_key);
+
+    CKKSEncoder encoder(context);
+    Encryptor encryptor(context, public_key);
+    Decryptor decryptor(context, keygen.secret_key());
+
+    std::vector<std::complex<double>> input;
+    input.reserve(logits.size());
+    for (double value : logits)
+    {
+        input.emplace_back(value, 0.0);
+    }
+
+    Plaintext plain;
+    encoder.encode(input, kFheMpCnnScale, plain);
+    Ciphertext cipher;
+    encryptor.encrypt(plain, cipher);
+
+    Plaintext decrypted;
+    decryptor.decrypt(cipher, decrypted);
+    std::vector<std::complex<double>> decoded;
+    encoder.decode(decrypted, decoded);
+    return decoded;
+}
+
+std::string format_logits(const std::vector<double> &logits)
+{
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(6) << '(';
+    for (size_t i = 0; i < logits.size(); ++i)
+    {
+        if (i != 0)
+        {
+            oss << ", ";
+        }
+        oss << logits[i];
+    }
+    oss << ')';
+    return oss.str();
+}
+
+PlainForwardResult run_plaintext_forward(const Tensor3D &image, const ResNet20Weights &weights,
+                                         WeightLayout weight_layout, int max_blocks,
+                                         std::ostream &log)
+{
+    Tensor3D x = conv2d_same(image, weights.stem_conv_weight, 16, 1, weight_layout);
+    x = apply_batch_norm(x, weights.stem_bn);
+    x = relu(x);
+    log_tensor_stats(log, "layer 0", x);
+
+    int completed_blocks = 0;
+    for (int stage = 0; stage < 3; ++stage)
+    {
+        for (int block = 0; block < kBlocksPerStage; ++block)
+        {
+            if (max_blocks != -1 && completed_blocks >= max_blocks)
+            {
+                PlainForwardResult result;
+                result.feature_map = std::move(x);
+                result.completed_blocks = completed_blocks;
+                if (result.feature_map.channels == 64)
+                {
+                    result.logits =
+                        linear(global_average_pool(result.feature_map), weights.linear_weight,
+                               weights.linear_bias);
+                    result.has_logits = true;
+                }
+                return result;
+            }
+
+            const ConvBlockParams &params = weights.stages[stage][block];
+            const int stride = (stage > 0 && block == 0) ? 2 : 1;
+            Tensor3D identity = x;
+
+            Tensor3D y = conv2d_same(x, params.conv1_weight, params.conv1_out_channels, stride,
+                                     weight_layout);
+            y = apply_batch_norm(y, params.bn1);
+            y = relu(y);
+
+            y = conv2d_same(y, params.conv2_weight, params.conv2_out_channels, 1, weight_layout);
+            y = apply_batch_norm(y, params.bn2);
+
+            if (stride == 2)
+            {
+                identity = shortcut_option_a(identity, params.conv2_out_channels);
+            }
+
+            x = relu(add(y, identity));
+            ++completed_blocks;
+            log_tensor_stats(log, "block " + std::to_string(completed_blocks), x);
+        }
+    }
+
+    PlainForwardResult result;
+    result.feature_map = std::move(x);
+    result.completed_blocks = completed_blocks;
+    result.logits = linear(global_average_pool(result.feature_map), weights.linear_weight,
+                           weights.linear_bias);
+    result.has_logits = true;
+    return result;
+}
+
+struct HeFeatureMap
+{
+    std::vector<Ciphertext> channels;
+    int height = 0;
+    int width = 0;
+};
+
+struct PackedTensorCipher
+{
+    Ciphertext cipher;
+    int log_slots = 0;
+    int k = 0;
+    int h = 0;
+    int w = 0;
+    int c = 0;
+    int t = 0;
+    int p = 0;
+};
+
+struct ActivationComponentSpec
+{
+    int degree = 0;
+    int depth = 0;
+    int m = 0;
+    int l = 0;
+    std::vector<int> tree;
+    std::vector<int> decomp_degrees;
+    std::vector<int> leaf_start_indices;
+    std::vector<double> raw_coeffs;
+    std::vector<std::complex<double>> chebyshev_coeffs;
+};
+
+struct ActivationSpec
+{
+    std::vector<ActivationComponentSpec> components;
+};
+
+struct HeEnvironment
+{
+    struct ConvMaskKey
+    {
+        int height = 0;
+        int width = 0;
+        int row_offset = 0;
+        int col_offset = 0;
+
+        bool operator==(const ConvMaskKey &other) const
+        {
+            return height == other.height && width == other.width &&
+                   row_offset == other.row_offset && col_offset == other.col_offset;
+        }
     };
 
-    if (options.bootstrap_after_stage1)
+    struct ConvMaskKeyHash
     {
-        append("stage1");
-    }
-    if (options.bootstrap_after_stage2_block0)
+        size_t operator()(const ConvMaskKey &key) const
+        {
+            size_t seed = static_cast<size_t>(key.height);
+            seed = seed * 1315423911u + static_cast<size_t>(key.width);
+            seed = seed * 1315423911u + static_cast<size_t>(key.row_offset + 8);
+            seed = seed * 1315423911u + static_cast<size_t>(key.col_offset + 8);
+            return seed;
+        }
+    };
+
+    struct DownsampleKey
     {
-        append("stage2b0");
-    }
-    if (options.bootstrap_after_stage2_block1)
+        int input_height = 0;
+        int input_width = 0;
+        uint32_t level = 0;
+        int64_t scale_bucket = 0;
+
+        bool operator==(const DownsampleKey &other) const
+        {
+            return input_height == other.input_height && input_width == other.input_width &&
+                   level == other.level && scale_bucket == other.scale_bucket;
+        }
+    };
+
+    struct DownsampleKeyHash
     {
-        append("stage2b1");
-    }
-    if (options.bootstrap_after_stage2)
+        size_t operator()(const DownsampleKey &key) const
+        {
+            size_t seed = static_cast<size_t>(key.input_height);
+            seed = seed * 1315423911u + static_cast<size_t>(key.input_width);
+            seed = seed * 1315423911u + static_cast<size_t>(key.level);
+            seed = seed * 1315423911u + static_cast<size_t>(key.scale_bucket);
+            return seed;
+        }
+    };
+
+    PoseidonContext context;
+    std::unique_ptr<EvaluatorCkksBase> evaluator;
+    CKKSEncoder encoder;
+    PublicKey public_key;
+    SecretKey secret_key;
+    RelinKeys relin_keys;
+    GaloisKeys galois_keys;
+    Encryptor encryptor;
+    Decryptor decryptor;
+    ActivationSpec activation_spec;
+    std::unique_ptr<EvalModPoly> bootstrap_poly;
+    double scale = 0.0;
+    int slot_count = 0;
+    std::unordered_map<ConvMaskKey, std::vector<double>, ConvMaskKeyHash> conv_mask_cache;
+    std::unordered_map<DownsampleKey, MatrixPlain, DownsampleKeyHash> downsample_matrix_cache;
+
+    HeEnvironment(PoseidonContext ctx, std::unique_ptr<EvaluatorCkksBase> eva, PublicKey pk,
+                  SecretKey sk, RelinKeys rk, GaloisKeys gk, ActivationSpec relu_spec,
+                  std::unique_ptr<EvalModPoly> bootstrap, double scale_value)
+        : context(std::move(ctx)), evaluator(std::move(eva)), encoder(context),
+          public_key(std::move(pk)), secret_key(std::move(sk)), relin_keys(std::move(rk)),
+          galois_keys(std::move(gk)), encryptor(context, public_key), decryptor(context, secret_key),
+          activation_spec(std::move(relu_spec)), bootstrap_poly(std::move(bootstrap)),
+          scale(scale_value),
+          slot_count(static_cast<int>(encoder.slot_count()))
     {
-        append("stage2");
     }
-    if (options.bootstrap_after_stage3_block1)
+};
+
+std::vector<double> read_all_scalars(const fs::path &path)
+{
+    std::ifstream input(path);
+    if (!input.is_open())
     {
-        append("stage3b1");
+        throw std::runtime_error("failed to open activation coefficients: " + path.string());
     }
-    return label.empty() ? "none" : label;
+
+    std::vector<double> values;
+    double value = 0.0;
+    while (input >> value)
+    {
+        values.push_back(value);
+    }
+    if (values.empty())
+    {
+        throw std::runtime_error("activation coefficient file is empty: " + path.string());
+    }
+    return values;
 }
 
-void bootstrap_inplace(const std::string &label,
-                       poseidon::Ciphertext &cipher,
-                       const poseidon::PoseidonContext &context,
-                       poseidon::EvaluatorCkksBase &evaluator,
-                       const poseidon::RelinKeys &relin_keys,
-                       const poseidon::GaloisKeys &galois_keys,
-                       const poseidon::CKKSEncoder &encoder,
-                       double bootstrap_scale)
+ActivationComponentSpec make_activation_component(int degree, int depth, int m, int l,
+                                                  std::vector<int> tree)
 {
-    const auto start = Clock::now();
-    std::cout << "Bootstrap " << label << " start: level=" << cipher.level()
-              << " scale=" << cipher.scale() << std::endl;
-    poseidon::EvalModPoly eval_mod_poly(context, poseidon::CosDiscrete, bootstrap_scale, 1, 9, 3,
-                                        16, 0, 30);
-    evaluator.bootstrap(cipher, cipher, relin_keys, galois_keys, encoder, eval_mod_poly);
-    const auto end = Clock::now();
-    std::cout << "Bootstrap " << label << " complete: level=" << cipher.level()
-              << " scale=" << cipher.scale()
-              << " time=" << elapsed_seconds(start, end) << " seconds" << std::endl;
+    ActivationComponentSpec component;
+    component.degree = degree;
+    component.depth = depth;
+    component.m = m;
+    component.l = l;
+    component.tree = std::move(tree);
+    return component;
 }
 
-double max_abs_error(const std::vector<double> &actual, const std::vector<double> &expected)
+std::vector<std::complex<double>> build_activation_component_chebyshev_coeffs(
+    const ActivationComponentSpec &component, int tree_index);
+
+std::vector<int> compute_leaf_degrees(const ActivationComponentSpec &component)
 {
-    if (actual.size() < expected.size())
+    std::vector<int> decomp_degree(component.tree.size(), -1);
+    decomp_degree[1] = component.degree;
+    for (int level = 1; level <= component.depth; ++level)
     {
-        throw std::invalid_argument("max_abs_error: actual vector is shorter than expected");
+        for (int index = 1 << level; index < (1 << (level + 1)); ++index)
+        {
+            if (component.tree[static_cast<size_t>(index / 2)] == -1)
+            {
+                continue;
+            }
+
+            if (index % 2 == 0)
+            {
+                decomp_degree[static_cast<size_t>(index)] =
+                    component.tree[static_cast<size_t>(index / 2)] - 1;
+            }
+            else
+            {
+                decomp_degree[static_cast<size_t>(index)] =
+                    decomp_degree[static_cast<size_t>(index / 2)] -
+                    component.tree[static_cast<size_t>(index / 2)];
+            }
+        }
+    }
+    return decomp_degree;
+}
+
+std::vector<int> compute_leaf_start_indices(const ActivationComponentSpec &component)
+{
+    std::vector<int> start_indices(component.tree.size(), -1);
+    int cursor = 1;
+    for (int tree_index = 1; tree_index < static_cast<int>(component.tree.size()); ++tree_index)
+    {
+        if (component.tree[static_cast<size_t>(tree_index)] != 0)
+        {
+            continue;
+        }
+        start_indices[static_cast<size_t>(tree_index)] = cursor;
+        cursor += component.decomp_degrees[static_cast<size_t>(tree_index)] + 1;
+    }
+    return start_indices;
+}
+
+ActivationSpec load_fhe_mp_cnn_activation_spec(const fs::path &coeffs_path)
+{
+    ActivationSpec spec;
+    spec.components.push_back(
+        make_activation_component(15, 3, 4, 2, {-1, 8, 4, 4, 0, 0, 0, 2, -1, -1, -1, -1, -1, -1, 0, 0}));
+    spec.components.push_back(
+        make_activation_component(15, 3, 4, 2, {-1, 8, 4, 4, 0, 0, 0, 2, -1, -1, -1, -1, -1, -1, 0, 0}));
+    spec.components.push_back(make_activation_component(27, 2, 5, 3, {-1, 16, 8, 8, 0, 0, 0, 0}));
+
+    const std::vector<double> coeffs = read_all_scalars(coeffs_path);
+    size_t cursor = 0;
+
+    for (size_t component_index = 0; component_index < spec.components.size(); ++component_index)
+    {
+        ActivationComponentSpec &component = spec.components[component_index];
+        component.decomp_degrees = compute_leaf_degrees(component);
+        size_t coeff_count = 0;
+        for (int tree_index = 1; tree_index < static_cast<int>(component.tree.size()); ++tree_index)
+        {
+            if (component.tree[static_cast<size_t>(tree_index)] != 0)
+            {
+                continue;
+            }
+
+            coeff_count += static_cast<size_t>(
+                component.decomp_degrees[static_cast<size_t>(tree_index)] + 1);
+        }
+
+        if (cursor + coeff_count > coeffs.size())
+        {
+            throw std::runtime_error("activation coefficient layout does not match FHE-MP-CNN");
+        }
+
+        component.raw_coeffs.resize(coeff_count);
+        for (size_t i = 0; i < coeff_count; ++i)
+        {
+            double scaled_coeff = coeffs[cursor + i];
+            if (component_index == 0)
+            {
+                scaled_coeff /= 2.0;
+            }
+            else if (component_index == 1)
+            {
+                scaled_coeff /= 1.7;
+            }
+            else
+            {
+                scaled_coeff *= 0.5;
+            }
+            component.raw_coeffs[i] = scaled_coeff;
+        }
+        cursor += coeff_count;
+        component.leaf_start_indices = compute_leaf_start_indices(component);
+        component.chebyshev_coeffs =
+            build_activation_component_chebyshev_coeffs(component, 1);
     }
 
-    double result = 0.0;
-    for (size_t i = 0; i < expected.size(); ++i)
+    if (cursor != coeffs.size())
     {
-        result = std::max(result, std::abs(actual[i] - expected[i]));
+        throw std::runtime_error("activation coefficient file has unexpected extra values");
+    }
+    return spec;
+}
+
+std::vector<int> minimal_stem_rotation_steps()
+{
+    return {1,  2,   4,   8,    16,   32,   64,   128,
+            256, 512, 1024, 2048, 4096, 8192, 16384};
+}
+
+std::vector<uint32_t> fhe_mp_cnn_resnet20_logq_chain()
+{
+    return {
+        51,
+        46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46,
+        46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46,
+        51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51};
+}
+
+std::unique_ptr<HeEnvironment> create_he_environment(const fs::path &relu_coeffs_path,
+                                                     int max_blocks, std::ostream &log)
+{
+    util::Timestacs timer;
+    const bool need_bootstrap = max_blocks != 0;
+    (void)need_bootstrap;
+    ParametersLiteral ckks_param_literal{CKKS, 16, 15, 46, 5, 0, 0, {}, {}};
+    ckks_param_literal.set_log_modulus(fhe_mp_cnn_resnet20_logq_chain(), {51});
+
+    PoseidonFactory::get_instance()->set_device_type(DEVICE_SOFTWARE);
+    timer.start();
+    auto context = PoseidonFactory::get_instance()->create_poseidon_context(ckks_param_literal);
+    auto evaluator = PoseidonFactory::get_instance()->create_ckks_evaluator(context);
+    timer.end();
+    timed_log(log) << "he setup context+evaluator time : " << timer.microseconds() / 1000
+                   << " ms";
+
+    timer.start();
+    KeyGenerator keygen(context);
+    PublicKey public_key;
+    keygen.create_public_key(public_key);
+    timer.end();
+    timed_log(log) << "he setup public key time : " << timer.microseconds() / 1000 << " ms";
+
+    timer.start();
+    RelinKeys relin_keys;
+    keygen.create_relin_keys(relin_keys);
+    timer.end();
+    timed_log(log) << "he setup relin key time : " << timer.microseconds() / 1000 << " ms";
+
+    timer.start();
+    GaloisKeys galois_keys;
+    if (need_bootstrap)
+    {
+        keygen.create_galois_keys(galois_keys);
+    }
+    else
+    {
+        keygen.create_galois_keys(minimal_stem_rotation_steps(), galois_keys);
+    }
+    timer.end();
+    timed_log(log) << "he setup galois key time : " << timer.microseconds() / 1000 << " ms";
+
+    timer.start();
+    const ActivationSpec relu_spec = load_fhe_mp_cnn_activation_spec(relu_coeffs_path);
+    std::unique_ptr<EvalModPoly> bootstrap_poly;
+    if (need_bootstrap)
+    {
+        bootstrap_poly = std::make_unique<EvalModPoly>(
+            context, CosDiscrete, kFheMpCnnScale, 1, 9, 3, 16, 0, 30);
+    }
+    timer.end();
+    timed_log(log) << "he setup activation/bootstrap config time : "
+                   << timer.microseconds() / 1000 << " ms";
+    timed_log(log) << "he setup reference log_scale : " << kFheMpCnnLogScale;
+    timed_log(log) << "he setup reference scale : " << kFheMpCnnScale;
+    return std::make_unique<HeEnvironment>(
+        std::move(context), std::move(evaluator), std::move(public_key), keygen.secret_key(),
+        std::move(relin_keys), std::move(galois_keys), relu_spec, std::move(bootstrap_poly),
+        kFheMpCnnScale);
+}
+
+Plaintext encode_with_consistent_level(const std::vector<double> &input, const Ciphertext &cipher,
+                                       CKKSEncoder &encoder)
+{
+    Plaintext result;
+    encoder.encode(input, cipher.parms_id(), cipher.scale(), result);
+    return result;
+}
+
+Ciphertext encrypt_slots(const std::vector<double> &values, HeEnvironment &env)
+{
+    std::vector<std::complex<double>> slots(static_cast<size_t>(env.slot_count), {0.0, 0.0});
+    for (size_t i = 0; i < values.size(); ++i)
+    {
+        slots[i] = {values[i], 0.0};
+    }
+    Plaintext plain;
+    env.encoder.encode(slots, env.scale, plain);
+    Ciphertext cipher;
+    env.encryptor.encrypt(plain, cipher);
+    return cipher;
+}
+
+int floor_power_of_two(int value)
+{
+    if (value <= 0)
+    {
+        return 0;
+    }
+    int result = 1;
+    while ((result << 1) <= value)
+    {
+        result <<= 1;
     }
     return result;
 }
 
-void add_residual_block_rotation_steps(std::vector<std::vector<int>> &groups,
-                                       const TensorShape &input_shape,
-                                       const ResidualBlockWeights &block)
+int choose_compact_packing_factor(int slot_count, int k, int h, int w, int t)
 {
-    groups.push_back(conv2d_rotation_steps(input_shape, block.conv1));
-    const TensorShape middle_shape = conv2d_output_shape(input_shape, block.conv1);
-    groups.push_back(conv2d_rotation_steps(middle_shape, block.conv2));
-    if (block.has_shortcut)
+    const int tile_size = k * k * h * w * t;
+    if (tile_size <= 0 || tile_size > slot_count)
     {
-        groups.push_back(conv2d_rotation_steps(input_shape, block.shortcut));
+        throw std::invalid_argument("tensor does not fit into current CKKS slot count");
     }
+    return std::max(1, floor_power_of_two(slot_count / tile_size));
 }
 
-Tensor forward_stage_plain(Tensor input, const std::vector<ResidualBlockWeights> &stage)
+std::vector<double> flatten_image_chw_scaled(const Tensor3D &image, double scale_divisor)
 {
-    for (const auto &block : stage)
+    std::vector<double> flat(static_cast<size_t>(image.channels * image.height * image.width), 0.0);
+    size_t cursor = 0;
+    for (int c = 0; c < image.channels; ++c)
     {
-        input = residual_block_plain(input, block);
-    }
-    return input;
-}
-
-Tensor embed_sparse_plain(const Tensor &compact, size_t physical_height, size_t physical_width,
-                          size_t spacing)
-{
-    // 稀疏 HE 布局的明文参考实现：逻辑值按 `spacing` 间隔放在高/宽方向上，
-    // 中间空出来的位置用于表达下采样后的稀疏物理布局。
-    Tensor sparse({compact.shape.channels, physical_height, physical_width});
-    for (size_t c = 0; c < compact.shape.channels; ++c)
-    {
-        for (size_t h = 0; h < compact.shape.height; ++h)
+        for (int h = 0; h < image.height; ++h)
         {
-            for (size_t w = 0; w < compact.shape.width; ++w)
+            for (int w = 0; w < image.width; ++w)
             {
-                const size_t compact_index =
-                    c * compact.shape.height * compact.shape.width + h * compact.shape.width + w;
-                const size_t sparse_index =
-                    c * physical_height * physical_width + h * spacing * physical_width +
-                    w * spacing;
-                sparse.values[sparse_index] = compact.values[compact_index];
+                flat[cursor++] = image(c, h, w) / scale_divisor;
             }
         }
     }
-    return sparse;
+    return flat;
 }
 
-Tensor compact_sparse_plain(const Tensor &sparse, size_t spacing)
+std::vector<double> pack_compact_tensor_slots(const std::vector<double> &base_values, int slot_count,
+                                              int packing_factor)
 {
-    // embed_sparse_plain 的逆操作，用来对照密文 sparse_to_compact bridge 的结果。
-    if (spacing == 0 || sparse.shape.height % spacing != 0 ||
-        sparse.shape.width % spacing != 0)
+    if (packing_factor <= 0 || slot_count % packing_factor != 0)
     {
-        throw std::invalid_argument("compact_sparse_plain: invalid sparse spacing");
+        throw std::invalid_argument("invalid compact packing factor");
     }
 
-    Tensor compact({sparse.shape.channels, sparse.shape.height / spacing,
-                    sparse.shape.width / spacing});
-    for (size_t c = 0; c < compact.shape.channels; ++c)
+    const int chunk_size = slot_count / packing_factor;
+    if (static_cast<int>(base_values.size()) > chunk_size)
     {
-        for (size_t h = 0; h < compact.shape.height; ++h)
+        throw std::invalid_argument("base tensor exceeds compact packing chunk size");
+    }
+
+    std::vector<double> packed(static_cast<size_t>(slot_count), 0.0);
+    for (int copy_index = 0; copy_index < packing_factor; ++copy_index)
+    {
+        const size_t offset = static_cast<size_t>(copy_index * chunk_size);
+        std::copy(base_values.begin(), base_values.end(), packed.begin() + offset);
+    }
+    return packed;
+}
+
+PackedTensorCipher encrypt_image_to_packed_tensor(const Tensor3D &image, HeEnvironment &env)
+{
+    PackedTensorCipher result;
+    result.log_slots = static_cast<int>(std::llround(std::log2(env.slot_count)));
+    result.k = 1;
+    result.h = image.height;
+    result.w = image.width;
+    result.c = image.channels;
+    result.t = image.channels;
+    result.p = choose_compact_packing_factor(env.slot_count, result.k, result.h, result.w,
+                                             result.t);
+
+    const std::vector<double> base_values =
+        flatten_image_chw_scaled(image, kFheMpCnnApproximationBoundary);
+    const std::vector<double> packed_values =
+        pack_compact_tensor_slots(base_values, env.slot_count, result.p);
+    result.cipher = encrypt_slots(packed_values, env);
+    return result;
+}
+
+Tensor3D decrypt_packed_input_tensor(const PackedTensorCipher &packed, HeEnvironment &env)
+{
+    if (packed.k != 1)
+    {
+        throw std::invalid_argument("only k=1 packed input tensors are supported");
+    }
+
+    Plaintext plain;
+    env.decryptor.decrypt(packed.cipher, plain);
+    std::vector<std::complex<double>> decoded;
+    env.encoder.decode(plain, decoded);
+
+    Tensor3D result(packed.c, packed.h, packed.w);
+    size_t cursor = 0;
+    for (int c = 0; c < packed.c; ++c)
+    {
+        for (int h = 0; h < packed.h; ++h)
         {
-            for (size_t w = 0; w < compact.shape.width; ++w)
+            for (int w = 0; w < packed.w; ++w)
             {
-                const size_t sparse_index =
-                    c * sparse.shape.height * sparse.shape.width +
-                    h * spacing * sparse.shape.width + w * spacing;
-                const size_t compact_index =
-                    c * compact.shape.height * compact.shape.width + h * compact.shape.width + w;
-                compact.values[compact_index] = sparse.values[sparse_index];
+                result(c, h, w) = decoded[cursor++].real();
             }
         }
     }
-    return compact;
+    return result;
 }
 
-Tensor make_operator_test_tensor(const TensorShape &shape)
+Tensor3D decrypt_packed_feature_map(const PackedTensorCipher &packed, HeEnvironment &env)
 {
-    Tensor tensor(shape);
-    for (size_t i = 0; i < tensor.values.size(); ++i)
+    if (packed.k != 1)
     {
-        const int centered = static_cast<int>((i * 17 + 5) % 29) - 14;
-        tensor.values[i] = static_cast<double>(centered) / 10.0;
+        throw std::invalid_argument("packed feature map decrypt only supports k=1 tensors");
     }
-    return tensor;
+
+    Plaintext plain;
+    env.decryptor.decrypt(packed.cipher, plain);
+    std::vector<std::complex<double>> decoded;
+    env.encoder.decode(plain, decoded);
+
+    Tensor3D result(packed.c, packed.h, packed.w);
+    const int channel_stride = packed.h * packed.w;
+    for (int channel = 0; channel < packed.c; ++channel)
+    {
+        const int channel_offset = channel * channel_stride;
+        for (int row = 0; row < packed.h; ++row)
+        {
+            for (int col = 0; col < packed.w; ++col)
+            {
+                const int slot = channel_offset + row * packed.w + col;
+                result(channel, row, col) = decoded[static_cast<size_t>(slot)].real();
+            }
+        }
+    }
+    return result;
+}
+
+void rotate_cipher_composed(const Ciphertext &source, int rotation, HeEnvironment &env,
+                            Ciphertext &result);
+void add_inplace_fast(Ciphertext &destination, Ciphertext term, HeEnvironment &env);
+void log_cipher_metadata(std::ostream &log, std::string_view tag, const Ciphertext &cipher);
+
+PackedTensorCipher pack_feature_map_to_tensor(const HeFeatureMap &feature_map, HeEnvironment &env)
+{
+    PackedTensorCipher result;
+    result.log_slots = static_cast<int>(std::llround(std::log2(env.slot_count)));
+    result.k = 1;
+    result.h = feature_map.height;
+    result.w = feature_map.width;
+    result.c = static_cast<int>(feature_map.channels.size());
+    result.t = result.c;
+    result.p = choose_compact_packing_factor(env.slot_count, result.k, result.h, result.w,
+                                             result.t);
+    const int channel_stride = result.h * result.w;
+    const int chunk_slots = env.slot_count / result.p;
+    std::vector<double> source_mask(static_cast<size_t>(env.slot_count), 0.0);
+    for (int index = 0; index < channel_stride; ++index)
+    {
+        source_mask[static_cast<size_t>(index)] = 1.0;
+    }
+
+    bool initialized = false;
+    Ciphertext packed_sum;
+    for (int channel = 0; channel < result.c; ++channel)
+    {
+        Plaintext source_plain = encode_with_consistent_level(
+            source_mask, feature_map.channels[static_cast<size_t>(channel)], env.encoder);
+        Ciphertext active = feature_map.channels[static_cast<size_t>(channel)];
+        env.evaluator->multiply_plain(active, source_plain, active);
+        env.evaluator->rescale(active, active);
+
+        for (int copy_index = 0; copy_index < result.p; ++copy_index)
+        {
+            Ciphertext rotated = active;
+            const int rotation = copy_index * chunk_slots + channel * channel_stride;
+            if (rotation != 0)
+            {
+                rotate_cipher_composed(active, rotation, env, rotated);
+            }
+
+            if (!initialized)
+            {
+                packed_sum = std::move(rotated);
+                initialized = true;
+            }
+            else
+            {
+                add_inplace_fast(packed_sum, std::move(rotated), env);
+            }
+        }
+    }
+
+    if (!initialized)
+    {
+        throw std::runtime_error("cannot pack empty encrypted feature map");
+    }
+    result.cipher = std::move(packed_sum);
+    return result;
+}
+
+int packed_tensor_base_slots(const PackedTensorCipher &tensor)
+{
+    return tensor.k * tensor.k * tensor.h * tensor.w * tensor.t;
+}
+
+int packed_tensor_chunk_slots(const PackedTensorCipher &tensor, int slot_count)
+{
+    if (tensor.p <= 0 || slot_count % tensor.p != 0)
+    {
+        throw std::invalid_argument("packed tensor replication factor does not divide slot count");
+    }
+    return slot_count / tensor.p;
+}
+
+std::vector<double> batch_norm_channel_multipliers(const BatchNormParams &bn);
+void add_inplace_fast(Ciphertext &destination, Ciphertext term, HeEnvironment &env);
+HeFeatureMap encrypted_convolution_with_channel_multiplier(
+    const HeFeatureMap &input, const std::vector<double> &weights,
+    const std::vector<double> *channel_multiplier, int out_channels, int stride,
+    WeightLayout weight_layout, HeEnvironment &env);
+Ciphertext encrypted_fhe_mp_cnn_relu(const Ciphertext &cipher, HeEnvironment &env,
+                                     std::ostream *log, std::string_view tag,
+                                     size_t channel_index);
+Ciphertext encrypted_bootstrap(const Ciphertext &cipher, HeEnvironment &env);
+void match_levels(Ciphertext &lhs, Ciphertext &rhs, EvaluatorCkksBase &eva);
+void match_scale(Ciphertext &lhs, Ciphertext &rhs, const CKKSEncoder &encoder,
+                 EvaluatorCkksBase &eva, double scale);
+void rotate_cipher_composed(const Ciphertext &source, int rotation, HeEnvironment &env,
+                            Ciphertext &result);
+HeFeatureMap encrypted_shortcut_option_a(const HeFeatureMap &input, int out_channels,
+                                         HeEnvironment &env);
+std::vector<Ciphertext> encrypted_linear_logits(const HeFeatureMap &feature_map,
+                                                const ResNet20Weights &weights, HeEnvironment &env);
+Ciphertext average_pool_cipher(const Ciphertext &cipher, int active_slots, HeEnvironment &env);
+HeFeatureMap unpack_packed_output_channels(const PackedTensorCipher &packed, HeEnvironment &env);
+PackedTensorCipher packed_convolution_stride1_poseidon(const PackedTensorCipher &input,
+                                                       const std::vector<double> &weights,
+                                                       const BatchNormParams &bn,
+                                                       WeightLayout weight_layout,
+                                                       int out_channels, HeEnvironment &env,
+                                                       std::ostream *log);
+
+std::vector<double> build_packed_weight_mask(const PackedTensorCipher &input,
+                                             const std::vector<double> &weights,
+                                             const std::vector<double> &channel_multipliers,
+                                             int kernel_row, int kernel_col,
+                                             int output_group, WeightLayout weight_layout,
+                                             int out_channels, int slot_count)
+{
+    std::vector<double> mask(static_cast<size_t>(slot_count), 0.0);
+    const int chunk_slots = packed_tensor_chunk_slots(input, slot_count);
+    const int base_slots = packed_tensor_base_slots(input);
+    for (int slot = 0; slot < slot_count; ++slot)
+    {
+        const int copy_index = slot / chunk_slots;
+        const int out_channel = output_group * input.p + copy_index;
+        if (out_channel >= out_channels)
+        {
+            continue;
+        }
+
+        const int local = slot % chunk_slots;
+        if (local >= base_slots)
+        {
+            continue;
+        }
+
+        const int channel = local / (input.h * input.w);
+        const int spatial = local % (input.h * input.w);
+        const int row = spatial / input.w;
+        const int col = spatial % input.w;
+        const int source_row = row + kernel_row - 1;
+        const int source_col = col + kernel_col - 1;
+        if (source_row < 0 || source_row >= input.h || source_col < 0 || source_col >= input.w)
+        {
+            continue;
+        }
+
+        const double coeff = conv_weight_at(weights, weight_layout, out_channel, channel,
+                                            kernel_row, kernel_col, input.c, out_channels) *
+                             channel_multipliers[static_cast<size_t>(out_channel)];
+        mask[static_cast<size_t>(slot)] = coeff;
+    }
+    return mask;
+}
+
+std::vector<double> build_packed_output_select_mask(int output_height, int output_width,
+                                                    int out_channels, int out_channel,
+                                                    int slot_count, int output_p)
+{
+    std::vector<double> mask(static_cast<size_t>(slot_count), 0.0);
+    const int output_chunk = slot_count / output_p;
+    const int channel_stride = output_height * output_width;
+    const int channel_offset = out_channel * channel_stride;
+    for (int index = 0; index < channel_stride; ++index)
+    {
+        mask[static_cast<size_t>(channel_offset + index)] = 1.0;
+    }
+    return mask;
+}
+
+PackedTensorCipher align_packed_tensor_to_reference_scale(const PackedTensorCipher &input,
+                                                          HeEnvironment &env)
+{
+    PackedTensorCipher result = input;
+    if (result.cipher.scale() > env.scale * 1.5)
+    {
+        env.evaluator->rescale_dynamic(result.cipher, result.cipher, env.scale);
+    }
+    result.cipher.scale() = env.scale;
+    return result;
+}
+
+std::vector<double> build_packed_bn_shift_mask(const PackedTensorCipher &input,
+                                               const BatchNormParams &bn, int slot_count)
+{
+    if (static_cast<int>(bn.bias.size()) != input.c)
+    {
+        throw std::invalid_argument("packed batch norm channel count mismatch");
+    }
+
+    std::vector<double> mask(static_cast<size_t>(slot_count), 0.0);
+    const int chunk_slots = packed_tensor_chunk_slots(input, slot_count);
+    const int channel_stride = input.h * input.w;
+    for (int copy_index = 0; copy_index < input.p; ++copy_index)
+    {
+        const int base = copy_index * chunk_slots;
+        for (int channel = 0; channel < input.c; ++channel)
+        {
+            const double shift =
+                batch_norm_shift(bn, channel) / kFheMpCnnApproximationBoundary;
+            for (int offset = 0; offset < channel_stride; ++offset)
+            {
+                mask[static_cast<size_t>(base + channel * channel_stride + offset)] = shift;
+            }
+        }
+    }
+    return mask;
+}
+
+PackedTensorCipher packed_batch_norm_poseidon(const PackedTensorCipher &input,
+                                              const BatchNormParams &bn, HeEnvironment &env)
+{
+    PackedTensorCipher result = input;
+    const std::vector<double> shift_mask =
+        build_packed_bn_shift_mask(result, bn, env.slot_count);
+    Plaintext plain = encode_with_consistent_level(shift_mask, result.cipher, env.encoder);
+    env.evaluator->add_plain(result.cipher, plain, result.cipher);
+    return result;
+}
+
+PackedTensorCipher packed_relu_poseidon(const PackedTensorCipher &input, HeEnvironment &env,
+                                        std::ostream *log, std::string_view tag)
+{
+    PackedTensorCipher result = input;
+    util::Timestacs timer;
+    timer.start();
+    result.cipher = encrypted_fhe_mp_cnn_relu(result.cipher, env, log, tag, 0);
+    timer.end();
+    if (log)
+    {
+        timed_log(*log) << tag << " packed relu time : " << timer.microseconds() / 1000
+                        << " ms";
+    }
+    return result;
+}
+
+PackedTensorCipher packed_add_poseidon(const PackedTensorCipher &lhs, const PackedTensorCipher &rhs,
+                                       HeEnvironment &env)
+{
+    if (lhs.k != rhs.k || lhs.h != rhs.h || lhs.w != rhs.w || lhs.c != rhs.c || lhs.t != rhs.t ||
+        lhs.p != rhs.p)
+    {
+        throw std::invalid_argument("packed tensor add shape mismatch");
+    }
+
+    PackedTensorCipher result = lhs;
+    Ciphertext other = rhs.cipher;
+    match_levels(result.cipher, other, *env.evaluator);
+    match_scale(result.cipher, other, env.encoder, *env.evaluator, env.scale);
+    env.evaluator->add(result.cipher, other, result.cipher);
+    return result;
+}
+
+std::vector<double> build_packed_single_slot_mask(int slot_count, int slot, double value)
+{
+    if (slot < 0 || slot >= slot_count)
+    {
+        throw std::out_of_range("packed slot index out of range");
+    }
+    std::vector<double> mask(static_cast<size_t>(slot_count), 0.0);
+    mask[static_cast<size_t>(slot)] = value;
+    return mask;
+}
+
+int packed_base_slot_index(const PackedTensorCipher &tensor, int channel, int row, int col)
+{
+    if (channel < 0 || channel >= tensor.c || row < 0 || row >= tensor.h || col < 0 || col >= tensor.w)
+    {
+        throw std::out_of_range("packed tensor coordinate out of range");
+    }
+    return channel * tensor.h * tensor.w + row * tensor.w + col;
+}
+
+Ciphertext replicate_packed_base_cipher(const Ciphertext &base, int output_p, HeEnvironment &env)
+{
+    if (output_p <= 0 || env.slot_count % output_p != 0)
+    {
+        throw std::invalid_argument("invalid packed replication factor");
+    }
+
+    Ciphertext replicated = base;
+    const int chunk_slots = env.slot_count / output_p;
+    for (int copy_index = 1; copy_index < output_p; ++copy_index)
+    {
+        Ciphertext rotated;
+        rotate_cipher_composed(base, -copy_index * chunk_slots, env, rotated);
+        add_inplace_fast(replicated, std::move(rotated), env);
+    }
+    return replicated;
+}
+
+PackedTensorCipher packed_spatial_downsample_poseidon(const PackedTensorCipher &input,
+                                                      int out_channels, int channel_pad_left,
+                                                      HeEnvironment &env)
+{
+    if (input.h % 2 != 0 || input.w % 2 != 0)
+    {
+        throw std::invalid_argument("packed spatial downsample expects even spatial dimensions");
+    }
+    if (channel_pad_left < 0 || channel_pad_left + input.c > out_channels)
+    {
+        throw std::invalid_argument("packed spatial downsample channel padding is invalid");
+    }
+
+    const int output_height = input.h / 2;
+    const int output_width = input.w / 2;
+    const int output_p =
+        choose_compact_packing_factor(env.slot_count, 1, output_height, output_width, out_channels);
+
+    bool initialized = false;
+    Ciphertext output_base;
+    for (int channel = 0; channel < input.c; ++channel)
+    {
+        const int output_channel = channel + channel_pad_left;
+        for (int row = 0; row < output_height; ++row)
+        {
+            for (int col = 0; col < output_width; ++col)
+            {
+                const int source_slot = packed_base_slot_index(input, channel, row * 2, col * 2);
+                const int output_slot =
+                    output_channel * output_height * output_width + row * output_width + col;
+                const int rotation = output_slot - source_slot;
+
+                Ciphertext rotated = input.cipher;
+                if (rotation != 0)
+                {
+                    rotate_cipher_composed(input.cipher, rotation, env, rotated);
+                }
+
+                Plaintext plain = encode_with_consistent_level(
+                    build_packed_single_slot_mask(env.slot_count, output_slot, 1.0), rotated,
+                    env.encoder);
+                Ciphertext selected;
+                env.evaluator->multiply_plain(rotated, plain, selected);
+                env.evaluator->rescale(selected, selected);
+                if (!initialized)
+                {
+                    output_base = std::move(selected);
+                    initialized = true;
+                }
+                else
+                {
+                    add_inplace_fast(output_base, std::move(selected), env);
+                }
+            }
+        }
+    }
+
+    if (!initialized)
+    {
+        throw std::runtime_error("packed spatial downsample produced no output");
+    }
+
+    return PackedTensorCipher{replicate_packed_base_cipher(output_base, output_p, env),
+                              static_cast<int>(std::llround(std::log2(env.slot_count))), 1,
+                              output_height, output_width, out_channels, out_channels, output_p};
+}
+
+PackedTensorCipher packed_shortcut_option_a_poseidon(const PackedTensorCipher &input,
+                                                     int out_channels, HeEnvironment &env)
+{
+    const int pad = (out_channels - input.c) / 2;
+    return packed_spatial_downsample_poseidon(input, out_channels, pad, env);
+}
+
+PackedTensorCipher packed_average_pool_poseidon(const PackedTensorCipher &input, HeEnvironment &env)
+{
+    bool initialized = false;
+    Ciphertext pooled_base;
+    const double coeff =
+        kFheMpCnnApproximationBoundary / static_cast<double>(input.h * input.w);
+    for (int channel = 0; channel < input.c; ++channel)
+    {
+        const int output_slot = channel;
+        for (int row = 0; row < input.h; ++row)
+        {
+            for (int col = 0; col < input.w; ++col)
+            {
+                const int source_slot = packed_base_slot_index(input, channel, row, col);
+                const int rotation = output_slot - source_slot;
+
+                Ciphertext rotated = input.cipher;
+                if (rotation != 0)
+                {
+                    rotate_cipher_composed(input.cipher, rotation, env, rotated);
+                }
+
+                Plaintext plain = encode_with_consistent_level(
+                    build_packed_single_slot_mask(env.slot_count, output_slot, coeff), rotated,
+                    env.encoder);
+                Ciphertext term;
+                env.evaluator->multiply_plain(rotated, plain, term);
+                env.evaluator->rescale(term, term);
+                if (!initialized)
+                {
+                    pooled_base = std::move(term);
+                    initialized = true;
+                }
+                else
+                {
+                    add_inplace_fast(pooled_base, std::move(term), env);
+                }
+            }
+        }
+    }
+
+    if (!initialized)
+    {
+        throw std::runtime_error("packed average pooling produced no output");
+    }
+
+    return PackedTensorCipher{std::move(pooled_base),
+                              static_cast<int>(std::llround(std::log2(env.slot_count))), 1, 1, 1,
+                              input.c, input.c, 1};
+}
+
+std::vector<Ciphertext> packed_fully_connected_poseidon(const PackedTensorCipher &input,
+                                                        const ResNet20Weights &weights,
+                                                        HeEnvironment &env)
+{
+    if (input.h != 1 || input.w != 1 || input.c != 64)
+    {
+        throw std::invalid_argument("packed fully connected expects pooled 1x1x64 tensor");
+    }
+
+    std::vector<Ciphertext> logits(static_cast<size_t>(kClasses));
+    for (int out = 0; out < kClasses; ++out)
+    {
+        bool initialized = false;
+        Ciphertext sum;
+        for (int in = 0; in < 64; ++in)
+        {
+            Ciphertext rotated = input.cipher;
+            if (in != 0)
+            {
+                rotate_cipher_composed(input.cipher, -in, env, rotated);
+            }
+
+            Plaintext plain = encode_with_consistent_level(
+                build_packed_single_slot_mask(
+                    env.slot_count, 0, weights.linear_weight[static_cast<size_t>(out * 64 + in)]),
+                rotated, env.encoder);
+            Ciphertext term;
+            env.evaluator->multiply_plain(rotated, plain, term);
+            env.evaluator->rescale(term, term);
+            if (!initialized)
+            {
+                sum = std::move(term);
+                initialized = true;
+            }
+            else
+            {
+                add_inplace_fast(sum, std::move(term), env);
+            }
+        }
+
+        std::vector<double> bias_mask(static_cast<size_t>(env.slot_count), 0.0);
+        bias_mask[0] = weights.linear_bias[static_cast<size_t>(out)];
+        Plaintext bias_plain = encode_with_consistent_level(bias_mask, sum, env.encoder);
+        env.evaluator->add_plain(sum, bias_plain, sum);
+        logits[static_cast<size_t>(out)] = std::move(sum);
+    }
+    return logits;
+}
+
+bool can_pack_tensor_shape(int height, int width, int channels, const HeEnvironment &env)
+{
+    try
+    {
+        return choose_compact_packing_factor(env.slot_count, 1, height, width, channels) > 0;
+    }
+    catch (const std::exception &)
+    {
+        return false;
+    }
+}
+
+PackedTensorCipher packed_convolution_poseidon(const PackedTensorCipher &input,
+                                               const std::vector<double> &weights,
+                                               const BatchNormParams &bn, int out_channels,
+                                               int stride, WeightLayout weight_layout,
+                                               HeEnvironment &env, std::ostream *log,
+                                               std::string_view tag)
+{
+    const int output_height = (stride == 1) ? input.h : (input.h / 2);
+    const int output_width = (stride == 1) ? input.w : (input.w / 2);
+    if (can_pack_tensor_shape(output_height, output_width, out_channels, env))
+    {
+        if (log)
+        {
+            *log << tag << " path : packed\n";
+        }
+        if (stride == 1)
+        {
+            return packed_convolution_stride1_poseidon(input, weights, bn, weight_layout,
+                                                       out_channels, env, log);
+        }
+
+        PackedTensorCipher dense = packed_convolution_stride1_poseidon(
+            input, weights, bn, weight_layout, out_channels, env, log);
+        return packed_spatial_downsample_poseidon(dense, out_channels, 0, env);
+    }
+
+    throw std::runtime_error("packed convolution output shape does not fit into current CKKS slots");
+}
+
+PackedTensorCipher packed_bootstrap_poseidon(const PackedTensorCipher &input, HeEnvironment &env)
+{
+    PackedTensorCipher result = input;
+    result.cipher = encrypted_bootstrap(result.cipher, env);
+    return result;
+}
+
+void log_packed_tensor_stats(std::ostream &log, std::string_view tag,
+                             const PackedTensorCipher &tensor, HeEnvironment &env)
+{
+    log_cipher_metadata(log, std::string(tag) + " metadata", tensor.cipher);
+    try
+    {
+        Plaintext plain;
+        env.decryptor.decrypt(tensor.cipher, plain);
+        std::vector<std::complex<double>> decoded;
+        env.encoder.decode(plain, decoded);
+        log_decoded_vector_stats(log, tag, decoded, packed_tensor_base_slots(tensor));
+    }
+    catch (const std::exception &error)
+    {
+        timed_log(log) << tag << " decode failed: " << error.what();
+    }
+}
+
+void rotate_cipher_composed(const Ciphertext &source, int rotation, HeEnvironment &env,
+                            Ciphertext &result)
+{
+    const int slot_count = env.slot_count;
+    int normalized = rotation % slot_count;
+    if (normalized < 0)
+    {
+        normalized += slot_count;
+    }
+    if (normalized == 0)
+    {
+        result = source;
+        return;
+    }
+
+    Ciphertext current = source;
+    bool initialized = false;
+    for (int bit = 0; (1 << bit) <= normalized; ++bit)
+    {
+        const int step = 1 << bit;
+        if ((normalized & step) == 0)
+        {
+            continue;
+        }
+        Ciphertext rotated;
+        env.evaluator->rotate(initialized ? current : source, rotated, step, env.galois_keys);
+        current = std::move(rotated);
+        initialized = true;
+    }
+    result = std::move(current);
+}
+
+PackedTensorCipher packed_convolution_stride1_poseidon(const PackedTensorCipher &input,
+                                                       const std::vector<double> &weights,
+                                                       const BatchNormParams &bn,
+                                                       WeightLayout weight_layout,
+                                                       int out_channels, HeEnvironment &env,
+                                                       std::ostream *log)
+{
+    if (input.k != 1)
+    {
+        throw std::invalid_argument("packed stride-1 convolution expects k=1 contiguous packing");
+    }
+
+    const int slot_count = env.slot_count;
+    const int output_p =
+        choose_compact_packing_factor(slot_count, 1, input.h, input.w, out_channels);
+    if (output_p <= 0)
+    {
+        throw std::runtime_error("current CKKS slot count cannot hold packed convolution output");
+    }
+
+    const std::vector<double> channel_multipliers = batch_norm_channel_multipliers(bn);
+    const int chunk_slots = packed_tensor_chunk_slots(input, slot_count);
+    const int copy_stride = input.h * input.w;
+    const int q = (out_channels + input.p - 1) / input.p;
+
+    std::array<std::array<Ciphertext, 3>, 3> rotated_inputs;
+    util::Timestacs timer;
+    for (int kh = 0; kh < 3; ++kh)
+    {
+        for (int kw = 0; kw < 3; ++kw)
+        {
+            rotated_inputs[static_cast<size_t>(kh)][static_cast<size_t>(kw)] = input.cipher;
+            const int rotation = input.w * (kh - 1) + (kw - 1);
+            if (rotation != 0)
+            {
+                rotate_cipher_composed(input.cipher, rotation, env,
+                                       rotated_inputs[static_cast<size_t>(kh)][static_cast<size_t>(kw)]);
+            }
+        }
+    }
+    if (log)
+    {
+        timed_log(*log) << "he stem packed pre-rotation ready";
+    }
+
+    bool initialized_total = false;
+    Ciphertext total_sum;
+    for (int group = 0; group < q; ++group)
+    {
+        timer.start();
+        bool initialized_group = false;
+        Ciphertext group_sum;
+        for (int kh = 0; kh < 3; ++kh)
+        {
+            for (int kw = 0; kw < 3; ++kw)
+            {
+                std::vector<double> mask = build_packed_weight_mask(
+                    input, weights, channel_multipliers, kh, kw, group, weight_layout,
+                    out_channels, slot_count);
+                Plaintext plain = encode_with_consistent_level(
+                    mask, rotated_inputs[static_cast<size_t>(kh)][static_cast<size_t>(kw)],
+                    env.encoder);
+                Ciphertext term;
+                env.evaluator->multiply_plain(
+                    rotated_inputs[static_cast<size_t>(kh)][static_cast<size_t>(kw)], plain, term);
+                env.evaluator->rescale(term, term);
+                if (!initialized_group)
+                {
+                    group_sum = std::move(term);
+                    initialized_group = true;
+                }
+                else
+                {
+                    add_inplace_fast(group_sum, std::move(term), env);
+                }
+            }
+        }
+
+        if (!initialized_group)
+        {
+            continue;
+        }
+
+        const Ciphertext group_base = group_sum;
+        Ciphertext reduced = group_sum;
+        for (int channel = 1; channel < input.t; ++channel)
+        {
+            Ciphertext rotated;
+            rotate_cipher_composed(group_base, channel * copy_stride, env, rotated);
+            add_inplace_fast(reduced, std::move(rotated), env);
+        }
+
+        for (int within_group = 0; within_group < input.p; ++within_group)
+        {
+            const int out_channel = group * input.p + within_group;
+            if (out_channel >= out_channels)
+            {
+                continue;
+            }
+
+            Ciphertext rotated = reduced;
+            const int rotation = chunk_slots * within_group - out_channel * copy_stride;
+            if (rotation != 0)
+            {
+                rotate_cipher_composed(reduced, rotation, env, rotated);
+            }
+
+            std::vector<double> select_mask = build_packed_output_select_mask(
+                input.h, input.w, out_channels, out_channel, slot_count, output_p);
+            Plaintext plain = encode_with_consistent_level(select_mask, rotated, env.encoder);
+            Ciphertext selected;
+            env.evaluator->multiply_plain(rotated, plain, selected);
+            env.evaluator->rescale(selected, selected);
+            if (!initialized_total)
+            {
+                total_sum = std::move(selected);
+                initialized_total = true;
+            }
+            else
+            {
+                add_inplace_fast(total_sum, std::move(selected), env);
+            }
+        }
+        timer.end();
+        if (log)
+        {
+            timed_log(*log) << "he stem packed group " << group << " time : "
+                            << timer.microseconds() / 1000 << " ms";
+        }
+    }
+
+    if (!initialized_total)
+    {
+        throw std::runtime_error("packed stem convolution produced no ciphertext output");
+    }
+
+    const Ciphertext packed_base = total_sum;
+    Ciphertext packed_output = total_sum;
+    const int output_chunk = slot_count / output_p;
+    for (int copy_index = 1; copy_index < output_p; ++copy_index)
+    {
+        Ciphertext rotated;
+        rotate_cipher_composed(packed_base, -copy_index * output_chunk, env, rotated);
+        add_inplace_fast(packed_output, std::move(rotated), env);
+    }
+    if (log)
+    {
+        timed_log(*log) << "he stem packed output replication done";
+    }
+
+    return PackedTensorCipher{std::move(packed_output),
+                              static_cast<int>(std::llround(std::log2(slot_count))), 1,
+                              input.h, input.w, out_channels, out_channels, output_p};
+}
+
+HeFeatureMap unpack_packed_output_channels(const PackedTensorCipher &packed, HeEnvironment &env)
+{
+    if (packed.k != 1)
+    {
+        throw std::invalid_argument("packed output unpack only supports k=1 tensors");
+    }
+
+    HeFeatureMap result;
+    result.height = packed.h;
+    result.width = packed.w;
+    result.channels.reserve(static_cast<size_t>(packed.c));
+    const int channel_stride = packed.h * packed.w;
+    std::vector<double> channel_mask(static_cast<size_t>(env.slot_count), 0.0);
+    for (int index = 0; index < channel_stride; ++index)
+    {
+        channel_mask[static_cast<size_t>(index)] = 1.0;
+    }
+
+    for (int channel = 0; channel < packed.c; ++channel)
+    {
+        Ciphertext rotated = packed.cipher;
+        const int rotation = -channel * channel_stride;
+        if (rotation != 0)
+        {
+            rotate_cipher_composed(packed.cipher, rotation, env, rotated);
+        }
+        Plaintext plain;
+        env.encoder.encode(channel_mask, rotated.parms_id(), 1.0, plain);
+        Ciphertext unpacked;
+        env.evaluator->multiply_plain(rotated, plain, unpacked);
+        unpacked.scale() = rotated.scale();
+        result.channels.push_back(std::move(unpacked));
+    }
+    return result;
+}
+
+Ciphertext make_zero_like(const Ciphertext &cipher, HeEnvironment &env)
+{
+    std::vector<double> zero(static_cast<size_t>(env.slot_count), 0.0);
+    Plaintext plain = encode_with_consistent_level(zero, cipher, env.encoder);
+    Ciphertext zero_cipher;
+    env.encryptor.encrypt(plain, zero_cipher);
+    return zero_cipher;
+}
+
+void match_levels(Ciphertext &lhs, Ciphertext &rhs, EvaluatorCkksBase &eva)
+{
+    if (lhs.level() > rhs.level())
+    {
+        eva.drop_modulus(lhs, lhs, rhs.parms_id());
+    }
+    else if (lhs.level() < rhs.level())
+    {
+        eva.drop_modulus(rhs, rhs, lhs.parms_id());
+    }
+}
+
+void match_scale(Ciphertext &lhs, Ciphertext &rhs, const CKKSEncoder &encoder, EvaluatorCkksBase &eva,
+                 double scale)
+{
+    if (!util::are_approximate(lhs.scale(), rhs.scale()))
+    {
+        lhs.scale() = rhs.scale();
+        std::vector<std::complex<double>> one(1, {1.0, 0.0});
+        Plaintext plain;
+
+        encoder.encode(one, rhs.parms_id(), scale * scale / rhs.scale(), plain);
+        eva.multiply_plain(rhs, plain, rhs);
+        eva.rescale(rhs, rhs);
+
+        encoder.encode(one, lhs.parms_id(), scale * scale / lhs.scale(), plain);
+        eva.multiply_plain(lhs, plain, lhs);
+        eva.rescale(lhs, lhs);
+    }
+}
+
+void add_inplace_dynamic(Ciphertext &destination, Ciphertext term, HeEnvironment &env)
+{
+    match_levels(destination, term, *env.evaluator);
+    match_scale(destination, term, env.encoder, *env.evaluator, env.scale);
+    env.evaluator->add(destination, term, destination);
+}
+
+void add_inplace_fast(Ciphertext &destination, Ciphertext term, HeEnvironment &env)
+{
+    add_inplace_dynamic(destination, std::move(term), env);
+}
+
+HeFeatureMap encrypt_image_to_feature_map(const Tensor3D &image, HeEnvironment &env)
+{
+    HeFeatureMap result;
+    result.height = image.height;
+    result.width = image.width;
+    result.channels.resize(static_cast<size_t>(image.channels));
+    for (int c = 0; c < image.channels; ++c)
+    {
+        std::vector<double> channel_values(static_cast<size_t>(image.height * image.width), 0.0);
+        for (int h = 0; h < image.height; ++h)
+        {
+            for (int w = 0; w < image.width; ++w)
+            {
+                channel_values[static_cast<size_t>(h * image.width + w)] =
+                    image(c, h, w) / kFheMpCnnApproximationBoundary;
+            }
+        }
+        result.channels[static_cast<size_t>(c)] = encrypt_slots(channel_values, env);
+    }
+    return result;
+}
+
+Tensor3D decrypt_feature_map(const HeFeatureMap &feature_map, HeEnvironment &env)
+{
+    Tensor3D result(static_cast<int>(feature_map.channels.size()), feature_map.height,
+                    feature_map.width);
+    for (int c = 0; c < static_cast<int>(feature_map.channels.size()); ++c)
+    {
+        Plaintext plain;
+        env.decryptor.decrypt(feature_map.channels[static_cast<size_t>(c)], plain);
+        std::vector<std::complex<double>> decoded;
+        env.encoder.decode(plain, decoded);
+        for (int h = 0; h < feature_map.height; ++h)
+        {
+            for (int w = 0; w < feature_map.width; ++w)
+            {
+                result(c, h, w) = decoded[static_cast<size_t>(h * feature_map.width + w)].real();
+            }
+        }
+    }
+    return result;
+}
+
+std::vector<double> build_conv_mask(int height, int width, int row_offset, int col_offset,
+                                    int slot_count, double coeff)
+{
+    std::vector<double> mask(static_cast<size_t>(slot_count), 0.0);
+    for (int row = 0; row < height; ++row)
+    {
+        for (int col = 0; col < width; ++col)
+        {
+            const int source_row = row + row_offset;
+            const int source_col = col + col_offset;
+            if (source_row >= 0 && source_row < height && source_col >= 0 && source_col < width)
+            {
+                mask[static_cast<size_t>(row * width + col)] = coeff;
+            }
+        }
+    }
+    return mask;
+}
+
+const std::vector<double> &get_conv_mask_template(int height, int width, int row_offset,
+                                                  int col_offset, HeEnvironment &env)
+{
+    const HeEnvironment::ConvMaskKey key{height, width, row_offset, col_offset};
+    auto it = env.conv_mask_cache.find(key);
+    if (it != env.conv_mask_cache.end())
+    {
+        return it->second;
+    }
+
+    auto [inserted_it, _] = env.conv_mask_cache.emplace(
+        key, build_conv_mask(height, width, row_offset, col_offset, env.slot_count, 1.0));
+    return inserted_it->second;
+}
+
+std::vector<std::vector<double>> build_downsample_matrix(int input_height, int input_width,
+                                                         int output_height, int output_width,
+                                                         int slot_count)
+{
+    std::vector<std::vector<double>> matrix(static_cast<size_t>(slot_count),
+                                            std::vector<double>(static_cast<size_t>(slot_count), 0.0));
+    for (int row = 0; row < output_height; ++row)
+    {
+        for (int col = 0; col < output_width; ++col)
+        {
+            const int target = row * output_width + col;
+            const int source = (row * 2) * input_width + col * 2;
+            matrix[static_cast<size_t>(target)][static_cast<size_t>(source)] = 1.0;
+        }
+    }
+    return matrix;
+}
+
+Ciphertext apply_downsample_transform(const Ciphertext &cipher, int input_height, int input_width,
+                                      HeEnvironment &env)
+{
+    const int output_height = input_height / 2;
+    const int output_width = input_width / 2;
+    const HeEnvironment::DownsampleKey key{
+        input_height, input_width, static_cast<uint32_t>(cipher.level()),
+        static_cast<int64_t>(std::llround(std::log2(cipher.scale())))};
+    auto matrix_it = env.downsample_matrix_cache.find(key);
+    if (matrix_it == env.downsample_matrix_cache.end())
+    {
+        std::vector<std::vector<double>> matrix = build_downsample_matrix(
+            input_height, input_width, output_height, output_width, env.slot_count);
+        MatrixPlain plain_matrix;
+        std::vector<int> rotate_index;
+        gen_matrix_form_bsgs(plain_matrix, rotate_index, env.encoder, matrix,
+                             static_cast<uint32_t>(cipher.level()), cipher.scale(), 1,
+                             env.context.parameters_literal()->log_slots());
+        matrix_it = env.downsample_matrix_cache.emplace(key, std::move(plain_matrix)).first;
+    }
+
+    Ciphertext result;
+    env.evaluator->multiply_by_diag_matrix_bsgs(cipher, matrix_it->second, result, env.galois_keys);
+    return result;
+}
+
+Ciphertext encrypted_conv_term(const Ciphertext &cipher, int height, int width, int row_offset,
+                               int col_offset, double coeff, HeEnvironment &env)
+{
+    Ciphertext rotated = cipher;
+    const int rotation = row_offset * width + col_offset;
+    if (rotation != 0)
+    {
+        env.evaluator->rotate(cipher, rotated, rotation, env.galois_keys);
+    }
+    const std::vector<double> &base_mask =
+        get_conv_mask_template(height, width, row_offset, col_offset, env);
+    std::vector<double> scaled_mask = base_mask;
+    for (double &value : scaled_mask)
+    {
+        value *= coeff;
+    }
+    Plaintext plain = encode_with_consistent_level(scaled_mask, rotated, env.encoder);
+    Ciphertext term;
+    env.evaluator->multiply_plain(rotated, plain, term);
+    env.evaluator->rescale(term, term);
+    return term;
+}
+
+std::vector<std::vector<Ciphertext>> precompute_rotated_inputs(const HeFeatureMap &input,
+                                                               HeEnvironment &env)
+{
+    std::vector<std::vector<Ciphertext>> rotated(input.channels.size());
+    for (size_t ic = 0; ic < input.channels.size(); ++ic)
+    {
+        rotated[ic].reserve(9);
+        for (int kh = 0; kh < 3; ++kh)
+        {
+            for (int kw = 0; kw < 3; ++kw)
+            {
+                const int row_offset = kh - 1;
+                const int col_offset = kw - 1;
+                const int rotation = row_offset * input.width + col_offset;
+                Ciphertext rotated_cipher = input.channels[ic];
+                if (rotation != 0)
+                {
+                    env.evaluator->rotate(input.channels[ic], rotated_cipher, rotation,
+                                          env.galois_keys);
+                }
+                rotated[ic].push_back(std::move(rotated_cipher));
+            }
+        }
+    }
+    return rotated;
+}
+
+Ciphertext multiply_const_checked(const Ciphertext &cipher, double value, double scale,
+                                  HeEnvironment &env, std::string_view tag);
+
+std::vector<std::complex<double>> trim_trailing_near_zero(std::vector<std::complex<double>> coeffs)
+{
+    while (coeffs.size() > 1 && std::abs(coeffs.back()) < 1e-18)
+    {
+        coeffs.pop_back();
+    }
+    return coeffs;
+}
+
+std::vector<std::complex<double>> add_chebyshev_coeff_vectors(
+    const std::vector<std::complex<double>> &lhs, const std::vector<std::complex<double>> &rhs)
+{
+    std::vector<std::complex<double>> result(std::max(lhs.size(), rhs.size()),
+                                             std::complex<double>(0.0, 0.0));
+    for (size_t i = 0; i < lhs.size(); ++i)
+    {
+        result[i] += lhs[i];
+    }
+    for (size_t i = 0; i < rhs.size(); ++i)
+    {
+        result[i] += rhs[i];
+    }
+    return trim_trailing_near_zero(std::move(result));
+}
+
+std::vector<std::complex<double>> multiply_chebyshev_by_basis(
+    const std::vector<std::complex<double>> &coeffs, int basis_degree)
+{
+    if (basis_degree < 0)
+    {
+        throw std::invalid_argument("Chebyshev basis degree must be non-negative");
+    }
+    if (basis_degree == 0)
+    {
+        return coeffs;
+    }
+
+    std::vector<std::complex<double>> result(
+        coeffs.size() + static_cast<size_t>(basis_degree), std::complex<double>(0.0, 0.0));
+    for (size_t degree = 0; degree < coeffs.size(); ++degree)
+    {
+        const std::complex<double> coeff = coeffs[degree];
+        if (std::abs(coeff) < 1e-18)
+        {
+            continue;
+        }
+        if (degree == 0)
+        {
+            result[static_cast<size_t>(basis_degree)] += coeff;
+        }
+        else
+        {
+            result[degree + static_cast<size_t>(basis_degree)] += coeff * 0.5;
+            result[static_cast<size_t>(std::abs(static_cast<int>(degree) - basis_degree))] +=
+                coeff * 0.5;
+        }
+    }
+    return trim_trailing_near_zero(std::move(result));
+}
+
+std::vector<std::complex<double>> build_activation_component_chebyshev_coeffs(
+    const ActivationComponentSpec &component, int tree_index)
+{
+    const int split_degree = component.tree[static_cast<size_t>(tree_index)];
+    if (split_degree == 0)
+    {
+        const int degree = component.decomp_degrees[static_cast<size_t>(tree_index)];
+        const int start_index = component.leaf_start_indices[static_cast<size_t>(tree_index)];
+        if (degree < 0 || start_index < 0)
+        {
+            throw std::runtime_error("activation leaf metadata is invalid");
+        }
+
+        std::vector<std::complex<double>> coeffs(static_cast<size_t>(degree + 1),
+                                                 std::complex<double>(0.0, 0.0));
+        for (int odd_degree = 1; odd_degree <= degree; odd_degree += 2)
+        {
+            const size_t coeff_index = static_cast<size_t>(start_index + odd_degree - 1);
+            if (coeff_index >= component.raw_coeffs.size())
+            {
+                throw std::runtime_error("activation leaf coefficient index is out of range");
+            }
+            coeffs[static_cast<size_t>(odd_degree)] =
+                std::complex<double>(component.raw_coeffs[coeff_index], 0.0);
+        }
+        return trim_trailing_near_zero(std::move(coeffs));
+    }
+
+    const std::vector<std::complex<double>> remainder =
+        build_activation_component_chebyshev_coeffs(component, tree_index * 2);
+    const std::vector<std::complex<double>> quotient =
+        build_activation_component_chebyshev_coeffs(component, tree_index * 2 + 1);
+    return add_chebyshev_coeff_vectors(remainder,
+                                       multiply_chebyshev_by_basis(quotient, split_degree));
+}
+
+PolynomialVector build_activation_component_polynomial_vector(
+    const ActivationComponentSpec &component, int slot_count)
+{
+    std::vector<std::complex<double>> coeffs = component.chebyshev_coeffs;
+    if (coeffs.empty())
+    {
+        coeffs.push_back(std::complex<double>(0.0, 0.0));
+    }
+
+    Polynomial poly(coeffs, 0, 0, component.degree, Chebyshev);
+    poly.lead() = true;
+
+    std::vector<std::vector<int>> slots_index(1, std::vector<int>(static_cast<size_t>(slot_count)));
+    for (int slot = 0; slot < slot_count; ++slot)
+    {
+        slots_index[0][static_cast<size_t>(slot)] = slot;
+    }
+    return PolynomialVector(std::vector<Polynomial>{poly}, slots_index);
+}
+
+void ensure_scalar_encodable(double value, double scale, const Ciphertext &cipher,
+                             const HeEnvironment &env, std::string_view tag)
+{
+    auto context_data = env.context.crt_context()->get_context_data(cipher.parms_id());
+    const double scaled_value = std::abs(value) * scale;
+    const double coeff_bits = scaled_value <= 0.0 ? 0.0 : (std::log2(scaled_value) + 2.0);
+    const double total_bits = static_cast<double>(context_data->total_coeff_modulus_bit_count());
+    if (!(coeff_bits < total_bits))
+    {
+        std::ostringstream oss;
+        oss << tag << " scalar encode overflow: value=" << value << ", scale=" << scale
+            << ", coeff_bits=" << coeff_bits << ", total_bits=" << total_bits
+            << ", level=" << cipher.level();
+        throw std::runtime_error(oss.str());
+    }
+}
+
+Ciphertext multiply_const_checked(const Ciphertext &cipher, double value, double scale,
+                                  HeEnvironment &env, std::string_view tag)
+{
+    ensure_scalar_encodable(value, scale, cipher, env, tag);
+    Ciphertext result;
+    env.evaluator->multiply_const(cipher, value, scale, result, env.encoder);
+    return result;
+}
+
+void add_const_checked(Ciphertext &cipher, double value, HeEnvironment &env, std::string_view tag)
+{
+    ensure_scalar_encodable(value, cipher.scale(), cipher, env, tag);
+    env.evaluator->add_const(cipher, value, cipher, env.encoder);
+}
+
+void log_cipher_metadata(std::ostream &log, std::string_view tag, const Ciphertext &cipher)
+{
+    timed_log(log) << tag << ": level=" << cipher.level() << ", scale=" << cipher.scale()
+                   << ", log2_scale=" << std::log2(cipher.scale())
+                   << ", coeff_modulus_size=" << cipher.coeff_modulus_size();
+}
+
+Ciphertext encrypted_fhe_mp_cnn_relu(const Ciphertext &cipher, HeEnvironment &env, std::ostream *log,
+                                     std::string_view tag, size_t channel_index)
+{
+    Ciphertext original = cipher;
+    Ciphertext sign_half = cipher;
+    for (size_t component_index = 0; component_index < env.activation_spec.components.size();
+         ++component_index)
+    {
+        const ActivationComponentSpec &component = env.activation_spec.components[component_index];
+        const PolynomialVector polys =
+            build_activation_component_polynomial_vector(component, env.slot_count);
+        util::Timestacs component_timer;
+        component_timer.start();
+        env.evaluator->evaluate_poly_vector(sign_half, sign_half, polys, sign_half.scale(),
+                                            env.relin_keys, env.encoder);
+        component_timer.end();
+        if (log)
+        {
+            timed_log(*log) << tag << " channel " << channel_index << " component "
+                            << component_index << " time : "
+                            << component_timer.microseconds() / 1000 << " ms";
+            Plaintext component_plain;
+            env.decryptor.decrypt(sign_half, component_plain);
+            std::vector<std::complex<double>> component_decoded;
+            env.encoder.decode(component_plain, component_decoded);
+            log_decoded_vector_stats(*log,
+                                     std::string(tag) + " channel " + std::to_string(channel_index) +
+                                         " component " + std::to_string(component_index) + " stats",
+                                     component_decoded, env.slot_count);
+        }
+    }
+    if (log)
+    {
+        log_cipher_metadata(*log,
+                            std::string(tag) + " channel " + std::to_string(channel_index) +
+                                " sign_half before bias",
+                            sign_half);
+        log_cipher_metadata(*log,
+                            std::string(tag) + " channel " + std::to_string(channel_index) +
+                                " original before final multiply",
+                            original);
+    }
+    add_const_checked(sign_half, 0.5, env, "activation_final_bias");
+    if (log)
+    {
+        Plaintext biased_plain;
+        env.decryptor.decrypt(sign_half, biased_plain);
+        std::vector<std::complex<double>> biased_decoded;
+        env.encoder.decode(biased_plain, biased_decoded);
+        log_decoded_vector_stats(*log,
+                                 std::string(tag) + " channel " +
+                                     std::to_string(channel_index) + " biased gate stats",
+                                 biased_decoded, env.slot_count);
+        log_cipher_metadata(*log,
+                            std::string(tag) + " channel " + std::to_string(channel_index) +
+                                " sign_half after bias",
+                            sign_half);
+    }
+
+    Ciphertext gate = sign_half;
+    Ciphertext aligned_original = original;
+    match_levels(gate, aligned_original, *env.evaluator);
+    if (log)
+    {
+        Plaintext gate_plain;
+        env.decryptor.decrypt(gate, gate_plain);
+        std::vector<std::complex<double>> gate_decoded;
+        env.encoder.decode(gate_plain, gate_decoded);
+        log_decoded_vector_stats(*log,
+                                 std::string(tag) + " channel " +
+                                     std::to_string(channel_index) + " gate after level align stats",
+                                 gate_decoded, env.slot_count);
+        Plaintext original_plain;
+        env.decryptor.decrypt(aligned_original, original_plain);
+        std::vector<std::complex<double>> original_decoded;
+        env.encoder.decode(original_plain, original_decoded);
+        log_decoded_vector_stats(*log,
+                                 std::string(tag) + " channel " +
+                                     std::to_string(channel_index) +
+                                     " original after level align stats",
+                                 original_decoded, env.slot_count);
+        log_cipher_metadata(*log,
+                            std::string(tag) + " channel " + std::to_string(channel_index) +
+                                " gate after align",
+                            gate);
+        log_cipher_metadata(*log,
+                            std::string(tag) + " channel " + std::to_string(channel_index) +
+                                " original after align",
+                            aligned_original);
+    }
+
+    Ciphertext result;
+    env.evaluator->multiply_relin_dynamic(gate, aligned_original, result, env.relin_keys);
+    env.evaluator->rescale(result, result);
+    if (log)
+    {
+        log_cipher_metadata(*log,
+                            std::string(tag) + " channel " + std::to_string(channel_index) +
+                                " relu result metadata",
+                            result);
+    }
+    return result;
+}
+
+HeFeatureMap apply_encrypted_relu(const HeFeatureMap &input, HeEnvironment &env, std::ostream *log,
+                                 std::string_view tag)
+{
+    HeFeatureMap result;
+    result.height = input.height;
+    result.width = input.width;
+    result.channels.reserve(input.channels.size());
+    util::Timestacs timer;
+    for (size_t channel_index = 0; channel_index < input.channels.size(); ++channel_index)
+    {
+        timer.start();
+        result.channels.push_back(
+            encrypted_fhe_mp_cnn_relu(input.channels[channel_index], env, log, tag, channel_index));
+        timer.end();
+        if (log)
+        {
+            timed_log(*log) << tag << " channel " << channel_index << " relu time : "
+                            << timer.microseconds() / 1000 << " ms";
+        }
+    }
+    return result;
+}
+
+Ciphertext encrypted_bootstrap(const Ciphertext &cipher, HeEnvironment &env)
+{
+    if (!env.bootstrap_poly)
+    {
+        throw std::runtime_error("bootstrap configuration is not available in this HE environment");
+    }
+    Ciphertext result;
+    env.evaluator->bootstrap(cipher, result, env.relin_keys, env.galois_keys, env.encoder,
+                             *env.bootstrap_poly);
+    env.evaluator->rescale_dynamic(result, result, env.scale);
+    return result;
+}
+
+HeFeatureMap apply_encrypted_bootstrap(const HeFeatureMap &input, HeEnvironment &env)
+{
+    HeFeatureMap result;
+    result.height = input.height;
+    result.width = input.width;
+    result.channels.reserve(input.channels.size());
+    for (const Ciphertext &cipher : input.channels)
+    {
+        result.channels.push_back(encrypted_bootstrap(cipher, env));
+    }
+    return result;
+}
+
+HeFeatureMap encrypted_convolution(const HeFeatureMap &input, const std::vector<double> &weights,
+                                   int out_channels, int stride, WeightLayout weight_layout,
+                                   HeEnvironment &env)
+{
+    HeFeatureMap result;
+    result.height = stride == 2 ? input.height / 2 : input.height;
+    result.width = stride == 2 ? input.width / 2 : input.width;
+    result.channels.reserve(static_cast<size_t>(out_channels));
+    const std::vector<std::vector<Ciphertext>> rotated_inputs = precompute_rotated_inputs(input, env);
+
+    for (int oc = 0; oc < out_channels; ++oc)
+    {
+        bool initialized = false;
+        Ciphertext sum;
+
+        for (int ic = 0; ic < static_cast<int>(input.channels.size()); ++ic)
+        {
+            for (int kh = 0; kh < 3; ++kh)
+            {
+                for (int kw = 0; kw < 3; ++kw)
+                {
+                    const int flat_index = kh * 3 + kw;
+                    const double coeff =
+                        conv_weight_at(weights, weight_layout, oc, ic, kh, kw,
+                                       static_cast<int>(input.channels.size()), out_channels);
+                    if (std::abs(coeff) < 1e-12)
+                    {
+                        continue;
+                    }
+
+                    const std::vector<double> &base_mask =
+                        get_conv_mask_template(input.height, input.width, kh - 1, kw - 1, env);
+                    std::vector<double> scaled_mask = base_mask;
+                    for (double &value : scaled_mask)
+                    {
+                        value *= coeff;
+                    }
+                    Plaintext plain = encode_with_consistent_level(
+                        scaled_mask, rotated_inputs[static_cast<size_t>(ic)][static_cast<size_t>(flat_index)],
+                        env.encoder);
+                    Ciphertext term;
+                    env.evaluator->multiply_plain(
+                        rotated_inputs[static_cast<size_t>(ic)][static_cast<size_t>(flat_index)],
+                        plain, term);
+                    env.evaluator->rescale(term, term);
+                    if (!initialized)
+                    {
+                        sum = std::move(term);
+                        initialized = true;
+                    }
+                    else
+                    {
+                        add_inplace_fast(sum, std::move(term), env);
+                    }
+                }
+            }
+        }
+
+        if (!initialized)
+        {
+            sum = make_zero_like(input.channels.front(), env);
+        }
+
+        if (stride == 2)
+        {
+            sum = apply_downsample_transform(sum, input.height, input.width, env);
+        }
+
+        result.channels.push_back(std::move(sum));
+    }
+
+    return result;
+}
+
+HeFeatureMap align_feature_map_to_reference_scale(const HeFeatureMap &input, HeEnvironment &env)
+{
+    HeFeatureMap result = input;
+    for (Ciphertext &cipher : result.channels)
+    {
+        if (cipher.scale() > env.scale * 1.5)
+        {
+            env.evaluator->rescale_dynamic(cipher, cipher, env.scale);
+        }
+        cipher.scale() = env.scale;
+    }
+    return result;
+}
+
+// This follows the same stage split as FHE-MP-CNN:
+// convolution first applies the BN multiplicative factor, then batch norm
+// subtracts the precomputed shift term in a separate pass.
+HeFeatureMap encrypted_convolution_with_channel_multiplier(
+    const HeFeatureMap &input, const std::vector<double> &weights,
+    const std::vector<double> *channel_multiplier, int out_channels, int stride,
+    WeightLayout weight_layout, HeEnvironment &env)
+{
+    HeFeatureMap result;
+    result.height = stride == 2 ? input.height / 2 : input.height;
+    result.width = stride == 2 ? input.width / 2 : input.width;
+    result.channels.reserve(static_cast<size_t>(out_channels));
+    const std::vector<std::vector<Ciphertext>> rotated_inputs = precompute_rotated_inputs(input, env);
+
+    for (int oc = 0; oc < out_channels; ++oc)
+    {
+        const double output_multiplier =
+            channel_multiplier ? (*channel_multiplier)[static_cast<size_t>(oc)] : 1.0;
+        bool initialized = false;
+        Ciphertext sum;
+
+        for (int ic = 0; ic < static_cast<int>(input.channels.size()); ++ic)
+        {
+            for (int kh = 0; kh < 3; ++kh)
+            {
+                for (int kw = 0; kw < 3; ++kw)
+                {
+                    const int flat_index = kh * 3 + kw;
+                    const double coeff =
+                        conv_weight_at(weights, weight_layout, oc, ic, kh, kw,
+                                       static_cast<int>(input.channels.size()), out_channels) *
+                        output_multiplier;
+                    if (std::abs(coeff) < 1e-12)
+                    {
+                        continue;
+                    }
+
+                    const std::vector<double> &base_mask =
+                        get_conv_mask_template(input.height, input.width, kh - 1, kw - 1, env);
+                    std::vector<double> scaled_mask = base_mask;
+                    for (double &value : scaled_mask)
+                    {
+                        value *= coeff;
+                    }
+                    Plaintext plain = encode_with_consistent_level(
+                        scaled_mask,
+                        rotated_inputs[static_cast<size_t>(ic)][static_cast<size_t>(flat_index)],
+                        env.encoder);
+                    Ciphertext term;
+                    env.evaluator->multiply_plain(
+                        rotated_inputs[static_cast<size_t>(ic)][static_cast<size_t>(flat_index)],
+                        plain, term);
+                    env.evaluator->rescale(term, term);
+                    if (!initialized)
+                    {
+                        sum = std::move(term);
+                        initialized = true;
+                    }
+                    else
+                    {
+                        add_inplace_fast(sum, std::move(term), env);
+                    }
+                }
+            }
+        }
+
+        if (!initialized)
+        {
+            sum = make_zero_like(input.channels.front(), env);
+        }
+
+        if (stride == 2)
+        {
+            sum = apply_downsample_transform(sum, input.height, input.width, env);
+        }
+
+        result.channels.push_back(std::move(sum));
+    }
+
+    return result;
+}
+
+HeFeatureMap encrypted_batch_norm(const HeFeatureMap &input, const BatchNormParams &bn,
+                                  HeEnvironment &env)
+{
+    if (input.channels.size() != bn.bias.size())
+    {
+        throw std::invalid_argument("encrypted batch norm shape mismatch");
+    }
+
+    HeFeatureMap result;
+    result.height = input.height;
+    result.width = input.width;
+    result.channels.reserve(input.channels.size());
+
+    for (size_t channel_index = 0; channel_index < input.channels.size(); ++channel_index)
+    {
+        const double shift =
+            batch_norm_shift(bn, static_cast<int>(channel_index)) / kFheMpCnnApproximationBoundary;
+        Ciphertext channel = input.channels[channel_index];
+        add_const_checked(channel, shift, env, "batch_norm_shift");
+        result.channels.push_back(std::move(channel));
+    }
+
+    return result;
+}
+
+HeFeatureMap encrypted_shortcut_option_a(const HeFeatureMap &input, int out_channels,
+                                         HeEnvironment &env);
+HeFeatureMap add_feature_maps(const HeFeatureMap &lhs, const HeFeatureMap &rhs, HeEnvironment &env);
+std::vector<Ciphertext> encrypted_linear_logits(const HeFeatureMap &feature_map,
+                                                const ResNet20Weights &weights, HeEnvironment &env);
+
+std::vector<double> batch_norm_channel_multipliers(const BatchNormParams &bn)
+{
+    std::vector<double> multipliers(bn.weight.size(), 1.0);
+    for (size_t i = 0; i < multipliers.size(); ++i)
+    {
+        multipliers[i] = batch_norm_multiplier(bn, static_cast<int>(i));
+    }
+    return multipliers;
+}
+
+HeFeatureMap multiplexed_parallel_convolution_poseidon(const HeFeatureMap &input,
+                                                       const std::vector<double> &weights,
+                                                       const BatchNormParams &bn, int out_channels,
+                                                       int stride, WeightLayout weight_layout,
+                                                       HeEnvironment &env)
+{
+    const std::vector<double> multipliers = batch_norm_channel_multipliers(bn);
+    return encrypted_convolution_with_channel_multiplier(input, weights, &multipliers,
+                                                         out_channels, stride, weight_layout, env);
+}
+
+HeFeatureMap multiplexed_parallel_batch_norm_poseidon(const HeFeatureMap &input,
+                                                      const BatchNormParams &bn, HeEnvironment &env)
+{
+    return encrypted_batch_norm(input, bn, env);
+}
+
+HeFeatureMap approx_relu_poseidon(const HeFeatureMap &input, HeEnvironment &env, std::ostream *log,
+                                  std::string_view tag)
+{
+    return apply_encrypted_relu(input, env, log, tag);
+}
+
+HeFeatureMap bootstrap_poseidon(const HeFeatureMap &input, HeEnvironment &env)
+{
+    return apply_encrypted_bootstrap(input, env);
+}
+
+HeFeatureMap cipher_add_poseidon(const HeFeatureMap &lhs, const HeFeatureMap &rhs,
+                                 HeEnvironment &env)
+{
+    return add_feature_maps(lhs, rhs, env);
+}
+
+HeFeatureMap multiplexed_parallel_downsampling_poseidon(const HeFeatureMap &input, int out_channels,
+                                                        HeEnvironment &env)
+{
+    return encrypted_shortcut_option_a(input, out_channels, env);
+}
+
+std::vector<Ciphertext> fully_connected_poseidon(const HeFeatureMap &feature_map,
+                                                 const ResNet20Weights &weights,
+                                                 HeEnvironment &env)
+{
+    return encrypted_linear_logits(feature_map, weights, env);
+}
+
+HeFeatureMap encrypted_shortcut_option_a(const HeFeatureMap &input, int out_channels,
+                                         HeEnvironment &env)
+{
+    HeFeatureMap result;
+    result.height = input.height / 2;
+    result.width = input.width / 2;
+    result.channels.resize(static_cast<size_t>(out_channels));
+
+    const int pad = (out_channels - static_cast<int>(input.channels.size())) / 2;
+    Ciphertext zero = make_zero_like(input.channels.front(), env);
+    for (int i = 0; i < out_channels; ++i)
+    {
+        result.channels[static_cast<size_t>(i)] = zero;
+    }
+
+    for (int c = 0; c < static_cast<int>(input.channels.size()); ++c)
+    {
+        result.channels[static_cast<size_t>(c + pad)] =
+            apply_downsample_transform(input.channels[static_cast<size_t>(c)], input.height,
+                                       input.width, env);
+    }
+    return result;
+}
+
+HeFeatureMap add_feature_maps(const HeFeatureMap &lhs, const HeFeatureMap &rhs, HeEnvironment &env)
+{
+    if (lhs.height != rhs.height || lhs.width != rhs.width || lhs.channels.size() != rhs.channels.size())
+    {
+        throw std::invalid_argument("encrypted feature map shape mismatch");
+    }
+
+    HeFeatureMap result;
+    result.height = lhs.height;
+    result.width = lhs.width;
+    result.channels.resize(lhs.channels.size());
+
+    for (size_t i = 0; i < lhs.channels.size(); ++i)
+    {
+        Ciphertext sum = lhs.channels[i];
+        Ciphertext other = rhs.channels[i];
+        add_inplace_fast(sum, std::move(other), env);
+        result.channels[i] = std::move(sum);
+    }
+    return result;
+}
+
+Ciphertext average_pool_cipher(const Ciphertext &cipher, int active_slots, HeEnvironment &env)
+{
+    Ciphertext result = cipher;
+    for (int step = 1; step < active_slots; step <<= 1)
+    {
+        Ciphertext rotated;
+        env.evaluator->rotate(result, rotated, step, env.galois_keys);
+        env.evaluator->add(result, rotated, result);
+    }
+
+    std::vector<double> mask(static_cast<size_t>(env.slot_count), 0.0);
+    mask[0] = kFheMpCnnApproximationBoundary / static_cast<double>(active_slots);
+    Plaintext plain = encode_with_consistent_level(mask, result, env.encoder);
+    env.evaluator->multiply_plain(result, plain, result);
+    env.evaluator->rescale(result, result);
+    return result;
+}
+
+std::vector<double> decrypt_logits(const std::vector<Ciphertext> &logit_ciphers, HeEnvironment &env)
+{
+    std::vector<double> logits(logit_ciphers.size(), 0.0);
+    for (size_t i = 0; i < logit_ciphers.size(); ++i)
+    {
+        Plaintext plain;
+        env.decryptor.decrypt(logit_ciphers[i], plain);
+        std::vector<std::complex<double>> decoded;
+        env.encoder.decode(plain, decoded);
+        logits[i] = decoded[0].real();
+    }
+    return logits;
+}
+
+std::vector<Ciphertext> encrypted_linear_logits(const HeFeatureMap &feature_map,
+                                                const ResNet20Weights &weights, HeEnvironment &env)
+{
+    if (feature_map.height != 8 || feature_map.width != 8 || feature_map.channels.size() != 64)
+    {
+        throw std::invalid_argument("encrypted linear head expects a full 64x8x8 feature map");
+    }
+
+    std::vector<Ciphertext> pooled(64);
+    for (int c = 0; c < 64; ++c)
+    {
+        pooled[static_cast<size_t>(c)] =
+            average_pool_cipher(feature_map.channels[static_cast<size_t>(c)], 64, env);
+    }
+
+    std::vector<Ciphertext> logits(static_cast<size_t>(kClasses));
+    for (int out = 0; out < kClasses; ++out)
+    {
+        bool initialized = false;
+        Ciphertext sum;
+        for (int in = 0; in < 64; ++in)
+        {
+            std::vector<double> coeff_mask(static_cast<size_t>(env.slot_count), 0.0);
+            coeff_mask[0] = weights.linear_weight[static_cast<size_t>(out * 64 + in)];
+            Plaintext plain = encode_with_consistent_level(coeff_mask, pooled[static_cast<size_t>(in)],
+                                                           env.encoder);
+            Ciphertext term;
+            env.evaluator->multiply_plain(pooled[static_cast<size_t>(in)], plain, term);
+            env.evaluator->rescale(term, term);
+            if (!initialized)
+            {
+                sum = std::move(term);
+                initialized = true;
+            }
+            else
+            {
+                add_inplace_fast(sum, std::move(term), env);
+            }
+        }
+
+        std::vector<double> bias_mask(static_cast<size_t>(env.slot_count), 0.0);
+        bias_mask[0] = weights.linear_bias[static_cast<size_t>(out)];
+        Plaintext bias_plain = encode_with_consistent_level(bias_mask, sum, env.encoder);
+        env.evaluator->add_plain(sum, bias_plain, sum);
+        logits[static_cast<size_t>(out)] = std::move(sum);
+    }
+    return logits;
+}
+
+HeForwardResult run_he_forward(const Tensor3D &image, const ResNet20Weights &weights,
+                               WeightLayout weight_layout, int max_blocks,
+                               HeActivation activation, const fs::path &relu_coeffs_path,
+                               std::ostream &log)
+{
+    (void)activation;
+    auto env = create_he_environment(relu_coeffs_path, max_blocks, log);
+    util::Timestacs timer;
+    PackedTensorCipher packed_input = encrypt_image_to_packed_tensor(image, *env);
+    timed_log(log) << "he packed input log_slots : " << packed_input.log_slots;
+    timed_log(log) << "he packed input replication_p : " << packed_input.p;
+    timed_log(log) << "he packed input base_slots : "
+                   << (packed_input.k * packed_input.k * packed_input.h * packed_input.w *
+                       packed_input.t);
+    {
+        const Tensor3D packed_roundtrip = decrypt_packed_input_tensor(packed_input, *env);
+        double mse = 0.0;
+        for (size_t i = 0; i < packed_roundtrip.values.size(); ++i)
+        {
+            const double plain_scaled =
+                image.values[i] / kFheMpCnnApproximationBoundary;
+            const double diff = plain_scaled - packed_roundtrip.values[i];
+            mse += diff * diff;
+        }
+        mse /= static_cast<double>(packed_roundtrip.values.size());
+        timed_log(log) << "he packed input roundtrip mse : " << mse;
+    }
+    HeFeatureMap x;
+    PackedTensorCipher packed_x;
+    bool use_packed_path = false;
+    const bool packed_stem_supported =
+        env->slot_count >= (kImageSize * kImageSize * kStemChannels);
+    if (packed_stem_supported)
+    {
+        timed_log(log) << "he stem path : packed";
+        timer.start();
+        packed_x = packed_convolution_stride1_poseidon(
+            packed_input, weights.stem_conv_weight, weights.stem_bn, weight_layout,
+            kStemChannels, *env, &log);
+        timer.end();
+        timed_log(log) << "he stem packed conv time : " << timer.microseconds() / 1000 << " ms";
+        timed_log(log) << "he stem packed output replication_p : " << packed_x.p;
+        log_packed_tensor_stats(log, "he stem packed conv stats", packed_x, *env);
+        timer.start();
+        packed_x = align_packed_tensor_to_reference_scale(packed_x, *env);
+        timer.end();
+        timed_log(log) << "he stem packed scale-adjust time : "
+                       << timer.microseconds() / 1000 << " ms";
+        timer.start();
+        packed_x = packed_batch_norm_poseidon(packed_x, weights.stem_bn, *env);
+        timer.end();
+        timed_log(log) << "he stem packed bn time : " << timer.microseconds() / 1000 << " ms";
+        log_packed_tensor_stats(log, "he stem packed bn stats", packed_x, *env);
+        timer.start();
+        packed_x = packed_relu_poseidon(packed_x, *env, &log, "he stem packed");
+        timer.end();
+        timed_log(log) << "he stem packed relu total time : "
+                       << timer.microseconds() / 1000 << " ms";
+        log_packed_tensor_stats(log, "he stem packed relu stats", packed_x, *env);
+        use_packed_path = true;
+    }
+    else
+    {
+        timed_log(log) << "he stem path : channelwise-fallback";
+        x = encrypt_image_to_feature_map(image, *env);
+        timer.start();
+        x = multiplexed_parallel_convolution_poseidon(
+            x, weights.stem_conv_weight, weights.stem_bn, 16, 1, weight_layout, *env);
+        timer.end();
+        timed_log(log) << "he stem conv time : " << timer.microseconds() / 1000 << " ms";
+        timer.start();
+        x = align_feature_map_to_reference_scale(x, *env);
+        timer.end();
+        timed_log(log) << "he stem scale-adjust time : " << timer.microseconds() / 1000 << " ms";
+        timer.start();
+        x = multiplexed_parallel_batch_norm_poseidon(x, weights.stem_bn, *env);
+        timer.end();
+        timed_log(log) << "he stem bn time : " << timer.microseconds() / 1000 << " ms";
+        timer.start();
+        x = approx_relu_poseidon(x, *env, &log, "he stem");
+        timer.end();
+        timed_log(log) << "he stem relu time : " << timer.microseconds() / 1000 << " ms";
+    }
+    if (use_packed_path)
+    {
+        timer.start();
+        const Tensor3D packed_decrypted = decrypt_packed_feature_map(packed_x, *env);
+        timer.end();
+        timed_log(log) << "he stem unpack time : " << timer.microseconds() / 1000 << " ms";
+        log_tensor_stats(log, "layer 0 (decrypted)", packed_decrypted);
+    }
+    else
+    {
+        log_tensor_stats(log, "layer 0 (decrypted)", decrypt_feature_map(x, *env));
+    }
+
+    int completed_blocks = 0;
+    for (int stage = 0; stage < 3; ++stage)
+    {
+        for (int block = 0; block < kBlocksPerStage; ++block)
+        {
+            if (max_blocks != -1 && completed_blocks >= max_blocks)
+            {
+                HeForwardResult result;
+                if (use_packed_path)
+                {
+                    result.decrypted_feature_map = decrypt_packed_feature_map(packed_x, *env);
+                    if (packed_x.c == 64 && packed_x.h == 8 && packed_x.w == 8)
+                    {
+                        PackedTensorCipher packed_gap = packed_average_pool_poseidon(packed_x, *env);
+                        result.logits =
+                            decrypt_logits(packed_fully_connected_poseidon(packed_gap, weights, *env),
+                                           *env);
+                        result.has_logits = true;
+                    }
+                }
+                else
+                {
+                    result.decrypted_feature_map = decrypt_feature_map(x, *env);
+                    if (x.channels.size() == 64 && x.height == 8 && x.width == 8)
+                    {
+                        result.logits =
+                            decrypt_logits(fully_connected_poseidon(x, weights, *env), *env);
+                        result.has_logits = true;
+                    }
+                }
+                result.completed_blocks = completed_blocks;
+                return result;
+            }
+
+            if (use_packed_path)
+            {
+                const ConvBlockParams &params = weights.stages[stage][block];
+                const int stride = (stage > 0 && block == 0) ? 2 : 1;
+                PackedTensorCipher identity = packed_x;
+
+                timer.start();
+                PackedTensorCipher y = packed_convolution_poseidon(
+                    packed_x, params.conv1_weight, params.bn1, params.conv1_out_channels, stride,
+                    weight_layout, *env, &log, "he block " + std::to_string(completed_blocks + 1) +
+                                                    " conv1");
+                timer.end();
+                timed_log(log) << "he block " << (completed_blocks + 1)
+                               << " packed conv1 time : " << timer.microseconds() / 1000
+                               << " ms";
+                y = align_packed_tensor_to_reference_scale(y, *env);
+                timer.start();
+                y = packed_batch_norm_poseidon(y, params.bn1, *env);
+                timer.end();
+                timed_log(log) << "he block " << (completed_blocks + 1)
+                               << " packed bn1 time : " << timer.microseconds() / 1000
+                               << " ms";
+                log_packed_tensor_stats(
+                    log,
+                    "he block " + std::to_string(completed_blocks + 1) + " packed bn1 stats", y,
+                    *env);
+                timer.start();
+                y = packed_bootstrap_poseidon(y, *env);
+                timer.end();
+                timed_log(log) << "he block " << (completed_blocks + 1)
+                               << " packed bootstrap1 time : "
+                               << timer.microseconds() / 1000 << " ms";
+                log_packed_tensor_stats(
+                    log,
+                    "he block " + std::to_string(completed_blocks + 1) +
+                        " packed bootstrap1 stats",
+                    y, *env);
+                timer.start();
+                y = packed_relu_poseidon(
+                    y, *env, &log,
+                    "he block " + std::to_string(completed_blocks + 1) + " packed relu1");
+                timer.end();
+                timed_log(log) << "he block " << (completed_blocks + 1)
+                               << " packed relu1 time : " << timer.microseconds() / 1000
+                               << " ms";
+
+                timer.start();
+                y = packed_convolution_poseidon(
+                    y, params.conv2_weight, params.bn2, params.conv2_out_channels, 1, weight_layout,
+                    *env, &log, "he block " + std::to_string(completed_blocks + 1) + " conv2");
+                timer.end();
+                timed_log(log) << "he block " << (completed_blocks + 1)
+                               << " packed conv2 time : " << timer.microseconds() / 1000
+                               << " ms";
+                y = align_packed_tensor_to_reference_scale(y, *env);
+                timer.start();
+                y = packed_batch_norm_poseidon(y, params.bn2, *env);
+                timer.end();
+                timed_log(log) << "he block " << (completed_blocks + 1)
+                               << " packed bn2 time : " << timer.microseconds() / 1000
+                               << " ms";
+                log_packed_tensor_stats(
+                    log,
+                    "he block " + std::to_string(completed_blocks + 1) + " packed bn2 stats", y,
+                    *env);
+
+                if (stride == 2)
+                {
+                    timer.start();
+                    identity = packed_shortcut_option_a_poseidon(identity, params.conv2_out_channels,
+                                                                *env);
+                    timer.end();
+                    timed_log(log) << "he block " << (completed_blocks + 1)
+                                   << " packed shortcut time : " << timer.microseconds() / 1000
+                                   << " ms";
+                }
+
+                timer.start();
+                packed_x = packed_add_poseidon(y, identity, *env);
+                timer.end();
+                timed_log(log) << "he block " << (completed_blocks + 1)
+                               << " packed add time : " << timer.microseconds() / 1000
+                               << " ms";
+                log_packed_tensor_stats(
+                    log,
+                    "he block " + std::to_string(completed_blocks + 1) + " packed add stats",
+                    packed_x, *env);
+                timer.start();
+                packed_x = packed_bootstrap_poseidon(packed_x, *env);
+                timer.end();
+                timed_log(log) << "he block " << (completed_blocks + 1)
+                               << " packed bootstrap2 time : "
+                               << timer.microseconds() / 1000 << " ms";
+                log_packed_tensor_stats(
+                    log,
+                    "he block " + std::to_string(completed_blocks + 1) +
+                        " packed bootstrap2 stats",
+                    packed_x, *env);
+                timer.start();
+                packed_x = packed_relu_poseidon(
+                    packed_x, *env, &log,
+                    "he block " + std::to_string(completed_blocks + 1) + " packed relu2");
+                timer.end();
+                timed_log(log) << "he block " << (completed_blocks + 1)
+                               << " packed relu2 time : " << timer.microseconds() / 1000
+                               << " ms";
+                ++completed_blocks;
+                HeFeatureMap unpacked = unpack_packed_output_channels(packed_x, *env);
+                log_tensor_stats(log, "block " + std::to_string(completed_blocks) + " (decrypted)",
+                                 decrypt_feature_map(unpacked, *env));
+                continue;
+            }
+
+            const ConvBlockParams &params = weights.stages[stage][block];
+            const int stride = (stage > 0 && block == 0) ? 2 : 1;
+            HeFeatureMap identity = x;
+
+            timer.start();
+            HeFeatureMap y = multiplexed_parallel_convolution_poseidon(
+                x, params.conv1_weight, params.bn1, params.conv1_out_channels, stride,
+                weight_layout, *env);
+            timer.end();
+            log << "he block " << (completed_blocks + 1) << " conv1 time : "
+                << timer.microseconds() / 1000 << " ms\n";
+            timer.start();
+            y = multiplexed_parallel_batch_norm_poseidon(y, params.bn1, *env);
+            timer.end();
+            log << "he block " << (completed_blocks + 1) << " bn1 time : "
+                << timer.microseconds() / 1000 << " ms\n";
+            timer.start();
+            y = bootstrap_poseidon(y, *env);
+            timer.end();
+            log << "he block " << (completed_blocks + 1) << " bootstrap1 time : "
+                << timer.microseconds() / 1000 << " ms\n";
+            timer.start();
+            y = approx_relu_poseidon(
+                y, *env, &log, "he block " + std::to_string(completed_blocks + 1) + " relu1");
+            timer.end();
+            log << "he block " << (completed_blocks + 1) << " relu1 time : "
+                << timer.microseconds() / 1000 << " ms\n";
+            timer.start();
+            y = multiplexed_parallel_convolution_poseidon(
+                y, params.conv2_weight, params.bn2, params.conv2_out_channels, 1, weight_layout,
+                *env);
+            timer.end();
+            log << "he block " << (completed_blocks + 1) << " conv2 time : "
+                << timer.microseconds() / 1000 << " ms\n";
+            timer.start();
+            y = multiplexed_parallel_batch_norm_poseidon(y, params.bn2, *env);
+            timer.end();
+            log << "he block " << (completed_blocks + 1) << " bn2 time : "
+                << timer.microseconds() / 1000 << " ms\n";
+
+            if (stride == 2)
+            {
+                timer.start();
+                identity = multiplexed_parallel_downsampling_poseidon(
+                    identity, params.conv2_out_channels, *env);
+                timer.end();
+                log << "he block " << (completed_blocks + 1) << " shortcut time : "
+                    << timer.microseconds() / 1000 << " ms\n";
+            }
+
+            timer.start();
+            x = cipher_add_poseidon(y, identity, *env);
+            timer.end();
+            log << "he block " << (completed_blocks + 1) << " add time : "
+                << timer.microseconds() / 1000 << " ms\n";
+            timer.start();
+            x = bootstrap_poseidon(x, *env);
+            timer.end();
+            log << "he block " << (completed_blocks + 1) << " bootstrap2 time : "
+                << timer.microseconds() / 1000 << " ms\n";
+            timer.start();
+            x = approx_relu_poseidon(
+                x, *env, &log, "he block " + std::to_string(completed_blocks + 1) + " relu2");
+            timer.end();
+            log << "he block " << (completed_blocks + 1) << " relu2 time : "
+                << timer.microseconds() / 1000 << " ms\n";
+            ++completed_blocks;
+            log_tensor_stats(log, "block " + std::to_string(completed_blocks) + " (decrypted)",
+                             decrypt_feature_map(x, *env));
+        }
+    }
+
+    HeForwardResult result;
+    if (use_packed_path)
+    {
+        result.decrypted_feature_map = decrypt_packed_feature_map(packed_x, *env);
+        PackedTensorCipher packed_gap = packed_average_pool_poseidon(packed_x, *env);
+        result.logits = decrypt_logits(packed_fully_connected_poseidon(packed_gap, weights, *env),
+                                       *env);
+    }
+    else
+    {
+        result.decrypted_feature_map = decrypt_feature_map(x, *env);
+        result.logits = decrypt_logits(fully_connected_poseidon(x, weights, *env), *env);
+    }
+    result.completed_blocks = completed_blocks;
+    result.has_logits = true;
+    return result;
 }
 
 } // namespace
 
-RuntimeOptions make_default_options()
+int main(int argc, char *argv[])
 {
-    return RuntimeOptions{};
-}
-
-RuntimeOptions parse_options(int argc, char *argv[])
-{
-    RuntimeOptions options = make_default_options();
-    for (int i = 1; i < argc; ++i)
+    try
     {
-        const std::string arg = argv[i];
-        if (arg == "--log-degree" && i + 1 < argc)
+        const Options options = parse_options(argc, argv);
+        const fs::path current_dir = fs::path(__FILE__).parent_path();
+        const fs::path result_dir = current_dir / "result";
+        fs::create_directories(result_dir);
+
+        if (!fs::exists(options.weights_root / "conv1_weight.txt"))
         {
-            options.log_degree = static_cast<uint32_t>(std::stoul(argv[++i]));
+            throw std::runtime_error("weights root does not look valid: " +
+                                     options.weights_root.string());
         }
-        else if (arg == "--parameters" && i + 1 < argc)
+        if (!fs::exists(options.data_root / "test_values.txt"))
         {
-            options.parameters_dir = argv[++i];
+            throw std::runtime_error("data root does not look valid: " +
+                                     options.data_root.string());
         }
-        else if (arg == "--no-full-plain")
+
+        const ResNet20Weights weights = load_resnet20_weights(options.weights_root);
+        const fs::path summary_path = result_dir /
+                                      ("resnet20_cifar10_label_" +
+                                       std::to_string(options.start_image_id) + "_" +
+                                       std::to_string(options.end_image_id));
+        std::ofstream summary(summary_path, std::ios::app);
+        if (!summary.is_open())
         {
-            options.run_full_plain = false;
+            throw std::runtime_error("cannot open summary output: " + summary_path.string());
         }
-        else if (arg == "--run-block0")
+        summary << std::unitbuf;
+        timed_log(summary) << "==================== run_start ====================";
+        timed_log(summary) << "session timestamp: " << current_wallclock_timestamp();
+
+        std::cout << BANNER << std::endl;
+        std::cout << "POSEIDON SOFTWARE VERSION:" << POSEIDON_VERSION << std::endl;
+        std::cout << "Weights root: " << options.weights_root << std::endl;
+        std::cout << "Data root: " << options.data_root << std::endl;
+        std::cout << "Input layout: " << to_string(options.input_layout) << std::endl;
+        std::cout << "Weight layout: " << to_string(options.weight_layout) << std::endl;
+        std::cout << "Mode: " << to_string(options.mode) << std::endl;
+        if (options.mode == RunMode::kHe)
         {
-            options.run_stage1_block0 = true;
+            std::cout << "HE block limit: " << options.he_block_limit << std::endl;
+            std::cout << "HE activation: " << to_string(options.he_activation) << std::endl;
+            std::cout << "HE ReLU coeffs: " << options.relu_coeffs_path << std::endl;
         }
-        else if (arg == "--run-stage1")
+
+        const auto all_start = std::chrono::high_resolution_clock::now();
+        for (int image_id = options.start_image_id; image_id <= options.end_image_id; ++image_id)
         {
-            options.run_stage1 = true;
-        }
-        else if (arg == "--run-stage2-block0")
-        {
-            options.run_stage2_block0 = true;
-        }
-        else if (arg == "--run-stage2")
-        {
-            options.run_stage2 = true;
-        }
-        else if (arg == "--run-stage3-block0")
-        {
-            options.run_stage3_block0 = true;
-        }
-        else if (arg == "--run-stage3")
-        {
-            options.run_stage3 = true;
-        }
-        else if (arg == "--run-stage2-stage3-bridge")
-        {
-            options.run_stage2_stage3_bridge = true;
-        }
-        else if (arg == "--run-stage2-stage3-block0")
-        {
-            options.run_stage2_stage3_block0 = true;
-        }
-        else if (arg == "--run-stage2-stage3")
-        {
-            options.run_stage2_stage3 = true;
-        }
-        else if (arg == "--run-full-he")
-        {
-            options.run_full_he = true;
-        }
-        else if (arg == "--run-stage3-tail")
-        {
-            options.run_stage3_tail = true;
-        }
-        else if (arg == "--plain-only")
-        {
-            options.plain_only = true;
-        }
-        else if (arg == "--profile")
-        {
-            options.profile = true;
-        }
-        else if (arg == "--enable-bootstrap")
-        {
-            options.enable_bootstrap = true;
-            if (!options.bootstrap_after_stage1 && !options.bootstrap_after_stage2_block0 &&
-                !options.bootstrap_after_stage2_block1 && !options.bootstrap_after_stage2 &&
-                !options.bootstrap_after_stage3_block1)
+            const auto image_start = std::chrono::high_resolution_clock::now();
+            const std::vector<double> image_values =
+                read_image_values(options.data_root / "test_values.txt", image_id);
+            const int label = read_image_label(options.data_root / "test_label.txt", image_id);
+            const Tensor3D image = decode_image(image_values, options.input_layout);
+
+            const fs::path image_output_path =
+                result_dir / ("resnet20_cifar10_image" + std::to_string(image_id) + ".txt");
+            std::ofstream image_output(image_output_path, std::ios::app);
+            if (!image_output.is_open())
             {
-                options.bootstrap_after_stage1 = true;
-                options.bootstrap_after_stage2_block0 = false;
-                options.bootstrap_after_stage2_block1 = false;
-                options.bootstrap_after_stage2 = true;
-                options.bootstrap_after_stage3_block1 = true;
+                throw std::runtime_error("cannot open image output: " + image_output_path.string());
             }
-        }
-        else if (arg == "--bootstrap-points" && i + 1 < argc)
-        {
-            parse_bootstrap_points(options, argv[++i]);
-        }
-        else if (arg == "--activation" && i + 1 < argc)
-        {
-            const std::string value = argv[++i];
-            if (value == "square")
+            image_output << std::unitbuf;
+
+            timed_log(image_output) << "==================== run_start ====================";
+            timed_log(image_output) << "session timestamp: " << current_wallclock_timestamp();
+            timed_log(image_output) << "image_id: " << image_id;
+            timed_log(image_output) << "weights_root: " << options.weights_root;
+            timed_log(image_output) << "data_root: " << options.data_root;
+            timed_log(image_output) << "input_layout: " << to_string(options.input_layout);
+            timed_log(image_output) << "weight_layout: " << to_string(options.weight_layout);
+            timed_log(image_output) << "mode: " << to_string(options.mode);
+            if (options.mode == RunMode::kHe)
             {
-                options.activation.kind = ActivationKind::Square;
+                timed_log(image_output) << "he_block_limit: " << options.he_block_limit;
+                timed_log(image_output) << "he_activation: " << to_string(options.he_activation);
+                timed_log(image_output) << "relu_coeffs_path: " << options.relu_coeffs_path;
+                timed_log(image_output) << "he_approximation_boundary: "
+                                        << kFheMpCnnApproximationBoundary;
+                timed_log(image_output) << "he_run_start";
             }
-            else if (value == "apprelu")
+
+            const int plain_block_limit =
+                options.mode == RunMode::kHe ? options.he_block_limit : -1;
+            std::ostringstream plain_log;
+            std::ostream &plain_log_stream =
+                options.mode == RunMode::kHe ? static_cast<std::ostream &>(plain_log) : image_output;
+            const PlainForwardResult plain_result = run_plaintext_forward(
+                image, weights, options.weight_layout, plain_block_limit, plain_log_stream);
+
+            int inferred_label = -1;
+            if (options.mode == RunMode::kPlaintext)
             {
-                options.activation.kind = ActivationKind::AppReLU;
+                image_output << "logits: " << format_logits(plain_result.logits) << '\n';
+                inferred_label = static_cast<int>(std::distance(
+                    plain_result.logits.begin(),
+                    std::max_element(plain_result.logits.begin(), plain_result.logits.end())));
+
+                if (options.poseidon_roundtrip)
+                {
+                    const std::vector<std::complex<double>> decoded =
+                        poseidon_roundtrip_logits(plain_result.logits);
+                    double max_error = 0.0;
+                    image_output << "poseidon_roundtrip_logits: (";
+                    for (size_t i = 0; i < plain_result.logits.size(); ++i)
+                    {
+                        if (i != 0)
+                        {
+                            image_output << ", ";
+                        }
+                        image_output << decoded[i].real();
+                        max_error = std::max(max_error,
+                                             std::abs(decoded[i].real() - plain_result.logits[i]));
+                    }
+                    image_output << ")\n";
+                    image_output << "poseidon_roundtrip_max_error: " << max_error << '\n';
+                }
             }
             else
             {
-                throw std::invalid_argument("unknown activation: " + value);
+                timed_log(image_output) << "he_run_plaintext_reference_ready";
+                const HeForwardResult he_result = run_he_forward(
+                    image, weights, options.weight_layout, options.he_block_limit,
+                    options.he_activation, options.relu_coeffs_path, image_output);
+                timed_log(image_output) << "he_completed_blocks: " << he_result.completed_blocks;
+                timed_log(image_output) << "plaintext_completed_blocks: "
+                                        << plain_result.completed_blocks;
+                timed_log(image_output) << "plaintext_reference_stats_begin";
+                image_output << plain_log.str();
+                timed_log(image_output) << "plaintext_reference_stats_end";
+
+                Tensor3D plain_feature = plain_result.feature_map;
+                Tensor3D he_feature = he_result.decrypted_feature_map;
+                if (plain_feature.channels == he_feature.channels &&
+                    plain_feature.height == he_feature.height &&
+                    plain_feature.width == he_feature.width)
+                {
+                    double mse = 0.0;
+                    for (size_t i = 0; i < plain_feature.values.size(); ++i)
+                    {
+                        const double he_reference =
+                            plain_feature.values[i] / kFheMpCnnApproximationBoundary;
+                        const double diff = he_reference - he_feature.values[i];
+                        mse += diff * diff;
+                    }
+                    mse /= static_cast<double>(plain_feature.values.size());
+                    timed_log(image_output) << "he_plaintext_feature_mse: " << mse;
+                }
+
+                if (he_result.has_logits)
+                {
+                    timed_log(image_output) << "he_logits: " << format_logits(he_result.logits);
+                    inferred_label = static_cast<int>(std::distance(
+                        he_result.logits.begin(),
+                        std::max_element(he_result.logits.begin(), he_result.logits.end())));
+                }
+                else
+                {
+                    timed_log(image_output)
+                        << "he_logits: unavailable (network stopped before final 64x8x8 feature "
+                           "map)";
+                }
             }
-        }
-        else if (arg == "--apprelu-bound" && i + 1 < argc)
-        {
-            options.activation.apprelu_bound = std::stod(argv[++i]);
-        }
-        else if (arg == "--apprelu-rounds" && i + 1 < argc)
-        {
-            options.activation.apprelu_rounds = static_cast<size_t>(std::stoul(argv[++i]));
-        }
-        else if (arg == "--scale-bits" && i + 1 < argc)
-        {
-            options.scale_bits = static_cast<uint32_t>(std::stoul(argv[++i]));
-        }
-        else if (arg == "--full-he-q-count" && i + 1 < argc)
-        {
-            options.full_he_q_count = static_cast<size_t>(std::stoul(argv[++i]));
-        }
-        else if (arg == "--stage2-direct-keys" && i + 1 < argc)
-        {
-            options.stage2_direct_rotation_keys = static_cast<size_t>(std::stoul(argv[++i]));
-        }
-        else if (arg == "--help" || arg == "-h")
-        {
-            print_usage(argv[0]);
-            std::exit(0);
-        }
-        else
-        {
-            throw std::invalid_argument("unknown ResNet-20 option: " + arg);
-        }
-    }
-    return options;
-}
 
-poseidon::Ciphertext encrypt_vector(const poseidon::CKKSEncoder &encoder,
-                                    const poseidon::Encryptor &encryptor,
-                                    const std::vector<double> &values, double scale,
-                                    size_t slot_count)
-{
-    if (values.size() > slot_count)
-    {
-        throw std::invalid_argument("encrypt_vector: input does not fit in CKKS slots");
-    }
+            timed_log(image_output) << "image label: " << label;
+            timed_log(image_output) << "inferred label: " << inferred_label;
 
-    std::vector<std::complex<double>> message(slot_count, {0.0, 0.0});
-    for (size_t i = 0; i < values.size(); ++i)
-    {
-        message[i] = {values[i], 0.0};
-    }
+            const auto image_end = std::chrono::high_resolution_clock::now();
+            const auto elapsed_ms =
+                std::chrono::duration_cast<std::chrono::milliseconds>(image_end - image_start)
+                    .count();
+            timed_log(image_output) << "total time : " << elapsed_ms << " ms";
 
-    poseidon::Plaintext plain;
-    poseidon::Ciphertext cipher;
-    encoder.encode(message, scale, plain);
-    encryptor.encrypt(plain, cipher);
-    return cipher;
-}
-
-std::vector<double> decrypt_vector(const poseidon::CKKSEncoder &encoder,
-                                   poseidon::Decryptor &decryptor,
-                                   const poseidon::Ciphertext &cipher)
-{
-    poseidon::Plaintext plain;
-    decryptor.decrypt(cipher, plain);
-
-    std::vector<std::complex<double>> decoded;
-    encoder.decode(plain, decoded);
-
-    std::vector<double> result(decoded.size());
-    std::transform(decoded.begin(), decoded.end(), result.begin(),
-                   [](const std::complex<double> &value) { return value.real(); });
-    return result;
-}
-
-int run_resnet20(const RuntimeOptions &options)
-{
-    if (options.plain_only)
-    {
-        // 激活函数/权重实验的快速路径：跳过 CKKS context、旋转 key 生成和全部密文算子。
-        const auto weights = load_or_make_weights(options.parameters_dir);
-        const auto input = make_toy_input();
-        const Tensor logits = forward_plain(input, weights, options.activation);
-        std::cout << "Plain HE-friendly ResNet-20 logits:";
-        for (size_t i = 0; i < logits.values.size(); ++i)
-        {
-            std::cout << (i == 0 ? " " : ", ") << logits.values[i];
+            std::cout << "image_id: " << image_id << ", image label: " << label
+                      << ", inferred label: " << inferred_label << std::endl;
+            timed_log(summary) << "image_id: " << image_id << ", image label: " << label
+                               << ", inferred label: " << inferred_label;
         }
-        std::cout << std::endl;
+
+        const auto all_end = std::chrono::high_resolution_clock::now();
+        const auto total_ms =
+            std::chrono::duration_cast<std::chrono::milliseconds>(all_end - all_start).count();
+        timed_log(summary) << "all threads time : " << total_ms << " ms";
+        std::cout << "all threads time : " << total_ms << " ms" << std::endl;
         return 0;
     }
-
-    poseidon::PoseidonFactory::get_instance()->set_device_type(poseidon::DEVICE_SOFTWARE);
-    const auto setup_start = Clock::now();
-    auto setup_last = setup_start;
-
-    const bool run_connected_stage2_stage3 =
-        !options.run_full_he && (options.run_stage2_stage3 || options.run_stage2_stage3_block0);
-    const bool run_sparse_stage2 =
-        !options.run_full_he && !run_connected_stage2_stage3 &&
-        (options.run_stage2 || options.run_stage2_block0);
-    const bool run_sparse_stage3 =
-        !options.run_full_he && !run_connected_stage2_stage3 &&
-        (options.run_stage3 || options.run_stage3_block0);
-    const bool needs_stage2_sparse_slots =
-        options.run_full_he || run_sparse_stage2 || run_connected_stage2_stage3 ||
-        options.run_stage2_stage3_bridge;
-    // stage2 稀疏布局需要 32 channels x 32 x 32 个物理槽位，也就是 32768 个 CKKS slots。
-    // 如果用户给的 log-degree 太小，这里自动升到能容纳该布局的参数。
-    const uint32_t log_degree =
-        needs_stage2_sparse_slots && options.log_degree < 16
-            ? 16
-            : options.log_degree;
-    if (log_degree != options.log_degree)
+    catch (const std::exception &ex)
     {
-        std::cout << "Stage2 sparse layout needs 32768 slots; using log-degree " << log_degree
-                  << std::endl;
+        std::cerr << "resnet20 error: " << ex.what() << std::endl;
+        return 1;
     }
-
-    poseidon::ParametersLiteral ckks_param_literal{CKKS, log_degree,
-                                                  log_degree - 1, options.scale_bits, 5,
-                                                  1, 0, {}, {}};
-    const bool uses_apprelu = options.activation.kind == ActivationKind::AppReLU;
-    // q_count 是 modulus chain 的长度。AppReLU 和完整 ResNet 会比 square smoke test
-    // 消耗更多层级，因为每次激活都包含额外乘法。
-    const size_t q_count =
-        options.run_full_he ? options.full_he_q_count :
-        options.run_stage2_stage3 ? 28 :
-        options.run_stage2_stage3_block0 ? 22 :
-        uses_apprelu ? 24 :
-        (options.run_stage1 || options.run_stage2 || options.run_stage3) ? 18 : 10;
-    if (options.run_full_he)
-    {
-        const size_t estimated_log_qp = q_count * options.scale_bits + 60;
-        std::cout << "Full HE modulus budget estimate: logQ+logP ~= "
-                  << estimated_log_qp << " bits" << std::endl;
-        if (options.enable_bootstrap)
-        {
-            std::cout << "Bootstrap points: " << bootstrap_points_label(options) << std::endl;
-        }
-        if (log_degree == 16 && estimated_log_qp > 1772)
-        {
-            std::cout << "Warning: log-degree 16 with this modulus budget may exceed the "
-                         "usual 128-bit security budget; reduce --full-he-q-count or "
-                         "enable bootstrapping."
-                      << std::endl;
-        }
-    }
-    std::vector<uint32_t> log_q(q_count, options.scale_bits);
-    std::vector<uint32_t> log_p(1, 60);
-    ckks_param_literal.set_log_modulus(log_q, log_p);
-
-    auto context =
-        poseidon::PoseidonFactory::get_instance()->create_poseidon_context(ckks_param_literal);
-    print_profile_step(options.profile, "setup create CKKS context", setup_last, setup_start);
-    const double scale = std::pow(2.0, options.scale_bits);
-    const size_t slot_count = context.parameters_literal()->degree() >> 1;
-
-    poseidon::PublicKey public_key;
-    poseidon::RelinKeys relin_keys;
-    poseidon::GaloisKeys galois_keys;
-    poseidon::KeyGenerator keygen(context);
-    keygen.create_public_key(public_key);
-    print_profile_step(options.profile, "setup create public key", setup_last, setup_start);
-    keygen.create_relin_keys(relin_keys);
-    print_profile_step(options.profile, "setup create relin keys", setup_last, setup_start);
-
-    poseidon::CKKSEncoder encoder(context);
-    poseidon::Encryptor encryptor(context, public_key, keygen.secret_key());
-    poseidon::Decryptor decryptor(context, keygen.secret_key());
-    auto evaluator = poseidon::PoseidonFactory::get_instance()->create_ckks_evaluator(context);
-    print_profile_step(options.profile, "setup create encoder/evaluator", setup_last,
-                       setup_start);
-
-    const auto weights = load_or_make_weights(options.parameters_dir);
-    const auto input = make_toy_input();
-    print_profile_step(options.profile, "setup load weights/input", setup_last, setup_start);
-    if (input.values.size() > slot_count)
-    {
-        throw std::invalid_argument("ResNet-20 input does not fit in one ciphertext");
-    }
-    const Tensor conv1_plain = conv2d_plain(input, weights.conv1);
-    if (conv1_plain.values.size() > slot_count)
-    {
-        throw std::invalid_argument("ResNet-20 conv1 output does not fit in one ciphertext");
-    }
-    const Tensor conv1_activation_plain = activate_plain(conv1_plain, options.activation);
-    print_profile_step(options.profile, "setup plain conv1 reference", setup_last, setup_start);
-    const Tensor stage2_operator_input =
-        (run_sparse_stage2 || run_connected_stage2_stage3)
-            ? make_operator_test_tensor({16, 32, 32})
-            : Tensor{};
-    const Tensor stage3_operator_input =
-        run_sparse_stage3 ? make_operator_test_tensor({32, 16, 16}) : Tensor{};
-    const Tensor bridge_operator_input =
-        options.run_stage2_stage3_bridge ? make_operator_test_tensor({32, 16, 16}) : Tensor{};
-    const Tensor stage3_tail_input =
-        options.run_stage3_tail ? make_operator_test_tensor({64, 8, 8}) : Tensor{};
-
-    std::vector<std::vector<int>> rotation_step_groups;
-    if (options.run_full_he)
-    {
-        const auto rotation_plan_start = Clock::now();
-        auto rotation_plan_last = rotation_plan_start;
-        // 完整密文路径：
-        // compact conv1/stage1 -> sparse stage2 -> sparse-to-compact bridge ->
-        // sparse stage3 -> sparse GAP -> FC。
-        if (weights.stage1.empty() || weights.stage2.empty() || weights.stage3.empty())
-        {
-            throw std::invalid_argument("ResNet-20 full HE requires all residual stages");
-        }
-
-        rotation_step_groups.push_back(conv2d_rotation_steps(input.shape, weights.conv1));
-        print_profile_step(options.profile, "rotation plan conv1", rotation_plan_last,
-                           rotation_plan_start);
-        TensorShape stage1_input_shape = conv1_activation_plain.shape;
-        for (size_t block_index = 0; block_index < weights.stage1.size(); ++block_index)
-        {
-            const auto &block = weights.stage1[block_index];
-            add_residual_block_rotation_steps(rotation_step_groups, stage1_input_shape, block);
-            stage1_input_shape =
-                conv2d_output_shape(conv2d_output_shape(stage1_input_shape, block.conv1),
-                                    block.conv2);
-            print_profile_step(options.profile,
-                               "rotation plan stage1 block" + std::to_string(block_index),
-                               rotation_plan_last, rotation_plan_start);
-        }
-
-        rotation_step_groups.push_back(sparse_downsample_block_rotation_steps(
-            stage1_input_shape, weights.stage2.front(), stage1_input_shape.height,
-            stage1_input_shape.width, 2));
-        print_profile_step(options.profile, "rotation plan stage2 block0 sparse",
-                           rotation_plan_last, rotation_plan_start);
-        TensorShape sparse_stage2_shape{weights.stage2.front().conv2.out_channels,
-                                        stage1_input_shape.height, stage1_input_shape.width};
-        for (size_t block_index = 1; block_index < weights.stage2.size(); ++block_index)
-        {
-            rotation_step_groups.push_back(sparse_residual_block_rotation_steps(
-                sparse_stage2_shape, weights.stage2[block_index], 2));
-            print_profile_step(options.profile,
-                               "rotation plan stage2 block" + std::to_string(block_index),
-                               rotation_plan_last, rotation_plan_start);
-        }
-
-        rotation_step_groups.push_back(sparse_to_compact_rotation_steps(sparse_stage2_shape, 2));
-        print_profile_step(options.profile, "rotation plan stage2->stage3 bridge",
-                           rotation_plan_last, rotation_plan_start);
-        // stage2 输出逻辑上的 32x16x16，但实际存储在物理 32x32x32 稀疏布局中。
-        // stage3 需要 compact 的 32x16x16 输入，因此这里需要 bridge 把稀疏结果压紧。
-        TensorShape compact_stage2_shape{weights.stage2.front().conv2.out_channels,
-                                         stage1_input_shape.height / 2,
-                                         stage1_input_shape.width / 2};
-        rotation_step_groups.push_back(sparse_downsample_block_rotation_steps(
-            compact_stage2_shape, weights.stage3.front(), compact_stage2_shape.height,
-            compact_stage2_shape.width, 2));
-        print_profile_step(options.profile, "rotation plan stage3 block0 sparse",
-                           rotation_plan_last, rotation_plan_start);
-        TensorShape sparse_stage3_shape{weights.stage3.front().conv2.out_channels,
-                                        compact_stage2_shape.height,
-                                        compact_stage2_shape.width};
-        for (size_t block_index = 1; block_index < weights.stage3.size(); ++block_index)
-        {
-            rotation_step_groups.push_back(sparse_residual_block_rotation_steps(
-                sparse_stage3_shape, weights.stage3[block_index], 2));
-            print_profile_step(options.profile,
-                               "rotation plan stage3 block" + std::to_string(block_index),
-                               rotation_plan_last, rotation_plan_start);
-        }
-        rotation_step_groups.push_back(
-            sparse_global_average_pool_rotation_steps(sparse_stage3_shape, 2));
-        print_profile_step(options.profile, "rotation plan stage3 sparse GAP",
-                           rotation_plan_last, rotation_plan_start);
-        rotation_step_groups.push_back(linear_rotation_steps(weights.fc_in, weights.fc_out));
-        print_profile_step(options.profile, "rotation plan fc", rotation_plan_last,
-                           rotation_plan_start);
-    }
-    else if (run_connected_stage2_stage3)
-    {
-        // bridge 开发时使用的诊断路径：从合成的 stage2 输入开始，
-        // 只验证 stage2 -> bridge -> stage3，不跑 conv1/stage1。
-        if (weights.stage2.empty() || weights.stage3.empty())
-        {
-            throw std::invalid_argument("ResNet-20 connected stage requires stage2 and stage3");
-        }
-
-        rotation_step_groups.push_back(sparse_downsample_block_rotation_steps(
-            stage2_operator_input.shape, weights.stage2.front(),
-            stage2_operator_input.shape.height, stage2_operator_input.shape.width, 2));
-
-        TensorShape sparse_stage2_shape{weights.stage2.front().conv2.out_channels,
-                                        stage2_operator_input.shape.height,
-                                        stage2_operator_input.shape.width};
-        for (size_t block_index = 1; block_index < weights.stage2.size(); ++block_index)
-        {
-            rotation_step_groups.push_back(sparse_residual_block_rotation_steps(
-                sparse_stage2_shape, weights.stage2[block_index], 2));
-        }
-
-        rotation_step_groups.push_back(sparse_to_compact_rotation_steps(sparse_stage2_shape, 2));
-        TensorShape compact_stage2_shape{weights.stage2.front().conv2.out_channels,
-                                         stage2_operator_input.shape.height / 2,
-                                         stage2_operator_input.shape.width / 2};
-        rotation_step_groups.push_back(sparse_downsample_block_rotation_steps(
-            compact_stage2_shape, weights.stage3.front(), compact_stage2_shape.height,
-            compact_stage2_shape.width, 2));
-        if (options.run_stage2_stage3)
-        {
-            TensorShape sparse_stage3_shape{weights.stage3.front().conv2.out_channels,
-                                            compact_stage2_shape.height,
-                                            compact_stage2_shape.width};
-            for (size_t block_index = 1; block_index < weights.stage3.size(); ++block_index)
-            {
-                rotation_step_groups.push_back(sparse_residual_block_rotation_steps(
-                    sparse_stage3_shape, weights.stage3[block_index], 2));
-            }
-        }
-    }
-    else if (options.run_stage2_stage3_bridge)
-    {
-        // 单独测试 bridge：先把 compact 数据嵌入稀疏物理槽位，
-        // 再运行密文 bridge，并和 compact_sparse_plain 对比。
-        const Tensor bridge_sparse_input =
-            embed_sparse_plain(bridge_operator_input, 32, 32, 2);
-        rotation_step_groups.push_back(
-            sparse_to_compact_rotation_steps(bridge_sparse_input.shape, 2));
-    }
-    else if (options.run_stage3_tail)
-    {
-        const Tensor stage3_tail_sparse_input = embed_sparse_plain(stage3_tail_input, 16, 16, 2);
-        rotation_step_groups.push_back(sparse_global_average_pool_rotation_steps(
-            stage3_tail_sparse_input.shape, 2));
-        rotation_step_groups.push_back(linear_rotation_steps(weights.fc_in, weights.fc_out));
-    }
-    else if (run_sparse_stage2)
-    {
-        if (weights.stage2.empty())
-        {
-            throw std::invalid_argument("ResNet-20 stage2 has no residual blocks");
-        }
-
-        rotation_step_groups.push_back(sparse_downsample_block_rotation_steps(
-            stage2_operator_input.shape, weights.stage2.front(),
-            stage2_operator_input.shape.height, stage2_operator_input.shape.width, 2));
-        if (options.run_stage2)
-        {
-            TensorShape sparse_stage2_shape{weights.stage2.front().conv2.out_channels,
-                                            stage2_operator_input.shape.height,
-                                            stage2_operator_input.shape.width};
-            for (size_t block_index = 1; block_index < weights.stage2.size(); ++block_index)
-            {
-                rotation_step_groups.push_back(sparse_residual_block_rotation_steps(
-                    sparse_stage2_shape, weights.stage2[block_index], 2));
-            }
-        }
-    }
-    else if (run_sparse_stage3)
-    {
-        if (weights.stage3.empty())
-        {
-            throw std::invalid_argument("ResNet-20 stage3 has no residual blocks");
-        }
-
-        rotation_step_groups.push_back(sparse_downsample_block_rotation_steps(
-            stage3_operator_input.shape, weights.stage3.front(),
-            stage3_operator_input.shape.height, stage3_operator_input.shape.width, 2));
-        if (options.run_stage3)
-        {
-            TensorShape sparse_stage3_shape{weights.stage3.front().conv2.out_channels,
-                                            stage3_operator_input.shape.height,
-                                            stage3_operator_input.shape.width};
-            for (size_t block_index = 1; block_index < weights.stage3.size(); ++block_index)
-            {
-                rotation_step_groups.push_back(sparse_residual_block_rotation_steps(
-                    sparse_stage3_shape, weights.stage3[block_index], 2));
-            }
-        }
-    }
-    else
-    {
-        rotation_step_groups.push_back(conv2d_rotation_steps(input.shape, weights.conv1));
-    }
-
-    if (!run_sparse_stage2 && !run_sparse_stage3 &&
-        (options.run_stage1_block0 || options.run_stage1))
-    {
-        if (weights.stage1.empty())
-        {
-            throw std::invalid_argument("ResNet-20 stage1 has no residual blocks");
-        }
-        for (const auto &block : weights.stage1)
-        {
-            add_residual_block_rotation_steps(rotation_step_groups, conv1_activation_plain.shape,
-                                              block);
-        }
-    }
-
-    const auto rotation_steps = merge_rotation_steps(rotation_step_groups);
-    print_profile_step(options.profile, "setup plan rotation steps", setup_last, setup_start);
-    std::cout << "Rotation steps: " << rotation_steps.size() << std::endl;
-#ifdef _OPENMP
-    const int previous_max_threads = omp_get_max_threads();
-    omp_set_num_threads(1);
-#endif
-    // 观察到 OpenMP 多线程生成 key 时容易给 Poseidon memory pool 带来压力。
-    // 这里生成旋转 key 时临时切成单线程，优先保证稳定性。
-    const auto keygen_start = Clock::now();
-    if (options.enable_bootstrap)
-    {
-        std::cout << "Generating full rotation keys for bootstrapping" << std::endl;
-        keygen.create_galois_keys(galois_keys);
-    }
-    else if (options.run_full_he || run_sparse_stage2 || run_sparse_stage3 ||
-        run_connected_stage2_stage3 || options.run_stage2_stage3_bridge ||
-        options.run_stage3_tail)
-    {
-        const auto hybrid_steps =
-            make_hybrid_rotation_key_steps(rotation_steps, log_degree - 1,
-                                           options.stage2_direct_rotation_keys);
-        std::cout << "Generating hybrid rotation keys: " << hybrid_steps.size()
-                  << " keys for sparse stage";
-        if (options.stage2_direct_rotation_keys > 0)
-        {
-            std::cout << " (" << options.stage2_direct_rotation_keys << " direct requested)";
-        }
-        std::cout << std::endl;
-        keygen.create_galois_keys(hybrid_steps, galois_keys);
-    }
-    else
-    {
-        keygen.create_galois_keys(rotation_steps, galois_keys);
-    }
-#ifdef _OPENMP
-    omp_set_num_threads(previous_max_threads);
-#endif
-    const auto keygen_end = Clock::now();
-    std::cout << "Rotation keys generated in " << elapsed_seconds(keygen_start, keygen_end)
-              << " seconds" << std::endl;
-
-    if (options.run_full_plain)
-    {
-        const Tensor logits = forward_plain(input, weights, options.activation);
-        std::cout << "Plain HE-friendly ResNet-20 logits:";
-        for (size_t i = 0; i < logits.values.size(); ++i)
-        {
-            std::cout << (i == 0 ? " " : ", ") << logits.values[i];
-        }
-        std::cout << std::endl;
-    }
-
-    if (options.run_full_he)
-    {
-        // `plain` 张量同步跑同一条明文网络，便于完整密文推理结束后报告 logits 误差。
-        const auto compute_start = Clock::now();
-        auto profile_last = compute_start;
-        poseidon::Ciphertext cipher =
-            encrypt_vector(encoder, encryptor, input.values, scale, slot_count);
-        print_profile_step(options.profile, "encrypt input", profile_last, compute_start);
-
-        cipher = conv2d_encrypted(cipher, input.shape, weights.conv1, encoder, *evaluator,
-                                  galois_keys, scale, slot_count);
-        print_profile_step(options.profile, "conv1 convolution", profile_last, compute_start);
-        activation_inplace(cipher, *evaluator, relin_keys, encoder, scale, options.activation);
-        print_profile_step(options.profile, "conv1 activation", profile_last, compute_start);
-        Tensor plain = conv1_activation_plain;
-        std::cout << "Encrypted full HE conv1 complete" << std::endl;
-
-        for (size_t block_index = 0; block_index < weights.stage1.size(); ++block_index)
-        {
-            cipher = residual_block_encrypted(cipher, plain.shape, weights.stage1[block_index],
-                                              encoder, *evaluator, galois_keys, relin_keys,
-                                              scale, slot_count, options.activation);
-            print_profile_step(options.profile,
-                               "stage1 block" + std::to_string(block_index),
-                               profile_last, compute_start);
-            plain = residual_block_plain(plain, weights.stage1[block_index], options.activation);
-            std::cout << "Encrypted full HE stage1 block" << block_index
-                      << " complete" << std::endl;
-        }
-        if (options.enable_bootstrap && options.bootstrap_after_stage1)
-        {
-            bootstrap_inplace("after stage1", cipher, context, *evaluator, relin_keys,
-                              galois_keys, encoder, scale);
-            print_profile_step(options.profile, "bootstrap after stage1", profile_last,
-                               compute_start);
-        }
-
-        cipher = sparse_downsample_block_encrypted(
-            cipher, plain.shape, weights.stage2.front(), encoder, *evaluator, galois_keys,
-            relin_keys, scale, slot_count, plain.shape.height, plain.shape.width, 2,
-            options.activation);
-        print_profile_step(options.profile, "stage2 block0 sparse", profile_last,
-                           compute_start);
-        plain = residual_block_plain(plain, weights.stage2.front(), options.activation);
-        std::cout << "Encrypted full HE stage2 block0 sparse complete" << std::endl;
-        if (options.enable_bootstrap && options.bootstrap_after_stage2_block0)
-        {
-            bootstrap_inplace("after stage2 block0", cipher, context, *evaluator,
-                              relin_keys, galois_keys, encoder, scale);
-            print_profile_step(options.profile, "bootstrap after stage2 block0",
-                               profile_last, compute_start);
-        }
-
-        // 第一个 stage2 block 之后，逻辑 32x16x16 数据存放在物理 32x32x32 槽位中，
-        // spacing=2。后续 stage2 block 都保持这个稀疏布局。
-        TensorShape sparse_stage2_shape{plain.shape.channels, plain.shape.height * 2,
-                                        plain.shape.width * 2};
-        for (size_t block_index = 1; block_index < weights.stage2.size(); ++block_index)
-        {
-            cipher = sparse_residual_block_encrypted(
-                cipher, sparse_stage2_shape, weights.stage2[block_index], encoder, *evaluator,
-                galois_keys, relin_keys, scale, slot_count, 2, options.activation);
-            print_profile_step(options.profile,
-                               "stage2 block" + std::to_string(block_index) + " sparse",
-                               profile_last, compute_start);
-            plain = residual_block_plain(plain, weights.stage2[block_index], options.activation);
-            std::cout << "Encrypted full HE stage2 block" << block_index
-                      << " sparse complete" << std::endl;
-            if (options.enable_bootstrap && options.bootstrap_after_stage2_block1 &&
-                block_index == 1)
-            {
-                bootstrap_inplace("after stage2 block1", cipher, context, *evaluator,
-                                  relin_keys, galois_keys, encoder, scale);
-                print_profile_step(options.profile, "bootstrap after stage2 block1",
-                                   profile_last, compute_start);
-            }
-        }
-        if (options.enable_bootstrap && options.bootstrap_after_stage2)
-        {
-            bootstrap_inplace("after stage2", cipher, context, *evaluator, relin_keys,
-                              galois_keys, encoder, scale);
-            print_profile_step(options.profile, "bootstrap after stage2", profile_last,
-                               compute_start);
-        }
-
-        cipher = sparse_to_compact_encrypted(cipher, sparse_stage2_shape, 2, encoder,
-                                             *evaluator, galois_keys, scale, slot_count);
-        print_profile_step(options.profile, "stage2->stage3 bridge", profile_last,
-                           compute_start);
-        std::cout << "Encrypted full HE stage2->stage3 bridge complete" << std::endl;
-
-        // stage3 在 stride-2 下采样后也使用稀疏布局：
-        // 逻辑 64x8x8 数据存放在物理 64x16x16 槽位中，spacing=2。
-        cipher = sparse_downsample_block_encrypted(
-            cipher, plain.shape, weights.stage3.front(), encoder, *evaluator, galois_keys,
-            relin_keys, scale, slot_count, plain.shape.height, plain.shape.width, 2,
-            options.activation);
-        print_profile_step(options.profile, "stage3 block0 sparse", profile_last,
-                           compute_start);
-        plain = residual_block_plain(plain, weights.stage3.front(), options.activation);
-        std::cout << "Encrypted full HE stage3 block0 sparse complete" << std::endl;
-
-        TensorShape sparse_stage3_shape{plain.shape.channels, plain.shape.height * 2,
-                                        plain.shape.width * 2};
-        for (size_t block_index = 1; block_index < weights.stage3.size(); ++block_index)
-        {
-            cipher = sparse_residual_block_encrypted(
-                cipher, sparse_stage3_shape, weights.stage3[block_index], encoder, *evaluator,
-                galois_keys, relin_keys, scale, slot_count, 2, options.activation);
-            print_profile_step(options.profile,
-                               "stage3 block" + std::to_string(block_index) + " sparse",
-                               profile_last, compute_start);
-            plain = residual_block_plain(plain, weights.stage3[block_index], options.activation);
-            std::cout << "Encrypted full HE stage3 block" << block_index
-                      << " sparse complete" << std::endl;
-            if (options.enable_bootstrap && options.bootstrap_after_stage3_block1 &&
-                block_index == 1)
-            {
-                bootstrap_inplace("after stage3 block1", cipher, context, *evaluator,
-                                  relin_keys, galois_keys, encoder, scale);
-                print_profile_step(options.profile, "bootstrap after stage3 block1",
-                                   profile_last, compute_start);
-            }
-        }
-
-        cipher = sparse_global_average_pool_encrypted(cipher, sparse_stage3_shape, 2, encoder,
-                                                      *evaluator, galois_keys, scale,
-                                                      slot_count);
-        print_profile_step(options.profile, "stage3 sparse global average pool",
-                           profile_last, compute_start);
-        cipher = linear_encrypted(cipher, weights.fc_weight, weights.fc_bias, weights.fc_in,
-                                  weights.fc_out, encoder, *evaluator, galois_keys, scale,
-                                  slot_count);
-        print_profile_step(options.profile, "fc linear", profile_last, compute_start);
-
-        const Tensor expected_logits = linear_plain(global_average_pool_plain(plain), weights);
-        const auto decoded_logits = decrypt_vector(encoder, decryptor, cipher);
-        print_profile_step(options.profile, "decrypt logits", profile_last, compute_start);
-        const auto compute_end = Clock::now();
-        const double logits_max_error = max_abs_error(decoded_logits, expected_logits.values);
-
-        std::cout << "Encrypted full HE ResNet-20 logits:";
-        for (size_t i = 0; i < expected_logits.values.size(); ++i)
-        {
-            std::cout << (i == 0 ? " " : ", ") << decoded_logits[i];
-        }
-        std::cout << std::endl;
-        std::cout << "Encrypted full HE ResNet-20 logits max error: "
-                  << logits_max_error << std::endl;
-        std::cout << "Full HE compute time: "
-                  << elapsed_seconds(compute_start, compute_end) << " seconds" << std::endl;
-        return logits_max_error < 1e-2 ? 0 : 2;
-    }
-
-    if (options.run_stage3_tail)
-    {
-        const auto compute_start = Clock::now();
-        const Tensor stage3_tail_sparse_input = embed_sparse_plain(stage3_tail_input, 16, 16, 2);
-        poseidon::Ciphertext cipher =
-            encrypt_vector(encoder, encryptor, stage3_tail_sparse_input.values, scale, slot_count);
-        cipher = sparse_global_average_pool_encrypted(cipher, stage3_tail_sparse_input.shape, 2,
-                                                      encoder, *evaluator, galois_keys, scale,
-                                                      slot_count);
-        cipher = linear_encrypted(cipher, weights.fc_weight, weights.fc_bias, weights.fc_in,
-                                  weights.fc_out, encoder, *evaluator, galois_keys, scale,
-                                  slot_count);
-
-        const Tensor expected_logits =
-            linear_plain(global_average_pool_plain(stage3_tail_input), weights);
-        const auto decoded_logits = decrypt_vector(encoder, decryptor, cipher);
-        const auto compute_end = Clock::now();
-        const double logits_max_error = max_abs_error(decoded_logits, expected_logits.values);
-        std::cout << "Encrypted stage3 tail smoke-test logits max error: "
-                  << logits_max_error << std::endl;
-        std::cout << "Stage3 tail HE compute time: "
-                  << elapsed_seconds(compute_start, compute_end) << " seconds" << std::endl;
-        return logits_max_error < 1e-3 ? 0 : 2;
-    }
-
-    if (options.run_stage2_stage3_bridge)
-    {
-        const auto compute_start = Clock::now();
-        const Tensor bridge_sparse_input = embed_sparse_plain(bridge_operator_input, 32, 32, 2);
-        poseidon::Ciphertext cipher_sparse =
-            encrypt_vector(encoder, encryptor, bridge_sparse_input.values, scale, slot_count);
-        poseidon::Ciphertext cipher_compact =
-            sparse_to_compact_encrypted(cipher_sparse, bridge_sparse_input.shape, 2, encoder,
-                                        *evaluator, galois_keys, scale, slot_count);
-        const auto decoded_compact = decrypt_vector(encoder, decryptor, cipher_compact);
-        const Tensor expected_compact = compact_sparse_plain(bridge_sparse_input, 2);
-        const auto compute_end = Clock::now();
-        const double bridge_max_error =
-            max_abs_error(decoded_compact, expected_compact.values);
-        std::cout << "Encrypted stage2->stage3 sparse-to-compact bridge max error: "
-                  << bridge_max_error << std::endl;
-        std::cout << "Bridge HE compute time: "
-                  << elapsed_seconds(compute_start, compute_end) << " seconds" << std::endl;
-        return bridge_max_error < 1e-3 ? 0 : 2;
-    }
-
-    if (run_connected_stage2_stage3)
-    {
-        const auto compute_start = Clock::now();
-        poseidon::Ciphertext cipher_stage2_input =
-            encrypt_vector(encoder, encryptor, stage2_operator_input.values, scale, slot_count);
-        poseidon::Ciphertext cipher_stage2 =
-            sparse_downsample_block_encrypted(cipher_stage2_input, stage2_operator_input.shape,
-                                              weights.stage2.front(), encoder, *evaluator,
-                                              galois_keys, relin_keys, scale, slot_count,
-                                              stage2_operator_input.shape.height,
-                                              stage2_operator_input.shape.width, 2,
-                                              options.activation);
-        Tensor stage2_plain = residual_block_plain(stage2_operator_input, weights.stage2.front(),
-                                                   options.activation);
-        std::cout << "Encrypted connected stage2 block0 sparse complete" << std::endl;
-
-        TensorShape sparse_stage2_shape{stage2_plain.shape.channels,
-                                        stage2_operator_input.shape.height,
-                                        stage2_operator_input.shape.width};
-        for (size_t block_index = 1; block_index < weights.stage2.size(); ++block_index)
-        {
-            cipher_stage2 = sparse_residual_block_encrypted(
-                cipher_stage2, sparse_stage2_shape, weights.stage2[block_index], encoder,
-                *evaluator, galois_keys, relin_keys, scale, slot_count, 2, options.activation);
-            stage2_plain = residual_block_plain(stage2_plain, weights.stage2[block_index],
-                                                options.activation);
-            std::cout << "Encrypted connected stage2 block" << block_index
-                      << " sparse complete" << std::endl;
-        }
-
-        poseidon::Ciphertext cipher_stage3_input =
-            sparse_to_compact_encrypted(cipher_stage2, sparse_stage2_shape, 2, encoder,
-                                        *evaluator, galois_keys, scale, slot_count);
-        const auto decoded_bridge = decrypt_vector(encoder, decryptor, cipher_stage3_input);
-        const double bridge_max_error = max_abs_error(decoded_bridge, stage2_plain.values);
-        std::cout << "Encrypted connected stage2->stage3 bridge max error: "
-                  << bridge_max_error << std::endl;
-
-        poseidon::Ciphertext cipher_stage3 =
-            sparse_downsample_block_encrypted(cipher_stage3_input, stage2_plain.shape,
-                                              weights.stage3.front(), encoder, *evaluator,
-                                              galois_keys, relin_keys, scale, slot_count,
-                                              stage2_plain.shape.height, stage2_plain.shape.width,
-                                              2, options.activation);
-        Tensor stage3_plain = residual_block_plain(stage2_plain, weights.stage3.front(),
-                                                   options.activation);
-        std::cout << "Encrypted connected stage3 block0 sparse complete" << std::endl;
-
-        if (options.run_stage2_stage3)
-        {
-            TensorShape sparse_stage3_shape{stage3_plain.shape.channels, stage2_plain.shape.height,
-                                            stage2_plain.shape.width};
-            for (size_t block_index = 1; block_index < weights.stage3.size(); ++block_index)
-            {
-                cipher_stage3 = sparse_residual_block_encrypted(
-                    cipher_stage3, sparse_stage3_shape, weights.stage3[block_index], encoder,
-                    *evaluator, galois_keys, relin_keys, scale, slot_count, 2,
-                    options.activation);
-                stage3_plain = residual_block_plain(stage3_plain, weights.stage3[block_index],
-                                                    options.activation);
-                std::cout << "Encrypted connected stage3 block" << block_index
-                          << " sparse complete" << std::endl;
-            }
-        }
-
-        const Tensor stage3_sparse_plain =
-            embed_sparse_plain(stage3_plain, stage2_plain.shape.height, stage2_plain.shape.width,
-                               2);
-        const auto decoded_stage3 = decrypt_vector(encoder, decryptor, cipher_stage3);
-        const auto compute_end = Clock::now();
-        const double stage3_max_error = max_abs_error(decoded_stage3, stage3_sparse_plain.values);
-        std::cout << "Encrypted connected "
-                  << (options.run_stage2_stage3 ? "stage2->stage3" : "stage2->stage3 block0")
-                  << " sparse smoke-test max error: " << stage3_max_error << std::endl;
-        std::cout << "Connected stage2->stage3 HE compute time: "
-                  << elapsed_seconds(compute_start, compute_end) << " seconds" << std::endl;
-        return stage3_max_error < 1e-2 && bridge_max_error < 1e-2 ? 0 : 2;
-    }
-
-    if (run_sparse_stage2)
-    {
-        const auto compute_start = Clock::now();
-        poseidon::Ciphertext cipher_stage2_input =
-            encrypt_vector(encoder, encryptor, stage2_operator_input.values, scale, slot_count);
-        poseidon::Ciphertext cipher_stage2 =
-            sparse_downsample_block_encrypted(cipher_stage2_input, stage2_operator_input.shape,
-                                              weights.stage2.front(), encoder, *evaluator,
-                                              galois_keys, relin_keys, scale, slot_count,
-                                              stage2_operator_input.shape.height,
-                                              stage2_operator_input.shape.width, 2,
-                                              options.activation);
-        std::cout << "Encrypted isolated stage2 block0 sparse complete" << std::endl;
-        Tensor stage2_plain = residual_block_plain(stage2_operator_input, weights.stage2.front(),
-                                                   options.activation);
-
-        if (options.run_stage2)
-        {
-            TensorShape sparse_stage2_shape{stage2_plain.shape.channels,
-                                            stage2_operator_input.shape.height,
-                                            stage2_operator_input.shape.width};
-            for (size_t block_index = 1; block_index < weights.stage2.size(); ++block_index)
-            {
-                cipher_stage2 = sparse_residual_block_encrypted(
-                    cipher_stage2, sparse_stage2_shape, weights.stage2[block_index], encoder,
-                    *evaluator, galois_keys, relin_keys, scale, slot_count, 2,
-                    options.activation);
-                stage2_plain = residual_block_plain(stage2_plain, weights.stage2[block_index],
-                                                    options.activation);
-                std::cout << "Encrypted isolated stage2 block" << block_index
-                          << " sparse complete" << std::endl;
-            }
-        }
-
-        const Tensor stage2_sparse_plain =
-            embed_sparse_plain(stage2_plain, stage2_operator_input.shape.height,
-                               stage2_operator_input.shape.width, 2);
-        const auto decoded_stage2 = decrypt_vector(encoder, decryptor, cipher_stage2);
-        const auto compute_end = Clock::now();
-        const double stage2_max_error = max_abs_error(decoded_stage2, stage2_sparse_plain.values);
-        std::cout << "Encrypted isolated "
-                  << (options.run_stage2 ? "stage2" : "stage2 block0")
-                  << " sparse smoke-test max error: " << stage2_max_error << std::endl;
-        std::cout << "Stage2 HE compute time: "
-                  << elapsed_seconds(compute_start, compute_end) << " seconds" << std::endl;
-        return stage2_max_error < 1e-2 ? 0 : 2;
-    }
-
-    if (run_sparse_stage3)
-    {
-        const auto compute_start = Clock::now();
-        poseidon::Ciphertext cipher_stage3_input =
-            encrypt_vector(encoder, encryptor, stage3_operator_input.values, scale, slot_count);
-        poseidon::Ciphertext cipher_stage3 =
-            sparse_downsample_block_encrypted(cipher_stage3_input, stage3_operator_input.shape,
-                                              weights.stage3.front(), encoder, *evaluator,
-                                              galois_keys, relin_keys, scale, slot_count,
-                                              stage3_operator_input.shape.height,
-                                              stage3_operator_input.shape.width, 2,
-                                              options.activation);
-        std::cout << "Encrypted isolated stage3 block0 sparse complete" << std::endl;
-        Tensor stage3_plain = residual_block_plain(stage3_operator_input, weights.stage3.front(),
-                                                   options.activation);
-
-        if (options.run_stage3)
-        {
-            TensorShape sparse_stage3_shape{stage3_plain.shape.channels,
-                                            stage3_operator_input.shape.height,
-                                            stage3_operator_input.shape.width};
-            for (size_t block_index = 1; block_index < weights.stage3.size(); ++block_index)
-            {
-                cipher_stage3 = sparse_residual_block_encrypted(
-                    cipher_stage3, sparse_stage3_shape, weights.stage3[block_index], encoder,
-                    *evaluator, galois_keys, relin_keys, scale, slot_count, 2,
-                    options.activation);
-                stage3_plain = residual_block_plain(stage3_plain, weights.stage3[block_index],
-                                                    options.activation);
-                std::cout << "Encrypted isolated stage3 block" << block_index
-                          << " sparse complete" << std::endl;
-            }
-        }
-
-        const Tensor stage3_sparse_plain =
-            embed_sparse_plain(stage3_plain, stage3_operator_input.shape.height,
-                               stage3_operator_input.shape.width, 2);
-        const auto decoded_stage3 = decrypt_vector(encoder, decryptor, cipher_stage3);
-        const auto compute_end = Clock::now();
-        const double stage3_max_error = max_abs_error(decoded_stage3, stage3_sparse_plain.values);
-        std::cout << "Encrypted isolated "
-                  << (options.run_stage3 ? "stage3" : "stage3 block0")
-                  << " sparse smoke-test max error: " << stage3_max_error << std::endl;
-        std::cout << "Stage3 HE compute time: "
-                  << elapsed_seconds(compute_start, compute_end) << " seconds" << std::endl;
-        return stage3_max_error < 1e-2 ? 0 : 2;
-    }
-
-    poseidon::Ciphertext cipher_input =
-        encrypt_vector(encoder, encryptor, input.values, scale, slot_count);
-    poseidon::Ciphertext cipher_conv1 =
-        conv2d_encrypted(cipher_input, input.shape, weights.conv1, encoder, *evaluator,
-                         galois_keys, scale, slot_count);
-    activation_inplace(cipher_conv1, *evaluator, relin_keys, encoder, scale, options.activation);
-
-    if (options.run_stage1)
-    {
-        poseidon::Ciphertext cipher_stage1 = cipher_conv1;
-        Tensor stage1_plain = conv1_activation_plain;
-        for (size_t block_index = 0; block_index < weights.stage1.size(); ++block_index)
-        {
-            cipher_stage1 =
-                residual_block_encrypted(cipher_stage1, stage1_plain.shape,
-                                         weights.stage1[block_index], encoder, *evaluator,
-                                         galois_keys, relin_keys, scale, slot_count,
-                                         options.activation);
-            stage1_plain = residual_block_plain(stage1_plain, weights.stage1[block_index],
-                                                options.activation);
-            std::cout << "Encrypted stage1 block" << block_index << " complete" << std::endl;
-        }
-
-        const auto decoded_stage1 = decrypt_vector(encoder, decryptor, cipher_stage1);
-        const double stage1_max_error = max_abs_error(decoded_stage1, stage1_plain.values);
-        std::cout << "Encrypted stage1 smoke-test max error: " << stage1_max_error << std::endl;
-        return stage1_max_error < 1e-2 ? 0 : 2;
-    }
-
-    if (options.run_stage1_block0)
-    {
-        poseidon::Ciphertext cipher_block0 =
-            residual_block_encrypted(cipher_conv1, conv1_activation_plain.shape,
-                                     weights.stage1.front(), encoder, *evaluator, galois_keys,
-                                     relin_keys, scale, slot_count, options.activation);
-        const auto decoded_block0 = decrypt_vector(encoder, decryptor, cipher_block0);
-        const Tensor block0_plain =
-            residual_block_plain(conv1_activation_plain, weights.stage1.front(),
-                                 options.activation);
-        const double block0_max_error = max_abs_error(decoded_block0, block0_plain.values);
-
-        std::cout << "Encrypted stage1 block0 smoke-test max error: " << block0_max_error
-                  << std::endl;
-        return block0_max_error < 1e-3 ? 0 : 2;
-    }
-
-    const auto decoded_conv1 = decrypt_vector(encoder, decryptor, cipher_conv1);
-    const double conv1_max_error = max_abs_error(decoded_conv1, conv1_activation_plain.values);
-    std::cout << "Encrypted conv1 + activation smoke-test max error: " << conv1_max_error
-              << std::endl;
-    return conv1_max_error < 1e-3 ? 0 : 2;
 }
-
-} // namespace ResNet20
