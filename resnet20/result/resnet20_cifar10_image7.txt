@@ -1,0 +1,65 @@
+image_id: 7
+weights_root: "/home/guoshuai/github/FHE-MP-CNN/pretrained_parameters/resnet20_new"
+data_root: "/home/guoshuai/github/FHE-MP-CNN/testFile"
+input_layout: chw
+weight_layout: oihw
+mode: he
+he_block_limit: 0
+he_activation: fhe_mp_cnn_relu
+relu_coeffs_path: "/home/guoshuai/github/FHE-MP-CNN/cnn_ckks/result/d13.txt"
+he_approximation_boundary: 40
+he_run_start
+he_run_plaintext_reference_ready
+he setup context+evaluator time : 4089 ms
+he setup public key time : 288 ms
+he setup relin key time : 5946 ms
+he setup galois key time : 89205 ms
+he setup activation/bootstrap config time : 0 ms
+he packed input log_slots : 15
+he packed input replication_p : 8
+he packed input base_slots : 3072
+he packed input roundtrip mse : 1.23952e-11
+he stem path : packed
+he stem packed pre-rotation ready
+he stem packed group 0 time : 33069 ms
+he stem packed group 1 time : 37153 ms
+he stem packed output replication done
+he stem packed conv time : 177071 ms
+he stem packed output replication_p : 2
+he stem packed conv stats metadata: level=28, scale=0.00012207, log2_scale=-13, coeff_modulus_size=29
+he stem packed conv stats decode failed: /home/guoshuai/github/poseidon/src/poseidon/ckks_encoder.h:601 scale out of bounds
+he stem packed scale-adjust time : 8 ms
+he stem packed bn time : 70 ms
+he stem packed bn stats metadata: level=28, scale=3.43597e+10, log2_scale=35, coeff_modulus_size=29
+he stem packed bn stats: active_slots=16384, min=-0.0163385, max=0.0346571, mean=0.00807372
+he stem packed channel 0 component 0 time : 15495 ms
+he stem packed channel 0 component 0 stats: active_slots=32768, min=-0.199233, max=0.41195, mean=0.0976278
+he stem packed channel 0 component 1 time : 9958 ms
+he stem packed channel 0 component 1 stats: active_slots=32768, min=-0.847358, max=0.91624, mean=0.290161
+he stem packed channel 0 component 2 time : 8066 ms
+he stem packed channel 0 component 2 stats: active_slots=32768, min=-0.500031, max=0.50006, mean=0.163592
+he stem packed channel 0 sign_half before bias: level=9, scale=3.43597e+10, log2_scale=35, coeff_modulus_size=10
+he stem packed channel 0 original before final multiply: level=28, scale=3.43597e+10, log2_scale=35, coeff_modulus_size=29
+he stem packed channel 0 biased gate stats: active_slots=32768, min=-3.06543e-05, max=1.00006, mean=0.663592
+he stem packed channel 0 sign_half after bias: level=9, scale=3.43597e+10, log2_scale=35, coeff_modulus_size=10
+he stem packed channel 0 gate after level align stats: active_slots=32768, min=-3.06543e-05, max=1.00006, mean=0.663592
+he stem packed channel 0 original after level align stats: active_slots=32768, min=-0.0163436, max=0.0346707, mean=0.00807365
+he stem packed channel 0 gate after align: level=9, scale=3.43597e+10, log2_scale=35, coeff_modulus_size=10
+he stem packed channel 0 original after align: level=9, scale=3.43597e+10, log2_scale=35, coeff_modulus_size=10
+he stem packed channel 0 relu result metadata: level=8, scale=1.67772e+07, log2_scale=24, coeff_modulus_size=9
+he stem packed packed relu time : 34579 ms
+he stem packed relu total time : 34588 ms
+he stem packed relu stats metadata: level=8, scale=1.67772e+07, log2_scale=24, coeff_modulus_size=9
+he stem packed relu stats: active_slots=16384, min=-0.000147667, max=0.0346749, mean=0.0101855
+he stem unpack time : 51 ms
+layer 0 (decrypted): shape=(16, 32, 32), min=-0.000147667, max=0.0346749, mean=0.0101855
+he_completed_blocks: 0
+plaintext_completed_blocks: 0
+plaintext_reference_stats_begin
+layer 0: shape=(16, 32, 32), min=0, max=3.65609, mean=0.43472
+plaintext_reference_stats_end
+he_plaintext_feature_mse: 0.00012273
+he_logits: unavailable (network stopped before final 64x8x8 feature map)
+image label: 6
+inferred label: -1
+total time : 312851 ms
