@@ -1,0 +1,1369 @@
+==================== run_start ====================
+image_id: 0
+poseidon runtime ready
+loaded conv weights: 19
+loaded bn groups: 19
+loaded fc weight count: 640
+relu parameter root: "/home/guoshuai/github/poseidon/Trident/resnet20/relu_param"
+input ciphertext chain index: 29
+input ciphertext scale: 7.03687e+13
+post-alignment chain index: 18
+post-alignment scale: 7.03687e+13
+layer 0
+multiplexed parallel convolution...
+time : 35859 ms
+convolution stage 0
+preview: -0.0106119 -0.0131557 -0.0131253 -0.0124585 -0.0124303 -0.0127895 -0.0125319 -0.0126197
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 17
+scale: 1.0889e+40
+
+multiplexed parallel batch normalization...
+time : 80 ms
+batch normalization stage 0
+preview: -0.0178793 -0.0204231 -0.0203927 -0.0197258 -0.0196976 -0.0200568 -0.0197992 -0.019887
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 17
+scale: 1.0889e+40
+
+approximate ReLU...
+==================== run_start ====================
+image_id: 0
+poseidon runtime ready
+loaded conv weights: 19
+loaded bn groups: 19
+loaded fc weight count: 640
+relu parameter root: "/home/guoshuai/github/poseidon/Trident/resnet20/relu_param"
+input ciphertext chain index: 29
+input ciphertext scale: 7.03687e+13
+post-alignment chain index: 18
+post-alignment scale: 7.03687e+13
+layer 0
+multiplexed parallel convolution...
+time : 33627 ms
+convolution stage 0
+preview: -0.0106116 -0.0131557 -0.0131253 -0.0124585 -0.0124303 -0.0127895 -0.0125319 -0.0126197
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 16
+scale: 7.03687e+13
+
+multiplexed parallel batch normalization...
+time : 48 ms
+batch normalization stage 0
+preview: -0.0178789 -0.0204231 -0.0203926 -0.0197258 -0.0196976 -0.0200568 -0.0197992 -0.019887
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 16
+scale: 7.03687e+13
+
+approximate ReLU...
+==================== run_start ====================
+image_id: 0
+poseidon runtime ready
+loaded conv weights: 19
+loaded bn groups: 19
+loaded fc weight count: 640
+relu parameter root: "/home/guoshuai/github/poseidon/Trident/resnet20/relu_param"
+input ciphertext chain index: 29
+input ciphertext scale: 7.03687e+13
+post-alignment chain index: 18
+post-alignment scale: 7.03687e+13
+layer 0
+multiplexed parallel convolution...
+convolution input state
+k: 1
+h: 32
+w: 32
+c: 3
+t: 3
+p: 8
+remaining level : 18
+scale: 7.03687e+13
+time : 33083 ms
+convolution stage 0
+preview: -0.0106117 -0.0131557 -0.0131253 -0.0124585 -0.0124303 -0.0127895 -0.0125319 -0.0126197
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 16
+scale: 7.03687e+13
+
+multiplexed parallel batch normalization...
+batchnorm input state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 16
+scale: 7.03687e+13
+time : 47 ms
+batch normalization stage 0
+preview: -0.0178791 -0.0204231 -0.0203927 -0.0197258 -0.0196976 -0.0200568 -0.0197992 -0.019887
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 16
+scale: 7.03687e+13
+
+approximate ReLU...
+relu wrapper input state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 16
+scale: 7.03687e+13
+relu input state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 16
+scale: 7.03687e+13
+sign poly step 1 state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 10
+scale: 7.03687e+13
+sign poly step 2 state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 4
+scale: 7.03687e+13
+relu failure during sign polynomial: scale out of bounds
+==================== run_start ====================
+image_id: 0
+poseidon runtime ready
+loaded conv weights: 19
+loaded bn groups: 19
+loaded fc weight count: 640
+relu parameter root: "/home/guoshuai/github/poseidon/Trident/resnet20/relu_param"
+input ciphertext chain index: 29
+input ciphertext scale: 7.03687e+13
+post-alignment chain index: 18
+post-alignment scale: 7.03687e+13
+layer 0
+multiplexed parallel convolution...
+convolution input state
+k: 1
+h: 32
+w: 32
+c: 3
+t: 3
+p: 8
+remaining level : 18
+scale: 7.03687e+13
+time : 32487 ms
+convolution stage 0
+preview: -0.0106118 -0.0131557 -0.0131253 -0.0124585 -0.0124303 -0.0127895 -0.0125319 -0.0126197
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 16
+scale: 7.03687e+13
+
+multiplexed parallel batch normalization...
+batchnorm input state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 16
+scale: 7.03687e+13
+time : 47 ms
+batch normalization stage 0
+preview: -0.0178792 -0.0204231 -0.0203927 -0.0197258 -0.0196976 -0.0200568 -0.0197992 -0.019887
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 16
+scale: 7.03687e+13
+
+approximate ReLU...
+relu wrapper input state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 16
+scale: 7.03687e+13
+relu input state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 16
+scale: 7.03687e+13
+sign poly step 1 state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 8
+scale: 7.03687e+13
+sign poly step 2 state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 3
+scale: 7.03687e+13
+relu failure during sign polynomial: scale out of bounds
+==================== run_start ====================
+image_id: 0
+poseidon runtime ready
+loaded conv weights: 19
+loaded bn groups: 19
+loaded fc weight count: 640
+relu parameter root: "/home/guoshuai/github/poseidon/Trident/resnet20/relu_param"
+input ciphertext chain index: 29
+input ciphertext scale: 7.03687e+13
+post-alignment chain index: 18
+post-alignment scale: 7.03687e+13
+layer 0
+multiplexed parallel convolution...
+convolution input state
+k: 1
+h: 32
+w: 32
+c: 3
+t: 3
+p: 8
+remaining level : 18
+scale: 7.03687e+13
+time : 35122 ms
+convolution stage 0
+preview: -0.010612 -0.0131558 -0.0131253 -0.0124585 -0.0124303 -0.0127895 -0.0125319 -0.0126197
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 16
+scale: 7.03687e+13
+
+multiplexed parallel batch normalization...
+batchnorm input state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 16
+scale: 7.03687e+13
+time : 52 ms
+batch normalization stage 0
+preview: -0.0178794 -0.0204231 -0.0203926 -0.0197258 -0.0196976 -0.0200568 -0.0197992 -0.019887
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 16
+scale: 7.03687e+13
+
+approximate ReLU...
+relu wrapper input state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 16
+scale: 7.03687e+13
+relu input state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 16
+scale: 7.03687e+13
+sign poly component 1 coeff_count=16
+coeffs: -1.82077e-27 1.31102 -1.47147e-26 -0.465544 -7.72265e-27 0.388789 1.15973e-26 -0.341032 6.52333e-28 1.15837 -2.60793e-26 -0.243786 3.66962e-27 2.24319 2.91961e-26 -4.02702
+sign poly component 2 coeff_count=16
+coeffs: -4.85029e-28 0.776581 3.5632e-28 -0.681841 -9.70147e-29 -0.0584022 -8.80029e-28 -0.560485 -9.0912e-28 0.133127 7.09743e-28 -0.459881 -1.43997e-27 0.936808 -3.30247e-27 -4.11443
+sign poly component 3 coeff_count=28
+coeffs: -9.69936e-32 -0.0428579 -1.58254e-31 -0.774793 -1.11928e-31 -0.181282 -5.82415e-32 -0.245468 -1.24497e-31 -0.789123 -1.88675e-31 -0.727411 -1.25076e-31 -0.325545 -6.24819e-32 -0.186018 -3.10711e-32 -0.197326 -3.62916e-32 -0.141117 -1.88005e-32 -0.0526757 -7.72303e-33 -0.026313 -3.34096e-33 -0.0177327 -2.0689e-33 -0.00908409
+sign poly step 1 state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 8
+scale: 7.03687e+13
+sign poly step 2 state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 3
+scale: 7.03687e+13
+relu failure during sign polynomial: scale out of bounds
+==================== run_start ====================
+image_id: 0
+poseidon runtime ready
+loaded conv weights: 19
+loaded bn groups: 19
+loaded fc weight count: 640
+relu parameter root: "/home/guoshuai/github/poseidon/Trident/resnet20/relu_param"
+input ciphertext chain index: 29
+input ciphertext scale: 7.03687e+13
+post-alignment chain index: 18
+post-alignment scale: 7.03687e+13
+layer 0
+multiplexed parallel convolution...
+convolution input state
+k: 1
+h: 32
+w: 32
+c: 3
+t: 3
+p: 8
+remaining level : 18
+scale: 7.03687e+13
+time : 35898 ms
+convolution stage 0
+preview: -0.010612 -0.0131557 -0.0131253 -0.0124585 -0.0124303 -0.0127895 -0.0125319 -0.0126197
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 16
+scale: 7.03687e+13
+
+multiplexed parallel batch normalization...
+batchnorm input state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 16
+scale: 7.03687e+13
+time : 52 ms
+batch normalization stage 0
+preview: -0.0178794 -0.0204231 -0.0203927 -0.0197258 -0.0196976 -0.0200568 -0.0197992 -0.019887
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 16
+scale: 7.03687e+13
+
+approximate ReLU...
+relu wrapper input state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 16
+scale: 7.03687e+13
+relu input state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 16
+scale: 7.03687e+13
+sign poly component 1 coeff_count=16
+coeffs: -1.82077e-27 1.31102 -1.47147e-26 -0.465544 -7.72265e-27 0.388789 1.15973e-26 -0.341032 6.52333e-28 1.15837 -2.60793e-26 -0.243786 3.66962e-27 2.24319 2.91961e-26 -4.02702
+sign poly component 2 coeff_count=16
+coeffs: -4.85029e-28 0.776581 3.5632e-28 -0.681841 -9.70147e-29 -0.0584022 -8.80029e-28 -0.560485 -9.0912e-28 0.133127 7.09743e-28 -0.459881 -1.43997e-27 0.936808 -3.30247e-27 -4.11443
+sign poly component 3 coeff_count=28
+coeffs: -9.69936e-32 -0.0428579 -1.58254e-31 -0.774793 -1.11928e-31 -0.181282 -5.82415e-32 -0.245468 -1.24497e-31 -0.789123 -1.88675e-31 -0.727411 -1.25076e-31 -0.325545 -6.24819e-32 -0.186018 -3.10711e-32 -0.197326 -3.62916e-32 -0.141117 -1.88005e-32 -0.0526757 -7.72303e-33 -0.026313 -3.34096e-33 -0.0177327 -2.0689e-33 -0.00908409
+sign poly step 1 state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 8
+scale: 7.03687e+13
+sign poly step 2 state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 3
+scale: 7.03687e+13
+relu failure during sign polynomial: scale out of bounds
+==================== run_start ====================
+image_id: 0
+poseidon runtime ready
+loaded conv weights: 19
+loaded bn groups: 19
+loaded fc weight count: 640
+relu parameter root: "/home/guoshuai/github/poseidon/Trident/resnet20/relu_param"
+input ciphertext chain index: 34
+input ciphertext scale: 7.03687e+13
+post-alignment chain index: 23
+post-alignment scale: 7.03687e+13
+layer 0
+multiplexed parallel convolution...
+convolution input state
+k: 1
+h: 32
+w: 32
+c: 3
+t: 3
+p: 8
+remaining level : 23
+scale: 7.03687e+13
+time : 55011 ms
+convolution stage 0
+preview: -0.0106121 -0.0131557 -0.0131253 -0.0124585 -0.0124303 -0.0127895 -0.0125319 -0.0126197
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 21
+scale: 7.03687e+13
+
+multiplexed parallel batch normalization...
+batchnorm input state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 21
+scale: 7.03687e+13
+time : 65 ms
+batch normalization stage 0
+preview: -0.0178795 -0.0204231 -0.0203927 -0.0197258 -0.0196976 -0.0200568 -0.0197992 -0.019887
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 21
+scale: 7.03687e+13
+
+approximate ReLU...
+relu wrapper input state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 21
+scale: 7.03687e+13
+relu input state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 21
+scale: 7.03687e+13
+sign poly component 1 coeff_count=16
+coeffs: -1.82077e-27 1.31102 -1.47147e-26 -0.465544 -7.72265e-27 0.388789 1.15973e-26 -0.341032 6.52333e-28 1.15837 -2.60793e-26 -0.243786 3.66962e-27 2.24319 2.91961e-26 -4.02702
+sign poly component 2 coeff_count=16
+coeffs: -4.85029e-28 0.776581 3.5632e-28 -0.681841 -9.70147e-29 -0.0584022 -8.80029e-28 -0.560485 -9.0912e-28 0.133127 7.09743e-28 -0.459881 -1.43997e-27 0.936808 -3.30247e-27 -4.11443
+sign poly component 3 coeff_count=28
+coeffs: -9.69936e-32 -0.0428579 -1.58254e-31 -0.774793 -1.11928e-31 -0.181282 -5.82415e-32 -0.245468 -1.24497e-31 -0.789123 -1.88675e-31 -0.727411 -1.25076e-31 -0.325545 -6.24819e-32 -0.186018 -3.10711e-32 -0.197326 -3.62916e-32 -0.141117 -1.88005e-32 -0.0526757 -7.72303e-33 -0.026313 -3.34096e-33 -0.0177327 -2.0689e-33 -0.00908409
+sign poly step 1 pre-eval state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 21
+scale: 7.03687e+13
+sign poly step 1 post-eval state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 13
+scale: 7.03687e+13
+sign poly step 2 pre-eval state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 13
+scale: 7.03687e+13
+sign poly step 2 post-eval state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 8
+scale: 7.03687e+13
+sign poly step 3 pre-eval state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 8
+scale: 7.03687e+13
+sign poly step 3 post-eval state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 2
+scale: 7.03687e+13
+sign poly add-const state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 2
+scale: 7.03687e+13
+relu sign-mask state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 2
+scale: 7.03687e+13
+relu post-multiply state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 2
+scale: 4.95176e+27
+relu post-rescale state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 1
+scale: 7.03688e+13
+time : 17220 ms
+ReLU stage 0
+preview: -0.00895377 -0.0102299 -0.0102146 -0.00988 -0.00986585 -0.0100461 -0.00991684 -0.00996088
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 1
+scale: 7.03688e+13
+
+layer 1
+stage1 block 0: conv1 -> bn1 -> bootstrap(log_slots=14) -> relu -> conv2 -> bn2 -> add -> bootstrap(log_slots=14) -> relu
+multiplexed parallel convolution...
+convolution input state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 1
+scale: 7.03688e+13
+==================== run_start ====================
+image_id: 0
+poseidon runtime ready
+loaded conv weights: 19
+loaded bn groups: 19
+loaded fc weight count: 640
+relu parameter root: "/home/guoshuai/github/poseidon/Trident/resnet20/relu_param"
+input ciphertext chain index: 35
+input ciphertext scale: 7.03687e+13
+post-alignment chain index: 24
+post-alignment scale: 7.03687e+13
+layer 0
+multiplexed parallel convolution...
+convolution input state
+k: 1
+h: 32
+w: 32
+c: 3
+t: 3
+p: 8
+remaining level : 24
+scale: 7.03687e+13
+time : 58592 ms
+convolution stage 0
+preview: -0.0106119 -0.0131557 -0.0131253 -0.0124585 -0.0124303 -0.0127895 -0.0125319 -0.0126197
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 22
+scale: 7.03687e+13
+
+multiplexed parallel batch normalization...
+batchnorm input state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 22
+scale: 7.03687e+13
+time : 68 ms
+batch normalization stage 0
+preview: -0.0178793 -0.0204231 -0.0203927 -0.0197258 -0.0196976 -0.0200568 -0.0197992 -0.019887
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 22
+scale: 7.03687e+13
+
+approximate ReLU...
+relu wrapper input state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 22
+scale: 7.03687e+13
+relu input state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 22
+scale: 7.03687e+13
+sign poly component 1 coeff_count=16
+coeffs: -1.82077e-27 1.31102 -1.47147e-26 -0.465544 -7.72265e-27 0.388789 1.15973e-26 -0.341032 6.52333e-28 1.15837 -2.60793e-26 -0.243786 3.66962e-27 2.24319 2.91961e-26 -4.02702
+sign poly component 2 coeff_count=16
+coeffs: -4.85029e-28 0.776581 3.5632e-28 -0.681841 -9.70147e-29 -0.0584022 -8.80029e-28 -0.560485 -9.0912e-28 0.133127 7.09743e-28 -0.459881 -1.43997e-27 0.936808 -3.30247e-27 -4.11443
+sign poly component 3 coeff_count=28
+coeffs: -9.69936e-32 -0.0428579 -1.58254e-31 -0.774793 -1.11928e-31 -0.181282 -5.82415e-32 -0.245468 -1.24497e-31 -0.789123 -1.88675e-31 -0.727411 -1.25076e-31 -0.325545 -6.24819e-32 -0.186018 -3.10711e-32 -0.197326 -3.62916e-32 -0.141117 -1.88005e-32 -0.0526757 -7.72303e-33 -0.026313 -3.34096e-33 -0.0177327 -2.0689e-33 -0.00908409
+sign poly step 1 pre-eval state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 22
+scale: 7.03687e+13
+sign poly step 1 post-eval state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 14
+scale: 7.03687e+13
+sign poly step 2 pre-eval state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 14
+scale: 7.03687e+13
+sign poly step 2 post-eval state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 9
+scale: 7.03687e+13
+sign poly step 3 pre-eval state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 9
+scale: 7.03687e+13
+sign poly step 3 post-eval state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 3
+scale: 7.03687e+13
+sign poly add-const state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 3
+scale: 7.03687e+13
+relu sign-mask state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 3
+scale: 7.03687e+13
+relu post-multiply state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 3
+scale: 4.95176e+27
+relu post-rescale state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 2
+scale: 7.03688e+13
+time : 19812 ms
+ReLU stage 0
+preview: -0.00895367 -0.0102299 -0.0102146 -0.00988 -0.00986585 -0.0100461 -0.00991684 -0.00996088
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 2
+scale: 7.03688e+13
+
+layer 1
+stage1 block 0: conv1 -> bn1 -> bootstrap(log_slots=14) -> relu -> conv2 -> bn2 -> add -> bootstrap(log_slots=14) -> relu
+multiplexed parallel convolution...
+convolution input state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 2
+scale: 7.03688e+13
+
+
+==================== run_start ====================
+image_id: 0
+poseidon runtime ready
+loaded conv weights: 19
+loaded bn groups: 19
+loaded fc weight count: 640
+relu parameter root: "/home/guoshuai/github/poseidon/Trident/resnet20/relu_param"
+input ciphertext chain index: 35
+input ciphertext scale: 7.03687e+13
+post-alignment chain index: 24
+post-alignment scale: 7.03687e+13
+layer 0
+multiplexed parallel convolution...
+convolution input state
+k: 1
+h: 32
+w: 32
+c: 3
+t: 3
+p: 8
+remaining level : 24
+scale: 7.03687e+13
+time : 59555 ms
+convolution stage 0
+preview: -0.0106118 -0.0131558 -0.0131253 -0.0124585 -0.0124303 -0.0127895 -0.0125319 -0.0126197
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 22
+scale: 7.03687e+13
+
+multiplexed parallel batch normalization...
+batchnorm input state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 22
+scale: 7.03687e+13
+time : 66 ms
+batch normalization stage 0
+preview: -0.0178792 -0.0204231 -0.0203927 -0.0197258 -0.0196976 -0.0200568 -0.0197992 -0.019887
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 22
+scale: 7.03687e+13
+
+approximate ReLU...
+relu wrapper input state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 22
+scale: 7.03687e+13
+relu input state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 22
+scale: 7.03687e+13
+sign poly component 1 coeff_count=16
+coeffs: -1.82077e-27 1.31102 -1.47147e-26 -0.465544 -7.72265e-27 0.388789 1.15973e-26 -0.341032 6.52333e-28 1.15837 -2.60793e-26 -0.243786 3.66962e-27 2.24319 2.91961e-26 -4.02702
+sign poly component 2 coeff_count=16
+coeffs: -4.85029e-28 0.776581 3.5632e-28 -0.681841 -9.70147e-29 -0.0584022 -8.80029e-28 -0.560485 -9.0912e-28 0.133127 7.09743e-28 -0.459881 -1.43997e-27 0.936808 -3.30247e-27 -4.11443
+sign poly component 3 coeff_count=28
+coeffs: -9.69936e-32 -0.0428579 -1.58254e-31 -0.774793 -1.11928e-31 -0.181282 -5.82415e-32 -0.245468 -1.24497e-31 -0.789123 -1.88675e-31 -0.727411 -1.25076e-31 -0.325545 -6.24819e-32 -0.186018 -3.10711e-32 -0.197326 -3.62916e-32 -0.141117 -1.88005e-32 -0.0526757 -7.72303e-33 -0.026313 -3.34096e-33 -0.0177327 -2.0689e-33 -0.00908409
+sign poly step 1 pre-eval state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 22
+scale: 7.03687e+13
+sign poly step 1 post-eval state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 14
+scale: 7.03687e+13
+sign poly step 2 pre-eval state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 14
+scale: 7.03687e+13
+sign poly step 2 post-eval state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 9
+scale: 7.03687e+13
+sign poly step 3 pre-eval state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 9
+scale: 7.03687e+13
+sign poly step 3 post-eval state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 3
+scale: 7.03687e+13
+sign poly add-const state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 3
+scale: 7.03687e+13
+relu sign-mask state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 3
+scale: 7.03687e+13
+relu post-multiply state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 3
+scale: 4.95176e+27
+relu post-rescale state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 2
+scale: 7.03688e+13
+time : 19574 ms
+ReLU stage 0
+preview: -0.00895362 -0.0102299 -0.0102146 -0.00988 -0.00986585 -0.0100461 -0.00991684 -0.00996088
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 2
+scale: 7.03688e+13
+
+layer 1
+stage1 block 0: conv1 -> bn1 -> bootstrap(log_slots=14) -> relu -> conv2 -> bn2 -> add -> bootstrap(log_slots=14) -> relu
+multiplexed parallel convolution...
+convolution input state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 2
+scale: 7.03688e+13
+
+
+
+==================== run_start ====================
+image_id: 0
+poseidon runtime ready
+loaded conv weights: 19
+loaded bn groups: 19
+loaded fc weight count: 640
+relu parameter root: "/home/guoshuai/github/poseidon/Trident/resnet20/relu_param"
+input ciphertext chain index: 38
+input ciphertext scale: 7.03687e+13
+post-alignment chain index: 27
+post-alignment scale: 7.03687e+13
+layer 0
+multiplexed parallel convolution...
+convolution input state
+k: 1
+h: 32
+w: 32
+c: 3
+t: 3
+p: 8
+remaining level : 27
+scale: 7.03687e+13
+time : 79162 ms
+convolution stage 0
+preview: -0.0106117 -0.0131557 -0.0131253 -0.0124585 -0.0124303 -0.0127895 -0.0125319 -0.0126197
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 25
+scale: 7.03687e+13
+
+multiplexed parallel batch normalization...
+batchnorm input state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 25
+scale: 7.03687e+13
+time : 71 ms
+batch normalization stage 0
+preview: -0.0178791 -0.020423 -0.0203927 -0.0197258 -0.0196976 -0.0200568 -0.0197992 -0.019887
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 25
+scale: 7.03687e+13
+
+approximate ReLU...
+relu wrapper input state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 25
+scale: 7.03687e+13
+relu input state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 25
+scale: 7.03687e+13
+sign poly component 1 coeff_count=16
+coeffs: -1.82077e-27 1.31102 -1.47147e-26 -0.465544 -7.72265e-27 0.388789 1.15973e-26 -0.341032 6.52333e-28 1.15837 -2.60793e-26 -0.243786 3.66962e-27 2.24319 2.91961e-26 -4.02702
+sign poly component 2 coeff_count=16
+coeffs: -4.85029e-28 0.776581 3.5632e-28 -0.681841 -9.70147e-29 -0.0584022 -8.80029e-28 -0.560485 -9.0912e-28 0.133127 7.09743e-28 -0.459881 -1.43997e-27 0.936808 -3.30247e-27 -4.11443
+sign poly component 3 coeff_count=28
+coeffs: -9.69936e-32 -0.0428579 -1.58254e-31 -0.774793 -1.11928e-31 -0.181282 -5.82415e-32 -0.245468 -1.24497e-31 -0.789123 -1.88675e-31 -0.727411 -1.25076e-31 -0.325545 -6.24819e-32 -0.186018 -3.10711e-32 -0.197326 -3.62916e-32 -0.141117 -1.88005e-32 -0.0526757 -7.72303e-33 -0.026313 -3.34096e-33 -0.0177327 -2.0689e-33 -0.00908409
+sign poly step 1 pre-eval state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 25
+scale: 7.03687e+13
+sign poly step 1 post-eval state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 17
+scale: 7.03687e+13
+sign poly step 2 pre-eval state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 17
+scale: 7.03687e+13
+sign poly step 2 post-eval state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 12
+scale: 7.03687e+13
+sign poly step 3 pre-eval state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 12
+scale: 7.03687e+13
+sign poly step 3 post-eval state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 6
+scale: 7.03687e+13
+sign poly add-const state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 6
+scale: 7.03687e+13
+relu sign-mask state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 6
+scale: 7.03687e+13
+relu post-multiply state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 6
+scale: 4.95176e+27
+relu post-rescale state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 5
+scale: 7.03688e+13
+time : 26027 ms
+ReLU stage 0
+preview: -0.00895357 -0.0102298 -0.0102146 -0.00988001 -0.00986585 -0.0100461 -0.00991684 -0.00996088
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 5
+scale: 7.03688e+13
+
+layer 1
+stage1 block 0: conv1 -> bn1 -> bootstrap(log_slots=14) -> relu -> conv2 -> bn2 -> add -> bootstrap(log_slots=14) -> relu
+multiplexed parallel convolution...
+convolution input state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 5
+scale: 7.03688e+13
+time : 9951 ms
+convolution stage 2
+preview: -0.00706948 -0.00375221 -0.000738343 0.00101898 0.000126766 -0.000977795 0.000145491 6.26803e-05
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 3
+scale: 7.03689e+13
+
+multiplexed parallel batch normalization...
+batchnorm input state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 3
+scale: 7.03689e+13
+time : 14 ms
+batch normalization stage 2
+preview: -0.0333701 -0.0300529 -0.027039 -0.0252817 -0.0261739 -0.0272784 -0.0261551 -0.026238
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 3
+scale: 7.03689e+13
+
+bootstrapping...
+time : 337766 ms
+bootstrapping 2 finished
+preview: -550575 575048 -26424.4 -5449.04 -53.0603 -2801.45 2784.45 -2006.7
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 14
+scale: 7.03687e+13
+
+approximate ReLU...
+relu wrapper input state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 14
+scale: 7.03687e+13
+relu input state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 14
+scale: 7.03687e+13
+sign poly component 1 coeff_count=16
+coeffs: -1.82077e-27 1.31102 -1.47147e-26 -0.465544 -7.72265e-27 0.388789 1.15973e-26 -0.341032 6.52333e-28 1.15837 -2.60793e-26 -0.243786 3.66962e-27 2.24319 2.91961e-26 -4.02702
+sign poly component 2 coeff_count=16
+coeffs: -4.85029e-28 0.776581 3.5632e-28 -0.681841 -9.70147e-29 -0.0584022 -8.80029e-28 -0.560485 -9.0912e-28 0.133127 7.09743e-28 -0.459881 -1.43997e-27 0.936808 -3.30247e-27 -4.11443
+sign poly component 3 coeff_count=28
+coeffs: -9.69936e-32 -0.0428579 -1.58254e-31 -0.774793 -1.11928e-31 -0.181282 -5.82415e-32 -0.245468 -1.24497e-31 -0.789123 -1.88675e-31 -0.727411 -1.25076e-31 -0.325545 -6.24819e-32 -0.186018 -3.10711e-32 -0.197326 -3.62916e-32 -0.141117 -1.88005e-32 -0.0526757 -7.72303e-33 -0.026313 -3.34096e-33 -0.0177327 -2.0689e-33 -0.00908409
+sign poly step 1 pre-eval state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 14
+scale: 7.03687e+13
+sign poly step 1 post-eval state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 9
+scale: 7.03687e+13
+sign poly step 2 pre-eval state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 9
+scale: 7.03687e+13
+sign poly step 2 post-eval state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 4
+scale: 7.03687e+13
+sign poly step 3 pre-eval state
+k: 1
+h: 32
+w: 32
+c: 16
+t: 16
+p: 2
+remaining level : 4
+scale: 7.03687e+13
+relu failure during sign polynomial: scale out of bounds
