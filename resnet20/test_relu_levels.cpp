@@ -209,7 +209,7 @@ int main(int argc, char **argv)
     decryptor.decrypt(result, plain_out);
     encoder.decode(plain_out, decoded);
 
-    cout << "preview:";
+    cout << "cipher decrypt preview:";
     for (int i = 0; i < 8; ++i)
     {
         cout << ' ' << decoded[static_cast<size_t>(i)].real();

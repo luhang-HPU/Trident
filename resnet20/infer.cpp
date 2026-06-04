@@ -1,6 +1,7 @@
 #include "infer.h"
 
 #include "cnn.h"
+#include "plain_cnn.h"
 
 #include "poseidon/advance/homomorphic_mod.h"
 #include "poseidon/ckks_encoder.h"
@@ -16,10 +17,12 @@
 #include <complex>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <sstream>
 #include <utility>
 #include <vector>
 
@@ -50,6 +53,7 @@ struct ReluConfig
     vector<Tree> tree;
     double scaled_val = 0.0;
     long scalingfactor = 0;
+    vector<vector<double>> plain_coeffs;
 };
 
 struct PoseidonStagePlan
@@ -105,13 +109,29 @@ vector<uint32_t> logq_chain()
 {
     return {
         46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 
-        46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46,
+        46, 46, 46, 46, 46, 46, 46, 46, 46, 51, 51, 51, 51, 51, 51, 51,
         51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51};
 }
 
 fs::path result_dir()
 {
     return fs::path(__FILE__).parent_path() / "result";
+}
+
+string make_run_timestamp()
+{
+    const auto now = chrono::system_clock::now();
+    const auto time = chrono::system_clock::to_time_t(now);
+    std::tm local_tm{};
+#if defined(_WIN32)
+    localtime_s(&local_tm, &time);
+#else
+    localtime_r(&time, &local_tm);
+#endif
+
+    ostringstream stamp;
+    stamp << put_time(&local_tm, "%Y%m%d_%H%M%S");
+    return stamp.str();
 }
 
 vector<double> read_exact_values(const fs::path &path, size_t count)
@@ -206,7 +226,7 @@ PoseidonRuntime make_poseidon_runtime(const PoseidonInferPlan &plan)
 {
     ParametersLiteral ckks_param_literal{
         CKKS, static_cast<uint32_t>(plan.logN), static_cast<uint32_t>(plan.logN - 1),
-        static_cast<uint32_t>(plan.log_scale), 5, 0, 0, {}, {}};
+        static_cast<uint32_t>(plan.log_scale), 5, 1, 0, {}, {}};
     ckks_param_literal.set_log_modulus(plan.logq_chain, {51});
 
     PoseidonFactory::get_instance()->set_device_type(DEVICE_SOFTWARE);
@@ -224,8 +244,7 @@ PoseidonRuntime make_poseidon_runtime(const PoseidonInferPlan &plan)
     keygen.create_galois_keys(galois_keys);
 
     auto bootstrap_poly = std::make_unique<EvalModPoly>(
-        context, CosDiscrete, static_cast<uint64_t>(ckks_param_literal.scale()), 1, 10, 2, 25, 0,
-        59);
+        context, CosDiscrete, static_cast<uint64_t>(1) << 51, 1, 16, 3, 16, 0, 30);
 
     return PoseidonRuntime(std::move(context), std::move(evaluator), std::move(public_key),
                            keygen.secret_key(), std::move(relin_keys), std::move(galois_keys),
@@ -252,6 +271,16 @@ void log_stage_plan(ofstream &output, const PoseidonStagePlan &stage, int block_
     }
     output << " -> add -> bootstrap(log_slots=" << stage.bootstrap_log_slots
            << ") -> relu" << endl;
+}
+
+void log_plain_logits(const vector<double> &logits, ofstream &output)
+{
+    output << "plain logits:";
+    for (double value : logits)
+    {
+        output << ' ' << value;
+    }
+    output << '\n';
 }
 
 vector<double> decode_real_slots(const TensorCipher &tensor, PoseidonRuntime &runtime, size_t count)
@@ -320,52 +349,66 @@ void maybe_bootstrap(TensorCipher &tensor, PoseidonRuntime &runtime, ofstream &o
     tensor = std::move(bootstrapped);
 }
 
-void run_relu(TensorCipher &input, TensorCipher &output, PoseidonRuntime &runtime, ofstream &log,
-              size_t stage, ReluConfig &relu_config)
+void run_relu(TensorCipher &input, TensorCipher &output, PlainTensor &plain_input,
+              PlainTensor &plain_output, PoseidonRuntime &runtime, ofstream &log, size_t stage,
+              ReluConfig &relu_config)
 {
     approx_ReLU_seal_print(input, output, relu_config.comp_no, relu_config.deg, relu_config.alpha,
                            relu_config.tree, relu_config.scaled_val, relu_config.scalingfactor,
                            runtime.encryptor, *runtime.evaluator, runtime.decryptor, runtime.encoder,
                            runtime.public_key, runtime.secret_key, runtime.relin_keys,
                            runtime.scale, log, runtime.context, runtime.galois_keys, stage);
+    plain_output = plain_relu_reference(plain_input, relu_config.plain_coeffs);
+    log_plain_tensor("plain relu output", plain_output, log);
 }
 
-void run_stem(TensorCipher &cnn, vector<vector<double>> &conv_weight, vector<vector<double>> &bn_bias,
-              vector<vector<double>> &bn_running_mean, vector<vector<double>> &bn_running_var,
-              vector<vector<double>> &bn_weight, size_t &conv_idx, size_t &bn_idx,
-              PoseidonRuntime &runtime, ReluConfig &relu_config, ofstream &output)
+void run_stem(TensorCipher &cnn, PlainTensor &plain_cnn, vector<vector<double>> &conv_weight,
+              vector<vector<double>> &bn_bias, vector<vector<double>> &bn_running_mean,
+              vector<vector<double>> &bn_running_var, vector<vector<double>> &bn_weight,
+              size_t &conv_idx, size_t &bn_idx, PoseidonRuntime &runtime,
+              ReluConfig &relu_config, ofstream &output)
 {
     vector<Ciphertext> cipher_pool;
     TensorCipher conv_out;
     TensorCipher bn_out;
     TensorCipher relu_out;
+    PlainTensor plain_conv_out;
+    PlainTensor plain_bn_out;
+    PlainTensor plain_relu_out;
 
-    output << "layer 0" << endl;
+    output << "\n========== Stem (layer 0) ==========\n";
     multiplexed_parallel_convolution_print(
         cnn, conv_out, 16, 1, 3, 3, conv_weight.at(conv_idx), bn_running_var.at(bn_idx),
         bn_weight.at(bn_idx), kBatchNormEpsilon, runtime.encoder, runtime.encryptor,
         *runtime.evaluator, runtime.galois_keys, cipher_pool, output, runtime.decryptor,
         runtime.context, 0, false);
+    plain_conv_out =
+        plain_convolution(plain_cnn, 16, 1, 3, 3, conv_weight.at(conv_idx), bn_running_var.at(bn_idx),
+                          bn_weight.at(bn_idx), kBatchNormEpsilon);
+    log_plain_tensor("plain conv output", plain_conv_out, output);
     ++conv_idx;
 
     multiplexed_parallel_batch_norm_seal_print(
         conv_out, bn_out, bn_bias.at(bn_idx), bn_running_mean.at(bn_idx), bn_running_var.at(bn_idx),
         bn_weight.at(bn_idx), kBatchNormEpsilon, runtime.encoder, runtime.encryptor,
         *runtime.evaluator, 40.0, output, runtime.decryptor, runtime.context, 0, false);
+    plain_bn_out =
+        plain_batch_norm(plain_conv_out, bn_bias.at(bn_idx), bn_running_mean.at(bn_idx),
+                         bn_running_var.at(bn_idx), bn_weight.at(bn_idx), kBatchNormEpsilon, 40.0);
+    log_plain_tensor("plain batchnorm output", plain_bn_out, output);
     ++bn_idx;
 
-    run_relu(bn_out, relu_out, runtime, output, 0, relu_config);
+    run_relu(bn_out, relu_out, plain_bn_out, plain_relu_out, runtime, output, 0, relu_config);
     cnn = std::move(relu_out);
+    plain_cnn = std::move(plain_relu_out);
 }
 
-void run_residual_block(TensorCipher &cnn, const PoseidonStagePlan &stage_plan, int stage_index,
-                        int block_index, vector<vector<double>> &conv_weight,
-                        vector<vector<double>> &bn_bias,
-                        vector<vector<double>> &bn_running_mean,
-                        vector<vector<double>> &bn_running_var,
-                        vector<vector<double>> &bn_weight, size_t &conv_idx, size_t &bn_idx,
-                        PoseidonRuntime &runtime, ReluConfig &relu_config, ofstream &output,
-                        int &logical_layer)
+void run_residual_block(TensorCipher &cnn, PlainTensor &plain_cnn, const PoseidonStagePlan &stage_plan,
+                        int stage_index, int block_index, vector<vector<double>> &conv_weight,
+                        vector<vector<double>> &bn_bias, vector<vector<double>> &bn_running_mean,
+                        vector<vector<double>> &bn_running_var, vector<vector<double>> &bn_weight,
+                        size_t &conv_idx, size_t &bn_idx, PoseidonRuntime &runtime,
+                        ReluConfig &relu_config, ofstream &output, int &logical_layer)
 {
     vector<Ciphertext> cipher_pool;
     TensorCipher shortcut = cnn;
@@ -377,15 +420,31 @@ void run_residual_block(TensorCipher &cnn, const PoseidonStagePlan &stage_plan, 
     TensorCipher shortcut_down;
     TensorCipher added;
     TensorCipher block_output;
+    PlainTensor plain_shortcut = plain_cnn;
+    PlainTensor plain_branch_conv1;
+    PlainTensor plain_branch_bn1;
+    PlainTensor plain_branch_relu1;
+    PlainTensor plain_branch_conv2;
+    PlainTensor plain_branch_bn2;
+    PlainTensor plain_shortcut_down;
+    PlainTensor plain_added;
+    PlainTensor plain_block_output;
 
     const int stride = (block_index == 0) ? stage_plan.first_block_stride : 1;
-    output << "layer " << logical_layer++ << endl;
+    output << "\n========== Stage " << (stage_index + 1) << " Block " << block_index
+           << " / Layer " << logical_layer << " ==========\n";
     log_stage_plan(output, stage_plan, block_index);
+    output << "layer " << logical_layer++ << endl;
     multiplexed_parallel_convolution_print(
         cnn, branch_conv1, stage_plan.out_channels, stride, 3, 3, conv_weight.at(conv_idx),
         bn_running_var.at(bn_idx), bn_weight.at(bn_idx), kBatchNormEpsilon, runtime.encoder,
         runtime.encryptor, *runtime.evaluator, runtime.galois_keys, cipher_pool, output,
         runtime.decryptor, runtime.context, logical_layer, false);
+    plain_branch_conv1 =
+        plain_convolution(plain_cnn, stage_plan.out_channels, stride, 3, 3,
+                          conv_weight.at(conv_idx), bn_running_var.at(bn_idx),
+                          bn_weight.at(bn_idx), kBatchNormEpsilon);
+    log_plain_tensor("plain conv1 output", plain_branch_conv1, output);
     ++conv_idx;
 
     multiplexed_parallel_batch_norm_seal_print(
@@ -393,10 +452,15 @@ void run_residual_block(TensorCipher &cnn, const PoseidonStagePlan &stage_plan, 
         bn_running_var.at(bn_idx), bn_weight.at(bn_idx), kBatchNormEpsilon, runtime.encoder,
         runtime.encryptor, *runtime.evaluator, 40.0, output, runtime.decryptor, runtime.context,
         logical_layer, false);
+    plain_branch_bn1 =
+        plain_batch_norm(plain_branch_conv1, bn_bias.at(bn_idx), bn_running_mean.at(bn_idx),
+                         bn_running_var.at(bn_idx), bn_weight.at(bn_idx), kBatchNormEpsilon, 40.0);
+    log_plain_tensor("plain bn1 output", plain_branch_bn1, output);
     ++bn_idx;
 
     maybe_bootstrap(branch_bn1, runtime, output, logical_layer);
-    run_relu(branch_bn1, branch_relu1, runtime, output, logical_layer, relu_config);
+    run_relu(branch_bn1, branch_relu1, plain_branch_bn1, plain_branch_relu1, runtime, output,
+             logical_layer, relu_config);
 
     output << "layer " << logical_layer++ << endl;
     multiplexed_parallel_convolution_print(
@@ -404,6 +468,11 @@ void run_residual_block(TensorCipher &cnn, const PoseidonStagePlan &stage_plan, 
         bn_running_var.at(bn_idx), bn_weight.at(bn_idx), kBatchNormEpsilon, runtime.encoder,
         runtime.encryptor, *runtime.evaluator, runtime.galois_keys, cipher_pool, output,
         runtime.decryptor, runtime.context, logical_layer, false);
+    plain_branch_conv2 =
+        plain_convolution(plain_branch_relu1, stage_plan.out_channels, 1, 3, 3,
+                          conv_weight.at(conv_idx), bn_running_var.at(bn_idx),
+                          bn_weight.at(bn_idx), kBatchNormEpsilon);
+    log_plain_tensor("plain conv2 output", plain_branch_conv2, output);
     ++conv_idx;
 
     multiplexed_parallel_batch_norm_seal_print(
@@ -411,6 +480,10 @@ void run_residual_block(TensorCipher &cnn, const PoseidonStagePlan &stage_plan, 
         bn_running_var.at(bn_idx), bn_weight.at(bn_idx), kBatchNormEpsilon, runtime.encoder,
         runtime.encryptor, *runtime.evaluator, 40.0, output, runtime.decryptor, runtime.context,
         logical_layer, false);
+    plain_branch_bn2 =
+        plain_batch_norm(plain_branch_conv2, bn_bias.at(bn_idx), bn_running_mean.at(bn_idx),
+                         bn_running_var.at(bn_idx), bn_weight.at(bn_idx), kBatchNormEpsilon, 40.0);
+    log_plain_tensor("plain bn2 output", plain_branch_bn2, output);
     ++bn_idx;
 
     if (stage_index > 0 && block_index == 0)
@@ -418,31 +491,43 @@ void run_residual_block(TensorCipher &cnn, const PoseidonStagePlan &stage_plan, 
         multiplexed_parallel_downsampling_seal_print(shortcut, shortcut_down, *runtime.evaluator,
                                                      runtime.decryptor, runtime.encoder,
                                                      runtime.context, runtime.galois_keys, output);
+        plain_shortcut_down = plain_downsample_shortcut(plain_shortcut);
+        log_plain_tensor("plain shortcut output", plain_shortcut_down, output);
         shortcut = std::move(shortcut_down);
+        plain_shortcut = std::move(plain_shortcut_down);
     }
 
     align_for_add(branch_bn2, shortcut, runtime);
     cipher_add_seal_print(branch_bn2, shortcut, added, *runtime.evaluator, output,
                           runtime.decryptor, runtime.encoder, runtime.context);
+    plain_added = plain_add(plain_branch_bn2, plain_shortcut);
+    log_plain_tensor("plain add output", plain_added, output);
 
     maybe_bootstrap(added, runtime, output, logical_layer);
-    run_relu(added, block_output, runtime, output, logical_layer, relu_config);
+    run_relu(added, block_output, plain_added, plain_block_output, runtime, output, logical_layer,
+             relu_config);
     cnn = std::move(block_output);
+    plain_cnn = std::move(plain_block_output);
 }
 
-vector<double> run_head(TensorCipher &cnn, const vector<double> &linear_weight,
-                        const vector<double> &linear_bias, PoseidonRuntime &runtime,
-                        ofstream &output)
+vector<double> run_head(TensorCipher &cnn, PlainTensor &plain_cnn, const vector<double> &linear_weight,
+                        const vector<double> &linear_bias, PoseidonRuntime &runtime, ofstream &output,
+                        vector<double> &plain_logits)
 {
     TensorCipher pooled;
     TensorCipher logits;
+    PlainTensor plain_pooled;
 
     averagepooling_seal_scale_print(cnn, pooled, *runtime.evaluator, runtime.galois_keys, 40.0,
                                     output, runtime.decryptor, runtime.encoder, runtime.context);
+    plain_pooled = plain_average_pool(plain_cnn, 40.0);
+    log_plain_tensor("plain average pool output", plain_pooled, output);
     fully_connected_seal_print(pooled, logits, linear_weight, linear_bias, 10, 64,
                                *runtime.evaluator, runtime.galois_keys, output, runtime.decryptor,
                                runtime.encoder, runtime.context);
+    plain_logits = plain_fully_connected(plain_pooled, linear_weight, linear_bias, 10, 64);
     cnn = std::move(logits);
+    plain_cnn = std::move(plain_pooled);
     return decode_real_slots(cnn, runtime, 10);
 }
 
@@ -581,12 +666,15 @@ void import_resnet20_parameters(vector<double> &linear_weight, vector<double> &l
 void ResNet_cifar10_sparse(size_t start_image_id, size_t end_image_id)
 {
     const PoseidonInferPlan plan = default_poseidon_plan();
+    const string run_timestamp = make_run_timestamp();
     ReluConfig relu_config;
     relu_config.comp_no = 3;
     relu_config.deg = {15, 15, 27};
     relu_config.alpha = 13;
     relu_config.scaled_val = 1.7;
     relu_config.scalingfactor = plan.log_scale;
+    relu_config.plain_coeffs = load_plain_relu_component_coeffs(
+        kReluParamRoot.string(), relu_config.alpha, relu_config.deg, relu_config.scaled_val);
 
     cout << "Setting Poseidon Parameters" << endl;
     PoseidonRuntime runtime = make_poseidon_runtime(plan);
@@ -595,9 +683,10 @@ void ResNet_cifar10_sparse(size_t start_image_id, size_t end_image_id)
     cout << "ReLU parameter root: " << kReluParamRoot << endl;
 
     fs::create_directories(result_dir());
-    ofstream out_share(result_dir() / (string(kResNet20ResultPrefix) + "_label_" +
-                                       to_string(start_image_id) + "_" +
-                                       to_string(end_image_id)));
+    const fs::path shared_result_path =
+        result_dir() / (string(kResNet20ResultPrefix) + "_label_" + to_string(start_image_id) +
+                        "_" + to_string(end_image_id) + "_" + run_timestamp + ".txt");
+    ofstream out_share(shared_result_path);
     if (!out_share.is_open())
     {
         throw std::runtime_error("failed to open shared result file");
@@ -606,16 +695,19 @@ void ResNet_cifar10_sparse(size_t start_image_id, size_t end_image_id)
     const auto all_time_start = chrono::high_resolution_clock::now();
     for (size_t image_id = start_image_id; image_id <= end_image_id; ++image_id)
     {
-        ofstream output(result_dir() /
-                            (string(kResNet20ResultPrefix) + "_image" + to_string(image_id) + ".txt"),
-                        ios::app);
+        const fs::path image_result_path =
+            result_dir() / (string(kResNet20ResultPrefix) + "_image" + to_string(image_id) + "_" +
+                            run_timestamp + ".txt");
+        ofstream output(image_result_path);
         if (!output.is_open())
         {
             throw std::runtime_error("failed to open per-image result file");
         }
 
-        output << "==================== run_start ====================" << endl;
-        output << "image_id: " << image_id << endl;
+        output << "\n==================== run_start ====================\n";
+        output << "image_id: " << image_id << '\n';
+        output << "run_timestamp: " << run_timestamp << '\n';
+        output << "log_file: " << image_result_path << '\n';
 
         vector<double> image_slots;
         vector<double> linear_weight;
@@ -631,31 +723,31 @@ void ResNet_cifar10_sparse(size_t start_image_id, size_t end_image_id)
 
         image_slots = read_image_slots(image_id, plan.log_slots, plan.init_p, plan.boundary);
         const int image_label = read_image_label(image_id);
+        PlainTensor plain_cnn = plain_input_tensor_from_image_slots(image_slots);
 
-        output << "poseidon runtime ready" << endl;
-        output << "loaded conv weights: " << conv_weight.size() << endl;
-        output << "loaded bn groups: " << bn_weight.size() << endl;
-        output << "loaded fc weight count: " << linear_weight.size() << endl;
-        output << "relu parameter root: " << kReluParamRoot << endl;
+        output << "runtime: poseidon ready\n";
+        output << "weights: conv=" << conv_weight.size() << ", bn=" << bn_weight.size()
+               << ", fc=" << linear_weight.size() << '\n';
+        output << "relu parameter root: " << kReluParamRoot << '\n';
 
         TensorCipher cnn(static_cast<int>(plan.logN), 1, 32, 32, 3, 3, static_cast<int>(plan.init_p),
                          image_slots, runtime.encryptor, runtime.encoder, plan.log_scale);
-        output << "input ciphertext chain index: " << cipher_chain_index(runtime, cnn.cipher())
-               << endl;
-        output << "input ciphertext scale: " << cnn.cipher().scale() << endl;
+        output << "input ciphertext: level=" << cipher_chain_index(runtime, cnn.cipher())
+               << ", scale=" << cnn.cipher().scale() << '\n';
+        log_plain_tensor("plain input", plain_cnn, output);
 
         for (int i = 0; i < plan.boot_level - 3; ++i)
         {
             runtime.evaluator->drop_modulus_to_next(cnn.cipher(), cnn.cipher());
         }
-        output << "post-alignment chain index: " << cipher_chain_index(runtime, cnn.cipher())
-               << endl;
-        output << "post-alignment scale: " << cnn.cipher().scale() << endl;
+        output << "post-alignment ciphertext: level="
+               << cipher_chain_index(runtime, cnn.cipher())
+               << ", scale=" << cnn.cipher().scale() << '\n';
 
         size_t conv_idx = 0;
         size_t bn_idx = 0;
-        run_stem(cnn, conv_weight, bn_bias, bn_running_mean, bn_running_var, bn_weight, conv_idx,
-                 bn_idx, runtime, relu_config, output);
+        run_stem(cnn, plain_cnn, conv_weight, bn_bias, bn_running_mean, bn_running_var, bn_weight,
+                 conv_idx, bn_idx, runtime, relu_config, output);
 
         int logical_layer = 1;
         for (size_t stage_index = 0; stage_index < plan.stages.size(); ++stage_index)
@@ -663,16 +755,20 @@ void ResNet_cifar10_sparse(size_t start_image_id, size_t end_image_id)
             const PoseidonStagePlan &stage = plan.stages[stage_index];
             for (int block = 0; block < stage.block_count; ++block)
             {
-                run_residual_block(cnn, stage, static_cast<int>(stage_index), block, conv_weight,
-                                   bn_bias, bn_running_mean, bn_running_var, bn_weight, conv_idx,
-                                   bn_idx, runtime, relu_config, output, logical_layer);
+                run_residual_block(cnn, plain_cnn, stage, static_cast<int>(stage_index), block,
+                                   conv_weight, bn_bias, bn_running_mean, bn_running_var, bn_weight,
+                                   conv_idx, bn_idx, runtime, relu_config, output, logical_layer);
             }
         }
 
-        output << "layer " << kResNet20LayerNum - 1 << endl;
-        output << "head: average_pool -> fully_connected -> argmax" << endl;
-        vector<double> logits = run_head(cnn, linear_weight, linear_bias, runtime, output);
+        output << "\n========== Head (layer " << (kResNet20LayerNum - 1)
+               << ") ==========\n";
+        output << "head: average_pool -> fully_connected -> argmax\n";
+        vector<double> plain_logits;
+        vector<double> logits = run_head(cnn, plain_cnn, linear_weight, linear_bias, runtime, output,
+                                         plain_logits);
         const int predicted_label = argmax_index(logits);
+        const int plain_predicted_label = argmax_index(plain_logits);
 
         output << "logits:";
         for (double logit : logits)
@@ -681,9 +777,12 @@ void ResNet_cifar10_sparse(size_t start_image_id, size_t end_image_id)
         }
         output << endl;
         output << "predicted label: " << predicted_label << endl;
+        log_plain_logits(plain_logits, output);
+        output << "plain predicted label: " << plain_predicted_label << '\n';
 
         out_share << "image_id: " << image_id << ", image label: " << image_label
-                  << ", predicted label: " << predicted_label << endl;
+                  << ", predicted label: " << predicted_label
+                  << ", plain predicted label: " << plain_predicted_label << endl;
     }
 
     const auto all_time_end = chrono::high_resolution_clock::now();

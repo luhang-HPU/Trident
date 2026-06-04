@@ -5,6 +5,7 @@ add_executable(
   resnet20.cpp
   infer.cpp
   cnn.cpp
+  plain_cnn.cpp
 )
 add_executable(
   resnet20_test_bootstrap
