@@ -55,6 +55,27 @@ void print_cipher_state(const string &label, const PoseidonContext &context, con
     cout << "  scale : " << cipher.scale() << '\n';
 }
 
+void print_plain_preview(const string &label, const vector<complex<double>> &values)
+{
+    cout << label;
+    const size_t preview_count = min<size_t>(8, values.size());
+    for (size_t i = 0; i < preview_count; ++i)
+    {
+        cout << ' ' << values[i].real();
+    }
+    cout << '\n';
+}
+
+void print_decrypted_preview(const string &label, const Ciphertext &cipher, Decryptor &decryptor,
+                             CKKSEncoder &encoder)
+{
+    Plaintext plain;
+    vector<complex<double>> decoded;
+    decryptor.decrypt(cipher, plain);
+    encoder.decode(plain, decoded);
+    print_plain_preview(label, decoded);
+}
+
 PolynomialVector build_polynomial_vector_from_coeffs(const vector<double> &coeffs, int slot_size,
                                                      int max_degree)
 {
@@ -169,6 +190,7 @@ int main(int argc, char **argv)
     {
         message[i] = {sin(static_cast<double>(i) / 32.0), 0.0};
     }
+    print_plain_preview("plaintext source preview:", message);
 
     Plaintext plain;
     encoder.encode(message, ckks_param_literal.scale(), plain);
@@ -182,6 +204,7 @@ int main(int argc, char **argv)
         ckks_eva->drop_modulus_to_next(cipher, cipher);
     }
     print_cipher_state("input to approximate_sign01", context, cipher);
+    print_decrypted_preview("input decrypt preview:", cipher, decryptor, encoder);
 
     const vector<int> deg{15, 15, 27};
     const long alpha = 13;
@@ -189,7 +212,8 @@ int main(int argc, char **argv)
     const auto coeffs = load_relu_component_coeffs(alpha, deg, scaled_val);
     print_component_coeffs(coeffs);
 
-    Ciphertext result = cipher;
+    const Ciphertext input_cipher = cipher;
+    Ciphertext result = input_cipher;
     for (size_t i = 0; i < coeffs.size(); ++i)
     {
         const auto polys =
@@ -200,21 +224,27 @@ int main(int argc, char **argv)
         print_cipher_state("sign poly step " + to_string(i + 1) + " post-eval state", context,
                            result);
     }
+    print_decrypted_preview("sign poly result decrypt preview:", result, decryptor, encoder);
 
     ckks_eva->add_const(result, 0.5, result, encoder);
-    print_cipher_state("sign poly add-const state", context, result);
+    print_cipher_state("mask add-const state", context, result);
+    print_decrypted_preview("mask decrypt preview:", result, decryptor, encoder);
 
-    Plaintext plain_out;
-    vector<complex<double>> decoded;
-    decryptor.decrypt(result, plain_out);
-    encoder.decode(plain_out, decoded);
+    Ciphertext relu_result;
+    ckks_eva->multiply_relin_dynamic(input_cipher, result, relu_result, relin_keys);
+    print_cipher_state("relu post-multiply state", context, relu_result);
+    print_decrypted_preview("relu post-multiply decrypt preview:", relu_result, decryptor, encoder);
 
-    cout << "cipher decrypt preview:";
-    for (int i = 0; i < 8; ++i)
+    ckks_eva->rescale_dynamic(relu_result, relu_result, input_cipher.scale());
+    print_cipher_state("relu post-rescale state", context, relu_result);
+    print_decrypted_preview("relu output decrypt preview:", relu_result, decryptor, encoder);
+
+    vector<complex<double>> relu_expected = message;
+    for (auto &value : relu_expected)
     {
-        cout << ' ' << decoded[static_cast<size_t>(i)].real();
+        value = {max(0.0, value.real()), 0.0};
     }
-    cout << '\n';
+    print_plain_preview("plaintext exact relu preview:", relu_expected);
 
     return 0;
 }
