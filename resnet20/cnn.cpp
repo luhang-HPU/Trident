@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -78,7 +79,7 @@ void decode_preview(const Ciphertext &cipher, Decryptor &decryptor, CKKSEncoder 
     vector<complex<double>> values;
     encoder.decode(plain, values);
 
-    output << "preview:";
+    output << "  cipher decrypt preview:";
     const size_t preview = min(values.size(), static_cast<size_t>(kPreviewSlots));
     for (size_t i = 0; i < preview; ++i)
     {
@@ -201,17 +202,12 @@ vector<vector<double>> load_relu_component_coeffs(long alpha, const vector<int> 
 
 void log_relu_component_coeffs(const vector<vector<double>> &coeffs, ostream &output)
 {
+    output << "  sign poly coeff counts:";
     for (size_t i = 0; i < coeffs.size(); ++i)
     {
-        output << "sign poly component " << (i + 1) << " coeff_count=" << coeffs[i].size()
-               << '\n';
-        output << "coeffs:";
-        for (double coeff : coeffs[i])
-        {
-            output << ' ' << coeff;
-        }
-        output << '\n';
+        output << " c" << (i + 1) << '=' << coeffs[i].size();
     }
+    output << '\n';
 }
 
 Ciphertext approximate_sign01(const Ciphertext &input, const vector<int> &deg, long alpha,
@@ -257,15 +253,24 @@ Ciphertext approximate_sign01(const Ciphertext &input, const vector<int> &deg, l
 
 void print_stage_banner(const string &title, ostream &output)
 {
-    cout << title << endl;
-    output << title << endl;
+    cout << '\n' << "[ " << title << " ]" << endl;
+    output << '\n' << "[ " << title << " ]" << '\n';
+}
+
+string tensor_summary(const TensorCipher &tensor, const PoseidonContext &context)
+{
+    ostringstream summary;
+    summary << "shape(k=" << tensor.k() << ",h=" << tensor.h() << ",w=" << tensor.w()
+            << ",c=" << tensor.c() << ",t=" << tensor.t() << ",p=" << tensor.p()
+            << "), level=" << chain_index_or_throw(context, tensor.cipher())
+            << ", scale=" << tensor.cipher().scale();
+    return summary.str();
 }
 
 void log_labeled_tensor_state(const string &label, const TensorCipher &tensor,
                               const PoseidonContext &context, ostream &output)
 {
-    output << label << '\n';
-    log_cipher_state(tensor, context, output);
+    output << "  " << label << ": " << tensor_summary(tensor, context) << '\n';
 }
 
 void log_labeled_cipher_state(const string &label, const Ciphertext &cipher,
@@ -280,8 +285,8 @@ void log_labeled_cipher_state(const string &label, const Ciphertext &cipher,
 void log_after_stage(const TensorCipher &tensor, Decryptor &decryptor, CKKSEncoder &encoder,
                      PoseidonContext &context, ostream &output)
 {
+    output << "  output: " << tensor_summary(tensor, context) << '\n';
     decode_preview(tensor.cipher(), decryptor, encoder, output);
-    log_cipher_state(tensor, context, output);
     output << endl;
 }
 
@@ -304,7 +309,7 @@ void relu_impl(const TensorCipher &cnn_in, TensorCipher &cnn_out, long comp_no,
 
     if (output && context)
     {
-        log_labeled_tensor_state("relu input state", cnn_in, *context, *output);
+        log_labeled_tensor_state("relu input", cnn_in, *context, *output);
     }
 
     Ciphertext mask;
@@ -314,7 +319,7 @@ void relu_impl(const TensorCipher &cnn_in, TensorCipher &cnn_out, long comp_no,
                                   evaluator, relin_keys, &cnn_in, context, output);
         if (output && context)
         {
-            log_labeled_cipher_state("relu sign-mask state", mask, cnn_in, *context, *output);
+            log_labeled_cipher_state("relu sign-mask", mask, cnn_in, *context, *output);
         }
     }
     catch (const std::exception &e)
@@ -332,7 +337,7 @@ void relu_impl(const TensorCipher &cnn_in, TensorCipher &cnn_out, long comp_no,
         evaluator.multiply_relin_dynamic(cnn_in.cipher(), mask, temp, relin_keys);
         if (output && context)
         {
-            log_labeled_cipher_state("relu post-multiply state", temp, cnn_in, *context, *output);
+            log_labeled_cipher_state("relu post-multiply", temp, cnn_in, *context, *output);
         }
     }
     catch (const std::exception &e)
@@ -349,7 +354,7 @@ void relu_impl(const TensorCipher &cnn_in, TensorCipher &cnn_out, long comp_no,
         evaluator.rescale_dynamic(temp, temp, scale > 0.0 ? scale : cnn_in.cipher().scale());
         if (output && context)
         {
-            log_labeled_cipher_state("relu post-rescale state", temp, cnn_in, *context, *output);
+            log_labeled_cipher_state("relu post-rescale", temp, cnn_in, *context, *output);
         }
     }
     catch (const std::exception &e)
@@ -472,9 +477,7 @@ void TensorCipher::print_parms(ostream &output) const
 
 void log_cipher_state(const TensorCipher &tensor, const PoseidonContext &context, ostream &output)
 {
-    tensor.print_parms(output);
-    output << "remaining level : " << chain_index_or_throw(context, tensor.cipher()) << '\n';
-    output << "scale: " << tensor.cipher().scale() << '\n';
+    output << tensor_summary(tensor, context) << '\n';
 }
 
 void multiplexed_parallel_convolution_print(
@@ -484,18 +487,16 @@ void multiplexed_parallel_convolution_print(
     GaloisKeys &gal_keys, vector<Ciphertext> &cipher_pool, ostream &output, Decryptor &decryptor,
     PoseidonContext &context, size_t stage, bool end)
 {
-    print_stage_banner("multiplexed parallel convolution...", output);
-    log_labeled_tensor_state("convolution input state", cnn_in, context, output);
+    print_stage_banner("conv stage " + to_string(stage), output);
+    log_labeled_tensor_state("input", cnn_in, context, output);
     const auto time_start = chrono::high_resolution_clock::now();
     multiplexed_parallel_convolution_seal(cnn_in, cnn_out, co, st, fh, fw, data,
                                           std::move(running_var), std::move(constant_weight),
                                           epsilon, encoder, encryptor, evaluator, gal_keys,
                                           cipher_pool, end);
     const auto time_end = chrono::high_resolution_clock::now();
-    output << "time : "
-           << chrono::duration_cast<chrono::milliseconds>(time_end - time_start).count()
-           << " ms" << '\n';
-    output << "convolution stage " << stage << '\n';
+    output << "  time_ms: "
+           << chrono::duration_cast<chrono::milliseconds>(time_end - time_start).count() << '\n';
     log_after_stage(cnn_out, decryptor, encoder, context, output);
 }
 
@@ -506,17 +507,15 @@ void multiplexed_parallel_batch_norm_seal_print(
     double B, ostream &output, Decryptor &decryptor, PoseidonContext &context, size_t stage,
     bool end)
 {
-    print_stage_banner("multiplexed parallel batch normalization...", output);
-    log_labeled_tensor_state("batchnorm input state", cnn_in, context, output);
+    print_stage_banner("batchnorm stage " + to_string(stage), output);
+    log_labeled_tensor_state("input", cnn_in, context, output);
     const auto time_start = chrono::high_resolution_clock::now();
     multiplexed_parallel_batch_norm_seal(cnn_in, cnn_out, std::move(bias), std::move(running_mean),
                                          std::move(running_var), std::move(weight), epsilon,
                                          encoder, encryptor, evaluator, B, end);
     const auto time_end = chrono::high_resolution_clock::now();
-    output << "time : "
-           << chrono::duration_cast<chrono::milliseconds>(time_end - time_start).count()
-           << " ms" << '\n';
-    output << "batch normalization stage " << stage << '\n';
+    output << "  time_ms: "
+           << chrono::duration_cast<chrono::milliseconds>(time_end - time_start).count() << '\n';
     log_after_stage(cnn_out, decryptor, encoder, context, output);
 }
 
@@ -540,16 +539,14 @@ void approx_ReLU_seal_print(const TensorCipher &cnn_in, TensorCipher &cnn_out, l
     (void)B;
     (void)gal_keys;
 
-    print_stage_banner("approximate ReLU...", output);
-    log_labeled_tensor_state("relu wrapper input state", cnn_in, context, output);
+    print_stage_banner("relu stage " + to_string(stage), output);
+    log_labeled_tensor_state("input", cnn_in, context, output);
     const auto time_start = chrono::high_resolution_clock::now();
     relu_impl(cnn_in, cnn_out, comp_no, deg, alpha, scaled_val, evaluator, encoder, relin_keys,
               B, &output, &context);
     const auto time_end = chrono::high_resolution_clock::now();
-    output << "time : "
-           << chrono::duration_cast<chrono::milliseconds>(time_end - time_start).count()
-           << " ms" << '\n';
-    output << "ReLU stage " << stage << '\n';
+    output << "  time_ms: "
+           << chrono::duration_cast<chrono::milliseconds>(time_end - time_start).count() << '\n';
     log_after_stage(cnn_out, decryptor, encoder, context, output);
 }
 
@@ -564,8 +561,8 @@ void bootstrap_print(const TensorCipher &cnn_in, TensorCipher &cnn_out,
         throw std::invalid_argument("poseidon bootstrap context is incomplete");
     }
 
-    print_stage_banner("bootstrapping...", output);
-    log_labeled_tensor_state("bootstrap input state", cnn_in, context, output);
+    print_stage_banner("bootstrap stage " + to_string(stage), output);
+    log_labeled_tensor_state("input", cnn_in, context, output);
     Ciphertext result = cnn_in.cipher();
     const auto time_start = chrono::high_resolution_clock::now();
     bootstrapper.evaluator->bootstrap(result, result, *bootstrapper.relin_keys,
@@ -576,11 +573,8 @@ void bootstrap_print(const TensorCipher &cnn_in, TensorCipher &cnn_out,
     cnn_out = TensorCipher(cnn_in.logn(), cnn_in.k(), cnn_in.h(), cnn_in.w(), cnn_in.c(),
                            cnn_in.t(), cnn_in.p(), result);
 
-    output << "time : "
-           << chrono::duration_cast<chrono::milliseconds>(time_end - time_start).count()
-           << " ms" << '\n';
-    output << "bootstrapping " << stage << " finished" << '\n';
-    log_labeled_tensor_state("bootstrap output state", cnn_out, context, output);
+    output << "  time_ms: "
+           << chrono::duration_cast<chrono::milliseconds>(time_end - time_start).count() << '\n';
     log_after_stage(cnn_out, decryptor, encoder, context, output);
 }
 
@@ -589,7 +583,7 @@ void cipher_add_seal_print(const TensorCipher &cnn1, const TensorCipher &cnn2,
                            ostream &output, Decryptor &decryptor, CKKSEncoder &encoder,
                            PoseidonContext &context)
 {
-    print_stage_banner("cipher add...", output);
+    print_stage_banner("residual add", output);
     cnn_add_seal(cnn1, cnn2, destination, evaluator);
     log_after_stage(destination, decryptor, encoder, context, output);
 }
@@ -601,13 +595,13 @@ void multiplexed_parallel_downsampling_seal_print(const TensorCipher &cnn_in,
                                                   PoseidonContext &context,
                                                   GaloisKeys &gal_keys, ostream &output)
 {
-    print_stage_banner("multiplexed parallel downsampling...", output);
+    print_stage_banner("downsample shortcut", output);
+    log_labeled_tensor_state("input", cnn_in, context, output);
     const auto time_start = chrono::high_resolution_clock::now();
     multiplexed_parallel_downsampling_seal(cnn_in, cnn_out, evaluator, gal_keys, encoder);
     const auto time_end = chrono::high_resolution_clock::now();
-    output << "time : "
-           << chrono::duration_cast<chrono::milliseconds>(time_end - time_start).count()
-           << " ms" << '\n';
+    output << "  time_ms: "
+           << chrono::duration_cast<chrono::milliseconds>(time_end - time_start).count() << '\n';
     log_after_stage(cnn_out, decryptor, encoder, context, output);
 }
 
@@ -616,14 +610,14 @@ void averagepooling_seal_scale_print(const TensorCipher &cnn_in, TensorCipher &c
                                      ostream &output, Decryptor &decryptor,
                                      CKKSEncoder &encoder, PoseidonContext &context)
 {
-    print_stage_banner("average pooling...", output);
+    print_stage_banner("average pool", output);
+    log_labeled_tensor_state("input", cnn_in, context, output);
     const auto time_start = chrono::high_resolution_clock::now();
     averagepooling_seal_scale(cnn_in, cnn_out, evaluator, gal_keys, B, encoder, decryptor,
                               output);
     const auto time_end = chrono::high_resolution_clock::now();
-    output << "time : "
-           << chrono::duration_cast<chrono::milliseconds>(time_end - time_start).count()
-           << " ms" << '\n';
+    output << "  time_ms: "
+           << chrono::duration_cast<chrono::milliseconds>(time_end - time_start).count() << '\n';
     log_after_stage(cnn_out, decryptor, encoder, context, output);
 }
 
@@ -633,14 +627,14 @@ void fully_connected_seal_print(const TensorCipher &cnn_in, TensorCipher &cnn_ou
                                 ostream &output, Decryptor &decryptor, CKKSEncoder &encoder,
                                 PoseidonContext &context)
 {
-    print_stage_banner("fully connected layer...", output);
+    print_stage_banner("fully connected", output);
+    log_labeled_tensor_state("input", cnn_in, context, output);
     const auto time_start = chrono::high_resolution_clock::now();
     matrix_multiplication_seal(cnn_in, cnn_out, std::move(matrix), std::move(bias), q, r,
                                evaluator, gal_keys, encoder);
     const auto time_end = chrono::high_resolution_clock::now();
-    output << "time : "
-           << chrono::duration_cast<chrono::milliseconds>(time_end - time_start).count()
-           << " ms" << '\n';
+    output << "  time_ms: "
+           << chrono::duration_cast<chrono::milliseconds>(time_end - time_start).count() << '\n';
     log_after_stage(cnn_out, decryptor, encoder, context, output);
 }
 

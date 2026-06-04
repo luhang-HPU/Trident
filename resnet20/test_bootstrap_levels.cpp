@@ -24,6 +24,7 @@ vector<uint32_t> logq_chain()
 {
     return {
         46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46,
+        51, 51, 51, 51, 51, 51, 51,
         51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51};
 }
 
@@ -49,6 +50,27 @@ void print_cipher_state(const string &label, const PoseidonContext &context, con
     cout << "  remaining level : " << context_data->chain_index() << '\n';
     cout << "  coeff_modulus_size : " << cipher.coeff_modulus_size() << '\n';
     cout << "  scale : " << cipher.scale() << '\n';
+}
+
+void print_plain_preview(const string &label, const vector<complex<double>> &values)
+{
+    cout << label;
+    const size_t preview_count = min<size_t>(8, values.size());
+    for (size_t i = 0; i < preview_count; ++i)
+    {
+        cout << ' ' << values[i].real();
+    }
+    cout << '\n';
+}
+
+void print_decrypted_preview(const string &label, const Ciphertext &cipher, Decryptor &decryptor,
+                             CKKSEncoder &encoder)
+{
+    Plaintext plain;
+    vector<complex<double>> decoded;
+    decryptor.decrypt(cipher, plain);
+    encoder.decode(plain, decoded);
+    print_plain_preview(label, decoded);
 }
 
 } // namespace
@@ -83,6 +105,7 @@ int main(int argc, char **argv)
     {
         message[i] = {sin(static_cast<double>(i) / 32.0), 0.0};
     }
+    print_plain_preview("plaintext source preview:", message);
 
     Plaintext plain;
     encoder.encode(message, ckks_param_literal.scale(), plain);
@@ -91,7 +114,7 @@ int main(int argc, char **argv)
     encryptor.encrypt(plain, cipher);
     print_cipher_state("fresh ciphertext", context, cipher);
 
-    while (chain_index_or_throw(context, cipher) > 2)
+    while (chain_index_or_throw(context, cipher) > 1)
     {
         ckks_eva->drop_modulus_to_next(cipher, cipher);
     }
@@ -99,6 +122,7 @@ int main(int argc, char **argv)
 
     Ciphertext bootstrap_input = cipher;
     print_cipher_state("bootstrap input", context, bootstrap_input);
+    print_decrypted_preview("bootstrap input decrypt preview:", bootstrap_input, decryptor, encoder);
 
     EvalModPoly eval_mod_poly(context, CosDiscrete, static_cast<uint64_t>(1) << 51, 1, 16, 3,
                               16, 0, 30);
@@ -116,16 +140,7 @@ int main(int argc, char **argv)
     cout << "level delta : " << static_cast<long long>(level_after) - static_cast<long long>(level_before)
          << '\n';
 
-    Plaintext plain_out;
-    vector<complex<double>> decoded;
-    decryptor.decrypt(bootstrap_input, plain_out);
-    encoder.decode(plain_out, decoded);
-    cout << "preview:";
-    for (int i = 0; i < 8; ++i)
-    {
-        cout << ' ' << decoded[static_cast<size_t>(i)].real();
-    }
-    cout << '\n';
+    print_decrypted_preview("bootstrap output decrypt preview:", bootstrap_input, decryptor, encoder);
 
     return 0;
 }
