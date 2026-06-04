@@ -292,8 +292,9 @@ void log_after_stage(const TensorCipher &tensor, Decryptor &decryptor, CKKSEncod
 
 void relu_impl(const TensorCipher &cnn_in, TensorCipher &cnn_out, long comp_no,
                const vector<int> &deg, long alpha, double scaled_val,
-               EvaluatorCkksBase &evaluator, CKKSEncoder &encoder, RelinKeys &relin_keys,
-               double scale, ostream *output, const PoseidonContext *context)
+               EvaluatorCkksBase &evaluator, Decryptor &decryptor, CKKSEncoder &encoder,
+               RelinKeys &relin_keys, double scale, ostream *output,
+               const PoseidonContext *context)
 {
     (void)comp_no;
 
@@ -310,6 +311,7 @@ void relu_impl(const TensorCipher &cnn_in, TensorCipher &cnn_out, long comp_no,
     if (output && context)
     {
         log_labeled_tensor_state("relu input", cnn_in, *context, *output);
+        decode_preview(cnn_in.cipher(), decryptor, encoder, *output);
     }
 
     Ciphertext mask;
@@ -320,6 +322,7 @@ void relu_impl(const TensorCipher &cnn_in, TensorCipher &cnn_out, long comp_no,
         if (output && context)
         {
             log_labeled_cipher_state("relu sign-mask", mask, cnn_in, *context, *output);
+            decode_preview(mask, decryptor, encoder, *output);
         }
     }
     catch (const std::exception &e)
@@ -542,8 +545,8 @@ void approx_ReLU_seal_print(const TensorCipher &cnn_in, TensorCipher &cnn_out, l
     print_stage_banner("relu stage " + to_string(stage), output);
     log_labeled_tensor_state("input", cnn_in, context, output);
     const auto time_start = chrono::high_resolution_clock::now();
-    relu_impl(cnn_in, cnn_out, comp_no, deg, alpha, scaled_val, evaluator, encoder, relin_keys,
-              B, &output, &context);
+    relu_impl(cnn_in, cnn_out, comp_no, deg, alpha, scaled_val, evaluator, decryptor, encoder,
+              relin_keys, B, &output, &context);
     const auto time_end = chrono::high_resolution_clock::now();
     output << "  time_ms: "
            << chrono::duration_cast<chrono::milliseconds>(time_end - time_start).count() << '\n';
@@ -993,8 +996,8 @@ void ReLU_seal(const TensorCipher &cnn_in, TensorCipher &cnn_out, long comp_no, 
     (void)public_key;
     (void)secret_key;
 
-    relu_impl(cnn_in, cnn_out, comp_no, deg, alpha, scaled_val, evaluator, encoder, relin_keys,
-              scale, nullptr, nullptr);
+    relu_impl(cnn_in, cnn_out, comp_no, deg, alpha, scaled_val, evaluator, decryptor, encoder,
+              relin_keys, scale, nullptr, nullptr);
 }
 
 void cnn_add_seal(const TensorCipher &cnn1, const TensorCipher &cnn2, TensorCipher &destination,
