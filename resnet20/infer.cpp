@@ -322,9 +322,6 @@ void align_for_add(TensorCipher &lhs, TensorCipher &rhs, PoseidonRuntime &runtim
     {
         runtime.evaluator->drop_modulus(rhs.cipher(), rhs.cipher(), lhs.cipher().parms_id());
     }
-
-    lhs.cipher().scale() = runtime.scale;
-    rhs.cipher().scale() = runtime.scale;
 }
 
 void maybe_bootstrap(TensorCipher &tensor, PoseidonRuntime &runtime, ofstream &output, size_t stage)
@@ -673,6 +670,13 @@ void ResNet_cifar10_sparse(size_t start_image_id, size_t end_image_id)
     relu_config.alpha = 13;
     relu_config.scaled_val = 1.7;
     relu_config.scalingfactor = plan.log_scale;
+    relu_config.tree.reserve(relu_config.deg.size());
+    for (int degree : relu_config.deg)
+    {
+        Tree tr(EvalType::OddBaby);
+        upgrade_oddbaby(degree, tr);
+        relu_config.tree.emplace_back(std::move(tr));
+    }
     relu_config.plain_coeffs = load_plain_relu_component_coeffs(
         kReluParamRoot.string(), relu_config.alpha, relu_config.deg, relu_config.scaled_val);
 

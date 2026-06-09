@@ -1,0 +1,40 @@
+
+==================== run_start ====================
+image_id: 0
+run_timestamp: 20260605_001505
+log_file: "/home/guoshuai/github/poseidon/Trident/resnet20/result/resnet20_cifar10_image0_20260605_001505.txt"
+runtime: poseidon ready
+weights: conv=19, bn=19, fc=640
+relu parameter root: "/home/guoshuai/github/poseidon/Trident/resnet20/relu_param"
+input ciphertext: level=45, scale=7.03687e+13
+  plain input: shape(h=32,w=32,c=3)
+  plain preview: 0.0158438 0.0163284 0.0192361 0.0197208 0.016813 0.0148745 0.0177823 0.0163284
+post-alignment ciphertext: level=34, scale=7.03687e+13
+
+========== Stem (layer 0) ==========
+
+[ conv stage 0 ]
+  input: shape(k=1,h=32,w=32,c=3,t=3,p=8), level=34, scale=7.03687e+13
+  time_ms: 27121
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=32, scale=7.03687e+13
+  cipher decrypt preview: -0.0106118 -0.0131556 -0.0131253 -0.0124585 -0.0124303 -0.0127895 -0.0125319 -0.0126197
+
+  plain conv output: shape(h=32,w=32,c=16)
+  plain preview: -0.0106119 -0.0131557 -0.0131253 -0.0124585 -0.0124303 -0.0127895 -0.0125319 -0.0126197
+
+[ batchnorm stage 0 ]
+  input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=32, scale=7.03687e+13
+  time_ms: 53
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=32, scale=7.03687e+13
+  cipher decrypt preview: -0.0178792 -0.0204229 -0.0203927 -0.0197258 -0.0196976 -0.0200568 -0.0197992 -0.019887
+
+  plain batchnorm output: shape(h=32,w=32,c=16)
+  plain preview: -0.0178793 -0.0204231 -0.0203927 -0.0197258 -0.0196976 -0.0200568 -0.0197992 -0.019887
+
+[ relu stage 0 ]
+  input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=32, scale=7.03687e+13
+  relu input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=32, scale=7.03687e+13
+  cipher decrypt preview: -0.0178792 -0.0204229 -0.0203927 -0.0197258 -0.0196976 -0.0200568 -0.0197992 -0.019887
+  sign poly coeff counts: c1=16 c2=16 c3=28
+  sign poly step 1 pre-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=32, scale=7.03687e+13
+relu failure during sign polynomial: /home/guoshuai/github/poseidon/src/poseidon/evaluator/evaluator_ckks_base.cpp:1882 add_dynamic : ciph scale don't support! 

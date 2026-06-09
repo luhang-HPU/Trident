@@ -1,0 +1,1068 @@
+
+==================== run_start ====================
+image_id: 0
+run_timestamp: 20260605_004520
+log_file: "/home/guoshuai/github/poseidon/Trident/resnet20/result/resnet20_cifar10_image0_20260605_004520.txt"
+runtime: poseidon ready
+weights: conv=19, bn=19, fc=640
+relu parameter root: "/home/guoshuai/github/poseidon/Trident/resnet20/relu_param"
+input ciphertext: level=45, scale=7.03687e+13
+  plain input: shape(h=32,w=32,c=3)
+  plain preview: 0.0158438 0.0163284 0.0192361 0.0197208 0.016813 0.0148745 0.0177823 0.0163284
+post-alignment ciphertext: level=34, scale=7.03687e+13
+
+========== Stem (layer 0) ==========
+
+[ conv stage 0 ]
+  input: shape(k=1,h=32,w=32,c=3,t=3,p=8), level=34, scale=7.03687e+13
+  time_ms: 27956
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=32, scale=7.03687e+13
+  cipher decrypt preview: -0.0106128 -0.0131557 -0.0131253 -0.0124585 -0.0124303 -0.0127895 -0.0125319 -0.0126197
+
+  plain conv output: shape(h=32,w=32,c=16)
+  plain preview: -0.0106119 -0.0131557 -0.0131253 -0.0124585 -0.0124303 -0.0127895 -0.0125319 -0.0126197
+
+[ batchnorm stage 0 ]
+  input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=32, scale=7.03687e+13
+  time_ms: 55
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=32, scale=7.03687e+13
+  cipher decrypt preview: -0.0178801 -0.0204231 -0.0203927 -0.0197258 -0.0196976 -0.0200568 -0.0197992 -0.019887
+
+  plain batchnorm output: shape(h=32,w=32,c=16)
+  plain preview: -0.0178793 -0.0204231 -0.0203927 -0.0197258 -0.0196976 -0.0200568 -0.0197992 -0.019887
+
+[ relu stage 0 ]
+  input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=32, scale=7.03687e+13
+  relu input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=32, scale=7.03687e+13
+  cipher decrypt preview: -0.0178801 -0.0204231 -0.0203927 -0.0197258 -0.0196976 -0.0200568 -0.0197992 -0.019887
+  sign poly coeff counts: c1=16 c2=16 c3=28
+  sign poly step 1 pre-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=32, scale=7.03687e+13
+  sign poly step 1 post-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=28, scale=7.03687e+13
+  sign poly step 2 pre-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=28, scale=7.03687e+13
+  sign poly step 2 post-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=24, scale=7.03687e+13
+  sign poly step 3 pre-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=24, scale=7.03687e+13
+  sign poly step 3 post-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=19, scale=7.03687e+13
+  sign poly add-const state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=19, scale=7.03687e+13
+  relu sign-mask: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=19, scale=7.03687e+13
+  cipher decrypt preview: 0.499807 0.49978 0.49978 0.499787 0.499787 0.499784 0.499786 0.499785
+  relu post-multiply: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=19, scale=4.95176e+27
+  relu post-rescale: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=18, scale=7.03687e+13
+  time_ms: 16464
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=18, scale=7.03687e+13
+  cipher decrypt preview: -0.00893661 -0.010207 -0.0101918 -0.00985872 -0.00984463 -0.0100241 -0.00989539 -0.00993924
+
+  plain relu output: shape(h=32,w=32,c=16)
+  plain preview: 0 0 0 0 0 0 0 0
+
+========== Stage 1 Block 0 / Layer 1 ==========
+stage1 block 0: conv1 -> bn1 -> bootstrap(log_slots=14) -> relu -> conv2 -> bn2 -> add -> bootstrap(log_slots=14) -> relu
+layer 1
+
+[ conv stage 2 ]
+  input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=18, scale=7.03687e+13
+  time_ms: 26037
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=16, scale=7.03688e+13
+  cipher decrypt preview: -0.00701917 -0.00368705 -0.000653874 0.00111587 0.000223773 -0.000887792 0.000237319 0.000155633
+
+  plain conv1 output: shape(h=32,w=32,c=16)
+  plain preview: 0.00962437 0.0178924 0.0242851 0.0281389 0.0273026 0.0249605 0.0265286 0.0267262
+
+[ batchnorm stage 2 ]
+  input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=16, scale=7.03688e+13
+  time_ms: 38
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=16, scale=7.03688e+13
+  cipher decrypt preview: -0.0333198 -0.0299877 -0.0269545 -0.0251848 -0.0260769 -0.0271884 -0.0260633 -0.026145
+
+  plain bn1 output: shape(h=32,w=32,c=16)
+  plain preview: -0.0166763 -0.00840828 -0.00201552 0.00183826 0.00100192 -0.00134015 0.000227973 0.000425559
+
+[ bootstrap stage 2 ]
+  input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=16, scale=7.03688e+13
+  time_ms: 144715
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=25, scale=7.03687e+13
+  cipher decrypt preview: -0.0369538 -0.0295462 -0.0269943 -0.0246215 -0.0246258 -0.0267847 -0.0250894 -0.0259282
+
+
+[ relu stage 2 ]
+  input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=25, scale=7.03687e+13
+  relu input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=25, scale=7.03687e+13
+  cipher decrypt preview: -0.0369538 -0.0295462 -0.0269943 -0.0246215 -0.0246258 -0.0267847 -0.0250894 -0.0259282
+  sign poly coeff counts: c1=16 c2=16 c3=28
+  sign poly step 1 pre-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=25, scale=7.03687e+13
+  sign poly step 1 post-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=21, scale=7.03687e+13
+  sign poly step 2 pre-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=21, scale=7.03687e+13
+  sign poly step 2 post-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=17, scale=7.03687e+13
+  sign poly step 3 pre-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=17, scale=7.03687e+13
+  sign poly step 3 post-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=12, scale=7.03687e+13
+  sign poly add-const state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=12, scale=7.03687e+13
+  relu sign-mask: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=12, scale=7.03687e+13
+  cipher decrypt preview: -7.0327e-06 -3.12644e-05 -8.21386e-05 4.97546e-05 4.37903e-05 -5.82768e-05 7.94913e-05 -2.0624e-05
+  relu post-multiply: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=12, scale=4.95176e+27
+  relu post-rescale: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=11, scale=7.03687e+13
+  time_ms: 13011
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=11, scale=7.03687e+13
+  cipher decrypt preview: 2.30912e-07 9.16347e-07 2.26668e-06 -1.2203e-06 -1.07774e-06 1.56513e-06 -2.00767e-06 5.19212e-07
+
+  plain relu output: shape(h=32,w=32,c=16)
+  plain preview: 0 0 0 0.00183826 0.00100192 0 0.000227973 0.000425559
+layer 2
+
+[ conv stage 3 ]
+  input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=11, scale=7.03687e+13
+  time_ms: 18464
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=9, scale=7.03688e+13
+  cipher decrypt preview: -0.000701889 -0.000472754 -0.000106862 0.00074783 0.000888294 0.000456434 0.000549942 0.00104767
+
+  plain conv2 output: shape(h=32,w=32,c=16)
+  plain preview: -0.00620271 -0.00628179 -0.00577252 -0.00414358 -0.00352812 -0.00388538 -0.00402475 -0.00394496
+
+[ batchnorm stage 3 ]
+  input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=9, scale=7.03688e+13
+  time_ms: 31
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=9, scale=7.03688e+13
+  cipher decrypt preview: 0.00935585 0.00958498 0.00995087 0.0108056 0.010946 0.0105142 0.0106077 0.0111054
+
+  plain bn2 output: shape(h=32,w=32,c=16)
+  plain preview: 0.00385502 0.00377594 0.00428522 0.00591415 0.00652962 0.00617236 0.00603298 0.00611278
+
+[ residual add ]
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=9, scale=7.03687e+13
+  cipher decrypt preview: 0.000419245 -0.000622043 -0.000240968 0.000946856 0.00110141 0.000490095 0.000712293 0.00116617
+
+  plain add output: shape(h=32,w=32,c=16)
+  plain preview: 0.00385502 0.00377594 0.00428522 0.00591415 0.00652962 0.00617236 0.00603298 0.00611278
+
+[ bootstrap stage 3 ]
+  input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=9, scale=7.03687e+13
+  time_ms: 137307
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=25, scale=7.03687e+13
+  cipher decrypt preview: -0.00364282 -0.000488277 -0.000428968 0.000758296 0.00163627 0.00107119 0.00109462 0.000892959
+
+
+[ relu stage 3 ]
+  input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=25, scale=7.03687e+13
+  relu input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=25, scale=7.03687e+13
+  cipher decrypt preview: -0.00364282 -0.000488277 -0.000428968 0.000758296 0.00163627 0.00107119 0.00109462 0.000892959
+  sign poly coeff counts: c1=16 c2=16 c3=28
+  sign poly step 1 pre-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=25, scale=7.03687e+13
+  sign poly step 1 post-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=21, scale=7.03687e+13
+  sign poly step 2 pre-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=21, scale=7.03687e+13
+  sign poly step 2 post-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=17, scale=7.03687e+13
+  sign poly step 3 pre-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=17, scale=7.03687e+13
+  sign poly step 3 post-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=12, scale=7.03687e+13
+  sign poly add-const state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=12, scale=7.03687e+13
+  relu sign-mask: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=12, scale=7.03687e+13
+  cipher decrypt preview: -0.000570526 0.358406 0.369297 0.715189 0.961679 0.788618 0.800843 0.75799
+  relu post-multiply: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=12, scale=4.95176e+27
+  relu post-rescale: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=11, scale=7.03687e+13
+  time_ms: 12356
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=11, scale=7.03687e+13
+  cipher decrypt preview: 1.71424e-06 -0.000178113 -0.00021501 0.000533031 0.00143235 0.000842911 0.000849835 0.00062832
+
+  plain relu output: shape(h=32,w=32,c=16)
+  plain preview: 0.00385502 0.00377594 0.00428522 0.00591415 0.00652962 0.00617236 0.00603298 0.00611278
+
+========== Stage 1 Block 1 / Layer 3 ==========
+stage1 block 1: conv1 -> bn1 -> bootstrap(log_slots=14) -> relu -> conv2 -> bn2 -> add -> bootstrap(log_slots=14) -> relu
+layer 3
+
+[ conv stage 4 ]
+  input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=11, scale=7.03687e+13
+  time_ms: 18117
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=9, scale=7.03688e+13
+  cipher decrypt preview: 0.00945018 0.0202813 0.0217738 0.0194191 0.018377 0.0180739 0.0184418 0.0192364
+
+  plain conv1 output: shape(h=32,w=32,c=16)
+  plain preview: 0.021599 0.0385955 0.0393532 0.0356389 0.0325104 0.0327527 0.0322773 0.0333021
+
+[ batchnorm stage 4 ]
+  input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=9, scale=7.03688e+13
+  time_ms: 28
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=9, scale=7.03688e+13
+  cipher decrypt preview: -0.00184893 0.00898222 0.0104747 0.00812004 0.00707786 0.00677477 0.00714271 0.0079373
+
+  plain bn1 output: shape(h=32,w=32,c=16)
+  plain preview: 0.0102999 0.0272964 0.0280541 0.0243398 0.0212113 0.0214536 0.0209782 0.0220029
+
+[ bootstrap stage 4 ]
+  input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=9, scale=7.03688e+13
+  time_ms: 135077
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=25, scale=7.03687e+13
+  cipher decrypt preview: -0.00555543 0.00896236 0.0106982 0.00971475 0.00771809 0.00677123 0.00737625 0.00854442
+
+
+[ relu stage 4 ]
+  input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=25, scale=7.03687e+13
+  relu input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=25, scale=7.03687e+13
+  cipher decrypt preview: -0.00555543 0.00896236 0.0106982 0.00971475 0.00771809 0.00677123 0.00737625 0.00854442
+  sign poly coeff counts: c1=16 c2=16 c3=28
+  sign poly step 1 pre-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=25, scale=7.03687e+13
+  sign poly step 1 post-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=21, scale=7.03687e+13
+  sign poly step 2 pre-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=21, scale=7.03687e+13
+  sign poly step 2 post-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=17, scale=7.03687e+13
+  sign poly step 3 pre-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=17, scale=7.03687e+13
+  sign poly step 3 post-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=12, scale=7.03687e+13
+  sign poly add-const state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=12, scale=7.03687e+13
+  relu sign-mask: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=12, scale=7.03687e+13
+  cipher decrypt preview: -4.49799e-05 0.999946 1.00008 0.999943 1.00004 0.999542 0.999976 1.00004
+  relu post-multiply: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=12, scale=4.95176e+27
+  relu post-rescale: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=11, scale=7.03687e+13
+  time_ms: 11740
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=11, scale=7.03687e+13
+  cipher decrypt preview: 2.53307e-07 0.00896201 0.0106991 0.00971419 0.0077184 0.00676817 0.00737605 0.00854473
+
+  plain relu output: shape(h=32,w=32,c=16)
+  plain preview: 0.0102999 0.0272964 0.0280541 0.0243398 0.0212113 0.0214536 0.0209782 0.0220029
+layer 4
+
+[ conv stage 5 ]
+  input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=11, scale=7.03687e+13
+  time_ms: 17554
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=9, scale=7.03688e+13
+  cipher decrypt preview: -0.0170824 -0.0132778 -0.00859542 -0.00654901 -0.00869179 -0.007825 -0.00725433 -0.00705899
+
+  plain conv2 output: shape(h=32,w=32,c=16)
+  plain preview: -0.0146824 -0.0161333 -0.0113845 -0.00773697 -0.00664053 -0.00817995 -0.00787666 -0.00834718
+
+[ batchnorm stage 5 ]
+  input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=9, scale=7.03688e+13
+  time_ms: 30
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=9, scale=7.03688e+13
+  cipher decrypt preview: 0.0138309 0.0176354 0.0223178 0.0243643 0.0222215 0.0230883 0.0236589 0.0238543
+
+  plain bn2 output: shape(h=32,w=32,c=16)
+  plain preview: 0.0162308 0.01478 0.0195288 0.0231763 0.0242727 0.0227333 0.0230366 0.0225661
+
+[ residual add ]
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=9, scale=7.03687e+13
+  cipher decrypt preview: 0.0138326 0.0174573 0.0221028 0.0248973 0.0236538 0.0239312 0.0245087 0.0244826
+
+  plain add output: shape(h=32,w=32,c=16)
+  plain preview: 0.0200859 0.0185559 0.023814 0.0290904 0.0308023 0.0289057 0.0290696 0.0286789
+
+[ bootstrap stage 5 ]
+  input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=9, scale=7.03687e+13
+  time_ms: 136724
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=25, scale=7.03687e+13
+  cipher decrypt preview: 1.02248e+06 1.43335e+06 -303944 -404899 -1.43375e+06 -1.99349e+06 74761.1 -714084
+
+
+[ relu stage 5 ]
+  input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=25, scale=7.03687e+13
+  relu input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=25, scale=7.03687e+13
+  cipher decrypt preview: 1.02248e+06 1.43335e+06 -303944 -404899 -1.43375e+06 -1.99349e+06 74761.1 -714084
+  sign poly coeff counts: c1=16 c2=16 c3=28
+  sign poly step 1 pre-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=25, scale=7.03687e+13
+  sign poly step 1 post-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=21, scale=7.03687e+13
+  sign poly step 2 pre-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=21, scale=7.03687e+13
+  sign poly step 2 post-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=17, scale=7.03687e+13
+  sign poly step 3 pre-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=17, scale=7.03687e+13
+  sign poly step 3 post-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=12, scale=7.03687e+13
+  sign poly add-const state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=12, scale=7.03687e+13
+  relu sign-mask: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=12, scale=7.03687e+13
+  cipher decrypt preview: 2.08918e+167 4.81717e+167 -3.17157e+167 2.80764e+167 6.5881e+167 -7.18095e+166 5.85614e+167 -4.37368e+167
+  relu post-multiply: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=12, scale=4.95176e+27
+  relu post-rescale: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=11, scale=7.03687e+13
+  time_ms: 11672
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=11, scale=7.03687e+13
+  cipher decrypt preview: -2.06668e+154 -1.00306e+154 -4.49272e+153 1.77993e+154 -8.49555e+153 4.53801e+153 -3.63693e+153 -5.17554e+151
+
+  plain relu output: shape(h=32,w=32,c=16)
+  plain preview: 0.0200859 0.0185559 0.023814 0.0290904 0.0308023 0.0289057 0.0290696 0.0286789
+
+========== Stage 1 Block 2 / Layer 5 ==========
+stage1 block 2: conv1 -> bn1 -> bootstrap(log_slots=14) -> relu -> conv2 -> bn2 -> add -> bootstrap(log_slots=14) -> relu
+layer 5
+
+[ conv stage 6 ]
+  input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=11, scale=7.03687e+13
+  time_ms: 18126
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=9, scale=7.03688e+13
+  cipher decrypt preview: -5.47887e+125 2.06128e+125 -3.00876e+126 9.27519e+125 -1.81692e+126 -2.63971e+126 2.28412e+126 1.31885e+126
+
+  plain conv1 output: shape(h=32,w=32,c=16)
+  plain preview: 0.0199429 -0.00275394 -0.00297922 0.0211132 0.0117954 -0.00743484 0.015117 0.00632697
+
+[ batchnorm stage 6 ]
+  input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=9, scale=7.03688e+13
+  time_ms: 27
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=9, scale=7.03688e+13
+  cipher decrypt preview: -5.47887e+125 2.06128e+125 -3.00876e+126 9.27519e+125 -1.81692e+126 -2.63971e+126 2.28412e+126 1.31885e+126
+
+  plain bn1 output: shape(h=32,w=32,c=16)
+  plain preview: 0.0130477 -0.00964919 -0.00987447 0.0142179 0.00490015 -0.0143301 0.00822171 -0.000568281
+
+[ bootstrap stage 6 ]
+  input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=9, scale=7.03688e+13
+  time_ms: 133780
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=25, scale=7.03687e+13
+  cipher decrypt preview: 658185 -791793 710551 -819334 248063 1.87131e+06 499628 2.20378e+06
+
+
+[ relu stage 6 ]
+  input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=25, scale=7.03687e+13
+  relu input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=25, scale=7.03687e+13
+  cipher decrypt preview: 658185 -791793 710551 -819334 248063 1.87131e+06 499628 2.20378e+06
+  sign poly coeff counts: c1=16 c2=16 c3=28
+  sign poly step 1 pre-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=25, scale=7.03687e+13
+  sign poly step 1 post-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=21, scale=7.03687e+13
+  sign poly step 2 pre-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=21, scale=7.03687e+13
+  sign poly step 2 post-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=17, scale=7.03687e+13
+  sign poly step 3 pre-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=17, scale=7.03687e+13
+  sign poly step 3 post-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=12, scale=7.03687e+13
+  sign poly add-const state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=12, scale=7.03687e+13
+  relu sign-mask: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=12, scale=7.03687e+13
+  cipher decrypt preview: -1.0105e+167 4.54546e+167 8.79691e+167 5.47907e+167 -3.29086e+166 6.0718e+167 -4.52277e+167 1.08198e+168
+  relu post-multiply: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=12, scale=4.95176e+27
+  relu post-rescale: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=11, scale=7.03687e+13
+  time_ms: 11224
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=11, scale=7.03687e+13
+  cipher decrypt preview: 4.12961e+153 3.20754e+153 -1.8529e+154 1.67036e+153 8.17739e+153 6.21774e+153 -9.30335e+152 3.75621e+153
+
+  plain relu output: shape(h=32,w=32,c=16)
+  plain preview: 0.0130477 0 0 0.0142179 0.00490015 0 0.00822171 0
+layer 6
+
+[ conv stage 7 ]
+  input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=11, scale=7.03687e+13
+  time_ms: 17658
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=9, scale=7.03688e+13
+  cipher decrypt preview: -1.2547e+126 2.62119e+126 -2.18364e+126 -1.78222e+125 -6.38825e+125 -1.14575e+126 1.03418e+126 6.51967e+124
+
+  plain conv2 output: shape(h=32,w=32,c=16)
+  plain preview: -0.00455311 -0.00468638 -0.00422369 -0.00638009 -0.00523999 -0.00452266 -0.0038248 -0.00299712
+
+[ batchnorm stage 7 ]
+  input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=9, scale=7.03688e+13
+  time_ms: 29
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=9, scale=7.03688e+13
+  cipher decrypt preview: -1.2547e+126 2.62119e+126 -2.18364e+126 -1.78222e+125 -6.38825e+125 -1.14575e+126 1.03418e+126 6.51967e+124
+
+  plain bn2 output: shape(h=32,w=32,c=16)
+  plain preview: 0.018284 0.0181507 0.0186134 0.016457 0.0175971 0.0183145 0.0190123 0.01984
+
+[ residual add ]
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=9, scale=7.03687e+13
+  cipher decrypt preview: -3.7504e+126 2.56397e+126 -7.21687e+125 -9.50265e+125 -2.66907e+126 3.53957e+126 2.97806e+126 -2.00086e+126
+
+  plain add output: shape(h=32,w=32,c=16)
+  plain preview: 0.0383699 0.0367067 0.0424274 0.0455475 0.0483995 0.0472201 0.0480819 0.0485189
+
+[ bootstrap stage 7 ]
+  input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=9, scale=7.03687e+13
+  time_ms: 130160
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=25, scale=7.03687e+13
+  cipher decrypt preview: 49553.8 448939 1.4404e+06 -121571 -489035 -1.59724e+06 1.55198e+06 415660
+
+
+[ relu stage 7 ]
+  input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=25, scale=7.03687e+13
+  relu input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=25, scale=7.03687e+13
+  cipher decrypt preview: 49553.8 448939 1.4404e+06 -121571 -489035 -1.59724e+06 1.55198e+06 415660
+  sign poly coeff counts: c1=16 c2=16 c3=28
+  sign poly step 1 pre-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=25, scale=7.03687e+13
+  sign poly step 1 post-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=21, scale=7.03687e+13
+  sign poly step 2 pre-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=21, scale=7.03687e+13
+  sign poly step 2 post-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=17, scale=7.03687e+13
+  sign poly step 3 pre-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=17, scale=7.03687e+13
+  sign poly step 3 post-eval state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=12, scale=7.03687e+13
+  sign poly add-const state: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=12, scale=7.03687e+13
+  relu sign-mask: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=12, scale=7.03687e+13
+  cipher decrypt preview: 6.77045e+166 -1.0121e+168 4.58551e+167 -2.21204e+167 3.19204e+167 2.81533e+167 4.24873e+167 -1.18247e+167
+  relu post-multiply: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=12, scale=4.95176e+27
+  relu post-rescale: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=11, scale=7.03687e+13
+  time_ms: 11033
+  output: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=11, scale=7.03687e+13
+  cipher decrypt preview: -1.62165e+153 3.37116e+153 -6.64995e+153 1.82399e+153 1.64156e+153 -6.44949e+153 1.13833e+154 1.51563e+154
+
+  plain relu output: shape(h=32,w=32,c=16)
+  plain preview: 0.0383699 0.0367067 0.0424274 0.0455475 0.0483995 0.0472201 0.0480819 0.0485189
+
+========== Stage 2 Block 0 / Layer 7 ==========
+stage2 block 0: conv1 -> bn1 -> bootstrap(log_slots=13) -> relu -> conv2 -> bn2 -> downsample shortcut -> add -> bootstrap(log_slots=13) -> relu
+layer 7
+
+[ conv stage 8 ]
+  input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=11, scale=7.03687e+13
+  time_ms: 38551
+  output: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=9, scale=7.03688e+13
+  cipher decrypt preview: -2.14877e+125 -3.92072e+124 -1.40671e+126 1.27684e+126 2.13573e+126 -6.72077e+125 -1.35004e+126 -9.96324e+125
+
+  plain conv1 output: shape(h=16,w=16,c=32)
+  plain preview: 0.0168315 0.0241778 0.0280078 0.0275202 0.0250136 0.0277141 0.0344305 0.0342045
+
+[ batchnorm stage 8 ]
+  input: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=9, scale=7.03688e+13
+  time_ms: 29
+  output: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=9, scale=7.03688e+13
+  cipher decrypt preview: -2.14877e+125 -3.92072e+124 -1.40671e+126 1.27684e+126 2.13573e+126 -6.72077e+125 -1.35004e+126 -9.96324e+125
+
+  plain bn1 output: shape(h=16,w=16,c=32)
+  plain preview: -0.0102176 -0.00287126 0.000958764 0.000471145 -0.00203544 0.000664971 0.00738146 0.00715543
+
+[ bootstrap stage 8 ]
+  input: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=9, scale=7.03688e+13
+  time_ms: 129526
+  output: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=25, scale=7.03687e+13
+  cipher decrypt preview: -876312 -1.70799e+06 -1.47021e+06 4151.02 1.32414e+06 513286 410651 -1.64309e+06
+
+
+[ relu stage 8 ]
+  input: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=25, scale=7.03687e+13
+  relu input: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=25, scale=7.03687e+13
+  cipher decrypt preview: -876312 -1.70799e+06 -1.47021e+06 4151.02 1.32414e+06 513286 410651 -1.64309e+06
+  sign poly coeff counts: c1=16 c2=16 c3=28
+  sign poly step 1 pre-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=25, scale=7.03687e+13
+  sign poly step 1 post-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=21, scale=7.03687e+13
+  sign poly step 2 pre-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=21, scale=7.03687e+13
+  sign poly step 2 post-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=17, scale=7.03687e+13
+  sign poly step 3 pre-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=17, scale=7.03687e+13
+  sign poly step 3 post-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=12, scale=7.03687e+13
+  sign poly add-const state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=12, scale=7.03687e+13
+  relu sign-mask: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=12, scale=7.03687e+13
+  cipher decrypt preview: 2.68526e+167 6.48681e+167 -5.49355e+167 -7.19133e+167 -6.48895e+167 1.45485e+168 3.14448e+167 1.4069e+167
+  relu post-multiply: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=12, scale=4.95176e+27
+  relu post-rescale: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=11, scale=7.03687e+13
+  time_ms: 11142
+  output: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=11, scale=7.03687e+13
+  cipher decrypt preview: -1.89236e+154 -2.23381e+153 1.77756e+153 1.46997e+154 4.2338e+153 -9.93936e+152 -9.18739e+153 -1.9416e+153
+
+  plain relu output: shape(h=16,w=16,c=32)
+  plain preview: 0 0 0.000958764 0.000471145 0 0.000664971 0.00738146 0.00715543
+layer 8
+
+[ conv stage 9 ]
+  input: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=11, scale=7.03687e+13
+  time_ms: 30069
+  output: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=9, scale=7.03688e+13
+  cipher decrypt preview: 3.35641e+125 4.86158e+125 -5.97303e+125 -8.9099e+125 4.87426e+125 1.51943e+126 1.65435e+126 -1.17281e+126
+
+  plain conv2 output: shape(h=16,w=16,c=32)
+  plain preview: 0.00991804 0.0147815 0.0105445 0.00625657 0.00226533 0.00513108 0.0110097 0.00323421
+
+[ batchnorm stage 9 ]
+  input: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=9, scale=7.03688e+13
+  time_ms: 47
+  output: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=9, scale=7.03688e+13
+  cipher decrypt preview: 3.35641e+125 4.86158e+125 -5.97303e+125 -8.9099e+125 4.87426e+125 1.51943e+126 1.65435e+126 -1.17281e+126
+
+  plain bn2 output: shape(h=16,w=16,c=32)
+  plain preview: 0.00217159 0.00703505 0.002798 -0.00148988 -0.00548112 -0.00261538 0.00326322 -0.00451225
+
+[ downsample shortcut ]
+  input: shape(k=1,h=32,w=32,c=16,t=16,p=2), level=11, scale=7.03687e+13
+  time_ms: 7499
+  output: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=10, scale=7.03688e+13
+  cipher decrypt preview: 7.43311e+139 -1.0938e+140 -1.40886e+140 -1.71677e+140 3.10861e+139 -1.72836e+140 -1.33368e+139 -8.78133e+139
+
+  plain shortcut output: shape(h=16,w=16,c=32)
+  plain preview: 0 0 0 0 0 0 0 0
+
+[ residual add ]
+  output: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=9, scale=7.03687e+13
+  cipher decrypt preview: -3.31495e+124 -8.29663e+125 -3.90886e+125 -9.05834e+125 -1.04516e+126 -1.16816e+126 5.53143e+125 1.66667e+125
+
+  plain add output: shape(h=16,w=16,c=32)
+  plain preview: 0.00217159 0.00703505 0.002798 -0.00148988 -0.00548112 -0.00261538 0.00326322 -0.00451225
+
+[ bootstrap stage 9 ]
+  input: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=9, scale=7.03687e+13
+  time_ms: 134520
+  output: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=25, scale=7.03687e+13
+  cipher decrypt preview: -289250 -116747 -273912 -885403 -378506 -789791 -1.22309e+06 -1.43003e+06
+
+
+[ relu stage 9 ]
+  input: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=25, scale=7.03687e+13
+  relu input: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=25, scale=7.03687e+13
+  cipher decrypt preview: -289250 -116747 -273912 -885403 -378506 -789791 -1.22309e+06 -1.43003e+06
+  sign poly coeff counts: c1=16 c2=16 c3=28
+  sign poly step 1 pre-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=25, scale=7.03687e+13
+  sign poly step 1 post-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=21, scale=7.03687e+13
+  sign poly step 2 pre-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=21, scale=7.03687e+13
+  sign poly step 2 post-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=17, scale=7.03687e+13
+  sign poly step 3 pre-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=17, scale=7.03687e+13
+  sign poly step 3 post-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=12, scale=7.03687e+13
+  sign poly add-const state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=12, scale=7.03687e+13
+  relu sign-mask: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=12, scale=7.03687e+13
+  cipher decrypt preview: 3.17683e+167 -5.91205e+167 1.55458e+167 -1.65512e+165 3.73265e+167 1.01226e+168 -6.69481e+167 1.42109e+167
+  relu post-multiply: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=12, scale=4.95176e+27
+  relu post-rescale: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=11, scale=7.03687e+13
+  time_ms: 11316
+  output: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=11, scale=7.03687e+13
+  cipher decrypt preview: 3.51984e+153 1.31517e+153 -6.58567e+152 2.58051e+153 -1.86428e+153 6.21638e+153 -1.02531e+154 -8.78415e+153
+
+  plain relu output: shape(h=16,w=16,c=32)
+  plain preview: 0.00217159 0.00703505 0.002798 0 0 0 0.00326322 0
+
+========== Stage 2 Block 1 / Layer 9 ==========
+stage2 block 1: conv1 -> bn1 -> bootstrap(log_slots=13) -> relu -> conv2 -> bn2 -> add -> bootstrap(log_slots=13) -> relu
+layer 9
+
+[ conv stage 10 ]
+  input: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=11, scale=7.03687e+13
+  time_ms: 29817
+  output: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=9, scale=7.03688e+13
+  cipher decrypt preview: 1.05391e+126 6.53446e+125 -2.0417e+126 -1.72088e+125 -2.71203e+125 1.01221e+126 1.14842e+126 -3.51388e+124
+
+  plain conv1 output: shape(h=16,w=16,c=32)
+  plain preview: 0.00793744 -0.00589757 0.00363346 0.00445507 0.00314706 0.00180874 0.00556707 0.00781024
+
+[ batchnorm stage 10 ]
+  input: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=9, scale=7.03688e+13
+  time_ms: 30
+  output: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=9, scale=7.03688e+13
+  cipher decrypt preview: 1.05391e+126 6.53446e+125 -2.0417e+126 -1.72088e+125 -2.71203e+125 1.01221e+126 1.14842e+126 -3.51388e+124
+
+  plain bn1 output: shape(h=16,w=16,c=32)
+  plain preview: -0.000758011 -0.014593 -0.00506199 -0.00424037 -0.00554839 -0.00688671 -0.00312838 -0.00088521
+
+[ bootstrap stage 10 ]
+  input: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=9, scale=7.03688e+13
+  time_ms: 129729
+  output: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=25, scale=7.03687e+13
+  cipher decrypt preview: 378316 1.56512e+06 45180.1 -29372.5 -1.18564e+06 -265587 -469873 767636
+
+
+[ relu stage 10 ]
+  input: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=25, scale=7.03687e+13
+  relu input: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=25, scale=7.03687e+13
+  cipher decrypt preview: 378316 1.56512e+06 45180.1 -29372.5 -1.18564e+06 -265587 -469873 767636
+  sign poly coeff counts: c1=16 c2=16 c3=28
+  sign poly step 1 pre-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=25, scale=7.03687e+13
+  sign poly step 1 post-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=21, scale=7.03687e+13
+  sign poly step 2 pre-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=21, scale=7.03687e+13
+  sign poly step 2 post-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=17, scale=7.03687e+13
+  sign poly step 3 pre-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=17, scale=7.03687e+13
+  sign poly step 3 post-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=12, scale=7.03687e+13
+  sign poly add-const state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=12, scale=7.03687e+13
+  relu sign-mask: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=12, scale=7.03687e+13
+  cipher decrypt preview: 5.42656e+167 -1.73703e+168 -1.10021e+168 -7.77384e+166 3.38188e+167 1.10567e+168 9.42013e+167 -2.45734e+167
+  relu post-multiply: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=12, scale=4.95176e+27
+  relu post-rescale: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=11, scale=7.03687e+13
+  time_ms: 11601
+  output: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=11, scale=7.03687e+13
+  cipher decrypt preview: -2.33662e+153 -6.13759e+152 -1.53335e+154 -6.58756e+153 1.54318e+153 3.75258e+153 -7.74856e+153 -2.0492e+153
+
+  plain relu output: shape(h=16,w=16,c=32)
+  plain preview: 0 0 0 0 0 0 0 0
+layer 10
+
+[ conv stage 11 ]
+  input: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=11, scale=7.03687e+13
+  time_ms: 30406
+  output: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=9, scale=7.03688e+13
+  cipher decrypt preview: -1.48455e+126 9.55275e+125 -6.48721e+125 -1.25451e+126 -1.30597e+125 1.1812e+126 5.56079e+125 -2.43504e+126
+
+  plain conv2 output: shape(h=16,w=16,c=32)
+  plain preview: -0.00979636 -0.0144777 -0.017128 -0.00940772 -0.0159215 -0.014118 -0.0182146 -0.0194905
+
+[ batchnorm stage 11 ]
+  input: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=9, scale=7.03688e+13
+  time_ms: 29
+  output: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=9, scale=7.03688e+13
+  cipher decrypt preview: -1.48455e+126 9.55275e+125 -6.48721e+125 -1.25451e+126 -1.30597e+125 1.1812e+126 5.56079e+125 -2.43504e+126
+
+  plain bn2 output: shape(h=16,w=16,c=32)
+  plain preview: -0.0130014 -0.0176827 -0.0203331 -0.0126128 -0.0191266 -0.0173231 -0.0214196 -0.0226956
+
+[ residual add ]
+  output: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=9, scale=7.03687e+13
+  cipher decrypt preview: 1.88776e+126 -2.20932e+126 -3.17112e+126 1.74205e+125 2.76538e+126 2.44115e+126 1.82847e+126 -8.3769e+125
+
+  plain add output: shape(h=16,w=16,c=32)
+  plain preview: -0.0108298 -0.0106477 -0.0175351 -0.0126128 -0.0191266 -0.0173231 -0.0181564 -0.0226956
+
+[ bootstrap stage 11 ]
+  input: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=9, scale=7.03687e+13
+  time_ms: 134109
+  output: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=25, scale=7.03687e+13
+  cipher decrypt preview: -908549 -268593 2.81689e+06 857870 -1.03825e+06 258580 922235 -363038
+
+
+[ relu stage 11 ]
+  input: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=25, scale=7.03687e+13
+  relu input: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=25, scale=7.03687e+13
+  cipher decrypt preview: -908549 -268593 2.81689e+06 857870 -1.03825e+06 258580 922235 -363038
+  sign poly coeff counts: c1=16 c2=16 c3=28
+  sign poly step 1 pre-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=25, scale=7.03687e+13
+  sign poly step 1 post-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=21, scale=7.03687e+13
+  sign poly step 2 pre-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=21, scale=7.03687e+13
+  sign poly step 2 post-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=17, scale=7.03687e+13
+  sign poly step 3 pre-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=17, scale=7.03687e+13
+  sign poly step 3 post-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=12, scale=7.03687e+13
+  sign poly add-const state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=12, scale=7.03687e+13
+  relu sign-mask: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=12, scale=7.03687e+13
+  cipher decrypt preview: -8.6262e+167 -1.66515e+166 9.73767e+167 4.08132e+167 4.6892e+167 -1.80367e+167 -2.06403e+165 1.11416e+168
+  relu post-multiply: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=12, scale=4.95176e+27
+  relu post-rescale: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=11, scale=7.03687e+13
+  time_ms: 11673
+  output: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=11, scale=7.03687e+13
+  cipher decrypt preview: 3.14694e+153 -7.98368e+153 -8.23297e+151 3.86371e+153 -1.03099e+154 -1.18735e+154 -5.08591e+153 2.9665e+153
+
+  plain relu output: shape(h=16,w=16,c=32)
+  plain preview: 0 0 0 0 0 0 0 0
+
+========== Stage 2 Block 2 / Layer 11 ==========
+stage2 block 2: conv1 -> bn1 -> bootstrap(log_slots=13) -> relu -> conv2 -> bn2 -> add -> bootstrap(log_slots=13) -> relu
+layer 11
+
+[ conv stage 12 ]
+  input: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=11, scale=7.03687e+13
+  time_ms: 30454
+  output: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=9, scale=7.03688e+13
+  cipher decrypt preview: -4.27291e+125 -2.03012e+125 1.60491e+125 -1.54213e+126 -8.66029e+125 -1.8851e+124 7.99652e+125 7.59994e+125
+
+  plain conv1 output: shape(h=16,w=16,c=32)
+  plain preview: 0.0144831 0.0150159 0.0135532 0.0217639 0.0251239 0.013913 0.0116663 0.0296456
+
+[ batchnorm stage 12 ]
+  input: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=9, scale=7.03688e+13
+  time_ms: 30
+  output: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=9, scale=7.03688e+13
+  cipher decrypt preview: -4.27291e+125 -2.03012e+125 1.60491e+125 -1.54213e+126 -8.66029e+125 -1.8851e+124 7.99652e+125 7.59994e+125
+
+  plain bn1 output: shape(h=16,w=16,c=32)
+  plain preview: -0.00214943 -0.00161668 -0.00307933 0.0051313 0.00849134 -0.00271952 -0.00496621 0.013013
+
+[ bootstrap stage 12 ]
+  input: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=9, scale=7.03688e+13
+  time_ms: 133823
+  output: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=25, scale=7.03687e+13
+  cipher decrypt preview: 58955.6 235622 463209 -334871 426695 1.35482e+06 -864897 -693431
+
+
+[ relu stage 12 ]
+  input: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=25, scale=7.03687e+13
+  relu input: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=25, scale=7.03687e+13
+  cipher decrypt preview: 58955.6 235622 463209 -334871 426695 1.35482e+06 -864897 -693431
+  sign poly coeff counts: c1=16 c2=16 c3=28
+  sign poly step 1 pre-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=25, scale=7.03687e+13
+  sign poly step 1 post-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=21, scale=7.03687e+13
+  sign poly step 2 pre-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=21, scale=7.03687e+13
+  sign poly step 2 post-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=17, scale=7.03687e+13
+  sign poly step 3 pre-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=17, scale=7.03687e+13
+  sign poly step 3 post-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=12, scale=7.03687e+13
+  sign poly add-const state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=12, scale=7.03687e+13
+  relu sign-mask: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=12, scale=7.03687e+13
+  cipher decrypt preview: 2.53898e+166 4.84592e+167 4.04591e+167 6.28061e+167 1.41315e+167 3.36261e+167 1.4676e+167 1.53685e+168
+  relu post-multiply: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=12, scale=4.95176e+27
+  relu post-rescale: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=11, scale=7.03687e+13
+  time_ms: 11445
+  output: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=11, scale=7.03687e+13
+  cipher decrypt preview: -1.8608e+154 -2.61102e+154 1.11182e+154 1.71983e+153 7.68851e+153 1.46796e+154 -1.30435e+154 -6.30732e+153
+
+  plain relu output: shape(h=16,w=16,c=32)
+  plain preview: 0 0 0 0.0051313 0.00849134 0 0 0.013013
+layer 12
+
+[ conv stage 13 ]
+  input: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=11, scale=7.03687e+13
+  time_ms: 30450
+  output: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=9, scale=7.03688e+13
+  cipher decrypt preview: 1.41367e+126 -1.74577e+126 1.39515e+126 1.8589e+126 -1.0921e+126 6.5059e+125 -1.69839e+126 -1.00738e+126
+
+  plain conv2 output: shape(h=16,w=16,c=32)
+  plain preview: -0.014662 -0.0159153 -0.00540328 -0.0111179 -0.0125327 -0.0152348 -0.0113794 -0.00589616
+
+[ batchnorm stage 13 ]
+  input: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=9, scale=7.03688e+13
+  time_ms: 31
+  output: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=9, scale=7.03688e+13
+  cipher decrypt preview: 1.41367e+126 -1.74577e+126 1.39515e+126 1.8589e+126 -1.0921e+126 6.5059e+125 -1.69839e+126 -1.00738e+126
+
+  plain bn2 output: shape(h=16,w=16,c=32)
+  plain preview: -0.015854 -0.0171073 -0.00659536 -0.01231 -0.0137248 -0.0164269 -0.0125715 -0.00708823
+
+[ residual add ]
+  output: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=9, scale=7.03687e+13
+  cipher decrypt preview: -2.51906e+125 2.17579e+126 -2.9236e+126 -3.62979e+125 -2.43193e+126 4.26708e+126 6.65824e+125 -1.78933e+126
+
+  plain add output: shape(h=16,w=16,c=32)
+  plain preview: -0.015854 -0.0171073 -0.00659536 -0.01231 -0.0137248 -0.0164269 -0.0125715 -0.00708823
+
+[ bootstrap stage 13 ]
+  input: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=9, scale=7.03687e+13
+  time_ms: 133424
+  output: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=25, scale=7.03687e+13
+  cipher decrypt preview: 318985 -1.73425e+06 -897722 -888123 -139276 -1.24489e+06 -2.40997e+06 101875
+
+
+[ relu stage 13 ]
+  input: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=25, scale=7.03687e+13
+  relu input: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=25, scale=7.03687e+13
+  cipher decrypt preview: 318985 -1.73425e+06 -897722 -888123 -139276 -1.24489e+06 -2.40997e+06 101875
+  sign poly coeff counts: c1=16 c2=16 c3=28
+  sign poly step 1 pre-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=25, scale=7.03687e+13
+  sign poly step 1 post-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=21, scale=7.03687e+13
+  sign poly step 2 pre-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=21, scale=7.03687e+13
+  sign poly step 2 post-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=17, scale=7.03687e+13
+  sign poly step 3 pre-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=17, scale=7.03687e+13
+  sign poly step 3 post-eval state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=12, scale=7.03687e+13
+  sign poly add-const state: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=12, scale=7.03687e+13
+  relu sign-mask: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=12, scale=7.03687e+13
+  cipher decrypt preview: 9.03824e+167 -7.43278e+167 2.492e+167 -2.37723e+167 2.06875e+168 -1.38507e+167 -9.42952e+166 -4.16269e+167
+  relu post-multiply: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=12, scale=4.95176e+27
+  relu post-rescale: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=11, scale=7.03687e+13
+  time_ms: 11337
+  output: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=11, scale=7.03687e+13
+  cipher decrypt preview: -2.35026e+153 4.82034e+153 -1.76301e+154 -2.81574e+153 1.88099e+154 -7.3882e+153 -2.56493e+153 -7.85011e+152
+
+  plain relu output: shape(h=16,w=16,c=32)
+  plain preview: 0 0 0 0 0 0 0 0
+
+========== Stage 3 Block 0 / Layer 13 ==========
+stage3 block 0: conv1 -> bn1 -> bootstrap(log_slots=12) -> relu -> conv2 -> bn2 -> downsample shortcut -> add -> bootstrap(log_slots=12) -> relu
+layer 13
+
+[ conv stage 14 ]
+  input: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=11, scale=7.03687e+13
+  time_ms: 67425
+  output: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=9, scale=7.03688e+13
+  cipher decrypt preview: 1.30241e+126 5.85864e+125 6.00932e+125 -4.89771e+125 -4.79291e+125 -3.99072e+125 -3.1557e+125 -1.29551e+124
+
+  plain conv1 output: shape(h=8,w=8,c=64)
+  plain preview: 0.00693964 -0.00291894 -0.00188869 0.00683851 -0.000362626 -0.0212902 0.00392438 -0.00111074
+
+[ batchnorm stage 14 ]
+  input: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=9, scale=7.03688e+13
+  time_ms: 30
+  output: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=9, scale=7.03688e+13
+  cipher decrypt preview: 1.30241e+126 5.85864e+125 6.00932e+125 -4.89771e+125 -4.79291e+125 -3.99072e+125 -3.1557e+125 -1.29551e+124
+
+  plain bn1 output: shape(h=8,w=8,c=64)
+  plain preview: 0.00403226 -0.00582632 -0.00479608 0.00393112 -0.00327001 -0.0241976 0.001017 -0.00401812
+
+[ bootstrap stage 14 ]
+  input: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=9, scale=7.03688e+13
+  time_ms: 133324
+  output: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=25, scale=7.03687e+13
+  cipher decrypt preview: 289676 -296740 719074 225.041 -24777.3 399468 762074 618626
+
+
+[ relu stage 14 ]
+  input: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=25, scale=7.03687e+13
+  relu input: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=25, scale=7.03687e+13
+  cipher decrypt preview: 289676 -296740 719074 225.041 -24777.3 399468 762074 618626
+  sign poly coeff counts: c1=16 c2=16 c3=28
+  sign poly step 1 pre-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=25, scale=7.03687e+13
+  sign poly step 1 post-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=21, scale=7.03687e+13
+  sign poly step 2 pre-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=21, scale=7.03687e+13
+  sign poly step 2 post-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=17, scale=7.03687e+13
+  sign poly step 3 pre-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=17, scale=7.03687e+13
+  sign poly step 3 post-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=12, scale=7.03687e+13
+  sign poly add-const state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=12, scale=7.03687e+13
+  relu sign-mask: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=12, scale=7.03687e+13
+  cipher decrypt preview: 1.39273e+167 1.4288e+167 -3.26716e+167 9.86071e+167 1.81062e+168 5.08192e+167 4.87247e+166 -5.05626e+167
+  relu post-multiply: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=12, scale=4.95176e+27
+  relu post-rescale: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=11, scale=7.03687e+13
+  time_ms: 11035
+  output: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=11, scale=7.03687e+13
+  cipher decrypt preview: -2.65058e+154 5.92991e+153 1.13602e+153 -8.66543e+153 -6.01779e+153 -4.21321e+153 -4.96073e+153 -2.4566e+154
+
+  plain relu output: shape(h=8,w=8,c=64)
+  plain preview: 0.00403226 0 0 0.00393112 0 0 0.001017 0
+layer 14
+
+[ conv stage 15 ]
+  input: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=11, scale=7.03687e+13
+  time_ms: 57552
+  output: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=9, scale=7.03688e+13
+  cipher decrypt preview: 6.56679e+125 9.90382e+125 -2.24641e+125 -1.36562e+125 2.44245e+125 1.4344e+126 -5.80885e+124 4.81278e+125
+
+  plain conv2 output: shape(h=8,w=8,c=64)
+  plain preview: -0.0303195 -0.0397427 -0.0576263 -0.0270079 -0.0418481 -0.0801619 -0.0465219 -0.0246886
+
+[ batchnorm stage 15 ]
+  input: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=9, scale=7.03688e+13
+  time_ms: 26
+  output: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=9, scale=7.03688e+13
+  cipher decrypt preview: 6.56679e+125 9.90382e+125 -2.24641e+125 -1.36562e+125 2.44245e+125 1.4344e+126 -5.80885e+124 4.81278e+125
+
+  plain bn2 output: shape(h=8,w=8,c=64)
+  plain preview: -0.0153073 -0.0247305 -0.042614 -0.0119956 -0.0268359 -0.0651496 -0.0315097 -0.0096764
+
+[ downsample shortcut ]
+  input: shape(k=2,h=16,w=16,c=32,t=8,p=4), level=11, scale=7.03687e+13
+  time_ms: 8737
+  output: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=10, scale=7.03688e+13
+  cipher decrypt preview: -1.98486e+139 6.10051e+139 1.11055e+139 1.53987e+139 -6.27201e+139 -1.90708e+139 6.00537e+139 -8.41063e+138
+
+  plain shortcut output: shape(h=8,w=8,c=64)
+  plain preview: 0 0 0 0 0 0 0 0
+
+[ residual add ]
+  output: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=9, scale=7.03687e+13
+  cipher decrypt preview: -2.42094e+124 -5.72662e+125 -3.39673e+125 -6.07404e+125 -1.44047e+125 -9.82021e+125 -1.30791e+125 1.2894e+126
+
+  plain add output: shape(h=8,w=8,c=64)
+  plain preview: -0.0153073 -0.0247305 -0.042614 -0.0119956 -0.0268359 -0.0651496 -0.0315097 -0.0096764
+
+[ bootstrap stage 15 ]
+  input: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=9, scale=7.03687e+13
+  time_ms: 133562
+  output: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=25, scale=7.03687e+13
+  cipher decrypt preview: 621207 296163 123205 542149 -294561 185551 -247851 -775957
+
+
+[ relu stage 15 ]
+  input: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=25, scale=7.03687e+13
+  relu input: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=25, scale=7.03687e+13
+  cipher decrypt preview: 621207 296163 123205 542149 -294561 185551 -247851 -775957
+  sign poly coeff counts: c1=16 c2=16 c3=28
+  sign poly step 1 pre-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=25, scale=7.03687e+13
+  sign poly step 1 post-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=21, scale=7.03687e+13
+  sign poly step 2 pre-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=21, scale=7.03687e+13
+  sign poly step 2 post-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=17, scale=7.03687e+13
+  sign poly step 3 pre-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=17, scale=7.03687e+13
+  sign poly step 3 post-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=12, scale=7.03687e+13
+  sign poly add-const state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=12, scale=7.03687e+13
+  relu sign-mask: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=12, scale=7.03687e+13
+  cipher decrypt preview: -9.21501e+167 8.06325e+167 -8.39281e+167 7.21026e+167 -1.40935e+168 -4.38875e+167 1.39187e+168 3.45207e+167
+  relu post-multiply: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=12, scale=4.95176e+27
+  relu post-rescale: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=11, scale=7.03687e+13
+  time_ms: 11481
+  output: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=11, scale=7.03687e+13
+  cipher decrypt preview: 6.75979e+153 2.13087e+154 1.14776e+153 -2.61389e+153 -7.1417e+152 -2.90506e+152 -6.94303e+153 -1.92321e+154
+
+  plain relu output: shape(h=8,w=8,c=64)
+  plain preview: 0 0 0 0 0 0 0 0
+
+========== Stage 3 Block 1 / Layer 15 ==========
+stage3 block 1: conv1 -> bn1 -> bootstrap(log_slots=12) -> relu -> conv2 -> bn2 -> add -> bootstrap(log_slots=12) -> relu
+layer 15
+
+[ conv stage 16 ]
+  input: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=11, scale=7.03687e+13
+  time_ms: 58046
+  output: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=9, scale=7.03688e+13
+  cipher decrypt preview: 9.60835e+125 -8.0547e+125 3.93102e+125 -1.13575e+126 2.9668e+125 -5.8705e+125 1.18582e+125 8.73163e+124
+
+  plain conv1 output: shape(h=8,w=8,c=64)
+  plain preview: -0.00634173 -0.00528569 0.00681808 0.016978 0.00228272 -0.0389785 -0.0230113 -0.00438246
+
+[ batchnorm stage 16 ]
+  input: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=9, scale=7.03688e+13
+  time_ms: 32
+  output: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=9, scale=7.03688e+13
+  cipher decrypt preview: 9.60835e+125 -8.0547e+125 3.93102e+125 -1.13575e+126 2.9668e+125 -5.8705e+125 1.18582e+125 8.73163e+124
+
+  plain bn1 output: shape(h=8,w=8,c=64)
+  plain preview: -0.0212344 -0.0201784 -0.00807459 0.00208533 -0.0126099 -0.0538712 -0.037904 -0.0192751
+
+[ bootstrap stage 16 ]
+  input: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=9, scale=7.03688e+13
+  time_ms: 133007
+  output: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=25, scale=7.03687e+13
+  cipher decrypt preview: -373042 512351 -29420.8 -463248 471750 -450336 -699459 179165
+
+
+[ relu stage 16 ]
+  input: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=25, scale=7.03687e+13
+  relu input: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=25, scale=7.03687e+13
+  cipher decrypt preview: -373042 512351 -29420.8 -463248 471750 -450336 -699459 179165
+  sign poly coeff counts: c1=16 c2=16 c3=28
+  sign poly step 1 pre-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=25, scale=7.03687e+13
+  sign poly step 1 post-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=21, scale=7.03687e+13
+  sign poly step 2 pre-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=21, scale=7.03687e+13
+  sign poly step 2 post-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=17, scale=7.03687e+13
+  sign poly step 3 pre-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=17, scale=7.03687e+13
+  sign poly step 3 post-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=12, scale=7.03687e+13
+  sign poly add-const state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=12, scale=7.03687e+13
+  relu sign-mask: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=12, scale=7.03687e+13
+  cipher decrypt preview: 5.27709e+167 6.17192e+167 -1.8879e+168 -2.12441e+167 7.28919e+167 6.04787e+167 3.09091e+167 2.74181e+167
+  relu post-multiply: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=12, scale=4.95176e+27
+  relu post-rescale: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=11, scale=7.03687e+13
+  time_ms: 11303
+  output: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=11, scale=7.03687e+13
+  cipher decrypt preview: -1.98319e+154 -2.8684e+154 6.54306e+153 -3.00022e+153 7.26347e+152 3.49571e+153 6.10624e+153 6.12366e+152
+
+  plain relu output: shape(h=8,w=8,c=64)
+  plain preview: 0 0 0 0.00208533 0 0 0 0
+layer 16
+
+[ conv stage 17 ]
+  input: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=11, scale=7.03687e+13
+  time_ms: 58041
+  output: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=9, scale=7.03688e+13
+  cipher decrypt preview: 7.49374e+125 1.96337e+125 4.0598e+125 6.37658e+124 -2.63581e+124 -4.1057e+125 -8.91903e+125 2.74201e+125
+
+  plain conv2 output: shape(h=8,w=8,c=64)
+  plain preview: -0.00299513 -0.0136171 -0.00132125 0.0117483 -0.00901034 -0.0106622 -0.0106978 -0.0127775
+
+[ batchnorm stage 17 ]
+  input: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=9, scale=7.03688e+13
+  time_ms: 28
+  output: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=9, scale=7.03688e+13
+  cipher decrypt preview: 7.49374e+125 1.96337e+125 4.0598e+125 6.37658e+124 -2.63581e+124 -4.1057e+125 -8.91903e+125 2.74201e+125
+
+  plain bn2 output: shape(h=8,w=8,c=64)
+  plain preview: -0.00157655 -0.0121985 9.73256e-05 0.0131669 -0.00759177 -0.00924361 -0.00927918 -0.0113589
+
+[ residual add ]
+  output: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=9, scale=7.03687e+13
+  cipher decrypt preview: -1.65955e+126 1.76821e+126 -9.34708e+125 -5.71539e+124 5.21735e+126 1.81047e+126 -3.9307e+126 -1.4796e+126
+
+  plain add output: shape(h=8,w=8,c=64)
+  plain preview: -0.00157655 -0.0121985 9.73256e-05 0.0131669 -0.00759177 -0.00924361 -0.00927918 -0.0113589
+
+[ bootstrap stage 17 ]
+  input: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=9, scale=7.03687e+13
+  time_ms: 134300
+  output: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=25, scale=7.03687e+13
+  cipher decrypt preview: -989919 -875238 -3.37336e+06 -994595 1.876e+06 -1.81328e+06 -1.41288e+06 -958902
+
+
+[ relu stage 17 ]
+  input: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=25, scale=7.03687e+13
+  relu input: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=25, scale=7.03687e+13
+  cipher decrypt preview: -989919 -875238 -3.37336e+06 -994595 1.876e+06 -1.81328e+06 -1.41288e+06 -958902
+  sign poly coeff counts: c1=16 c2=16 c3=28
+  sign poly step 1 pre-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=25, scale=7.03687e+13
+  sign poly step 1 post-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=21, scale=7.03687e+13
+  sign poly step 2 pre-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=21, scale=7.03687e+13
+  sign poly step 2 post-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=17, scale=7.03687e+13
+  sign poly step 3 pre-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=17, scale=7.03687e+13
+  sign poly step 3 post-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=12, scale=7.03687e+13
+  sign poly add-const state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=12, scale=7.03687e+13
+  relu sign-mask: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=12, scale=7.03687e+13
+  cipher decrypt preview: 3.42647e+167 -1.41936e+167 6.57503e+167 2.25719e+167 -3.79161e+167 8.13742e+167 -1.51095e+168 -5.31839e+167
+  relu post-multiply: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=12, scale=4.95176e+27
+  relu post-rescale: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=11, scale=7.03687e+13
+  time_ms: 11310
+  output: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=11, scale=7.03687e+13
+  cipher decrypt preview: -2.34739e+153 5.01354e+153 7.35979e+152 5.17293e+153 -3.7454e+153 1.46309e+154 -2.40705e+154 4.57593e+153
+
+  plain relu output: shape(h=8,w=8,c=64)
+  plain preview: 0 0 9.73256e-05 0.0131669 0 0 0 0
+
+========== Stage 3 Block 2 / Layer 17 ==========
+stage3 block 2: conv1 -> bn1 -> bootstrap(log_slots=12) -> relu -> conv2 -> bn2 -> add -> bootstrap(log_slots=12) -> relu
+layer 17
+
+[ conv stage 18 ]
+  input: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=11, scale=7.03687e+13
+  time_ms: 57069
+  output: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=9, scale=7.03688e+13
+  cipher decrypt preview: -3.14356e+125 9.26069e+125 -8.10207e+125 -2.91319e+125 -1.0737e+126 5.29788e+125 1.62293e+125 -1.35973e+126
+
+  plain conv1 output: shape(h=8,w=8,c=64)
+  plain preview: -0.000650256 -0.0124202 -0.0133148 0.00181033 0.021732 0.0174057 -0.00570502 0.0136526
+
+[ batchnorm stage 18 ]
+  input: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=9, scale=7.03688e+13
+  time_ms: 27
+  output: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=9, scale=7.03688e+13
+  cipher decrypt preview: -3.14356e+125 9.26069e+125 -8.10207e+125 -2.91319e+125 -1.0737e+126 5.29788e+125 1.62293e+125 -1.35973e+126
+
+  plain bn1 output: shape(h=8,w=8,c=64)
+  plain preview: -0.00943943 -0.0212093 -0.022104 -0.00697884 0.0129428 0.00861656 -0.0144942 0.0048634
+
+[ bootstrap stage 18 ]
+  input: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=9, scale=7.03688e+13
+  time_ms: 133941
+  output: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=25, scale=7.03687e+13
+  cipher decrypt preview: 222182 -490355 398368 880599 -237403 -646545 285588 359597
+
+
+[ relu stage 18 ]
+  input: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=25, scale=7.03687e+13
+  relu input: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=25, scale=7.03687e+13
+  cipher decrypt preview: 222182 -490355 398368 880599 -237403 -646545 285588 359597
+  sign poly coeff counts: c1=16 c2=16 c3=28
+  sign poly step 1 pre-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=25, scale=7.03687e+13
+  sign poly step 1 post-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=21, scale=7.03687e+13
+  sign poly step 2 pre-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=21, scale=7.03687e+13
+  sign poly step 2 post-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=17, scale=7.03687e+13
+  sign poly step 3 pre-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=17, scale=7.03687e+13
+  sign poly step 3 post-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=12, scale=7.03687e+13
+  sign poly add-const state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=12, scale=7.03687e+13
+  relu sign-mask: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=12, scale=7.03687e+13
+  cipher decrypt preview: 5.27278e+167 1.23604e+168 -1.33044e+168 6.1632e+167 -8.67465e+167 7.55762e+167 -2.47996e+167 1.61753e+167
+  relu post-multiply: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=12, scale=4.95176e+27
+  relu post-rescale: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=11, scale=7.03687e+13
+  time_ms: 11611
+  output: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=11, scale=7.03687e+13
+  cipher decrypt preview: 4.71867e+153 3.42179e+154 3.8086e+153 2.88708e+152 2.13795e+154 1.94696e+154 2.07336e+153 -7.52979e+153
+
+  plain relu output: shape(h=8,w=8,c=64)
+  plain preview: 0 0 0 0 0.0129428 0.00861656 0 0.0048634
+layer 18
+
+[ conv stage 19 ]
+  input: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=11, scale=7.03687e+13
+  time_ms: 57244
+  output: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=9, scale=7.03688e+13
+  cipher decrypt preview: -2.34168e+126 2.42556e+125 -1.86454e+125 -8.28576e+125 6.85641e+125 1.36596e+126 1.48605e+125 -5.7167e+125
+
+  plain conv2 output: shape(h=8,w=8,c=64)
+  plain preview: -0.000994988 0.00348301 -0.0199526 -0.0298965 -0.0170049 -0.00362903 0.0158665 0.0123604
+
+[ batchnorm stage 19 ]
+  input: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=9, scale=7.03688e+13
+  time_ms: 29
+  output: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=9, scale=7.03688e+13
+  cipher decrypt preview: -2.34168e+126 2.42556e+125 -1.86454e+125 -8.28576e+125 6.85641e+125 1.36596e+126 1.48605e+125 -5.7167e+125
+
+  plain bn2 output: shape(h=8,w=8,c=64)
+  plain preview: 0.000434735 0.00491273 -0.0185228 -0.0284668 -0.0155752 -0.00219931 0.0172963 0.0137901
+
+[ residual add ]
+  output: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=9, scale=7.03687e+13
+  cipher decrypt preview: -6.40774e+125 -3.29863e+126 1.55746e+126 6.00438e+125 -1.44288e+125 2.08364e+126 7.39953e+125 2.6822e+126
+
+  plain add output: shape(h=8,w=8,c=64)
+  plain preview: 0.000434735 0.00491273 -0.0184255 -0.0152999 -0.0155752 -0.00219931 0.0172963 0.0137901
+
+[ bootstrap stage 19 ]
+  input: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=9, scale=7.03687e+13
+  time_ms: 129660
+  output: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=25, scale=7.03687e+13
+  cipher decrypt preview: 2.63945e+06 1.03789e+06 1.02144e+06 675720 1.51282e+06 1.02303e+06 -621176 -347583
+
+
+[ relu stage 19 ]
+  input: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=25, scale=7.03687e+13
+  relu input: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=25, scale=7.03687e+13
+  cipher decrypt preview: 2.63945e+06 1.03789e+06 1.02144e+06 675720 1.51282e+06 1.02303e+06 -621176 -347583
+  sign poly coeff counts: c1=16 c2=16 c3=28
+  sign poly step 1 pre-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=25, scale=7.03687e+13
+  sign poly step 1 post-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=21, scale=7.03687e+13
+  sign poly step 2 pre-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=21, scale=7.03687e+13
+  sign poly step 2 post-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=17, scale=7.03687e+13
+  sign poly step 3 pre-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=17, scale=7.03687e+13
+  sign poly step 3 post-eval state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=12, scale=7.03687e+13
+  sign poly add-const state: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=12, scale=7.03687e+13
+  relu sign-mask: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=12, scale=7.03687e+13
+  cipher decrypt preview: -1.14614e+168 1.41948e+168 -9.56453e+167 -9.43122e+167 -6.40128e+166 1.35622e+168 3.20074e+167 -5.34058e+167
+  relu post-multiply: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=12, scale=4.95176e+27
+  relu post-rescale: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=11, scale=7.03687e+13
+  time_ms: 11208
+  output: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=11, scale=7.03687e+13
+  cipher decrypt preview: -1.8072e+154 9.64172e+153 1.61085e+153 -7.13681e+153 2.4537e+154 -5.77319e+153 5.97383e+152 -1.09582e+154
+
+  plain relu output: shape(h=8,w=8,c=64)
+  plain preview: 0.000434735 0.00491273 0 0 0 0 0.0172963 0.0137901
+
+========== Head (layer 19) ==========
+head: average_pool -> fully_connected -> argmax
+
+[ average pool ]
+  input: shape(k=4,h=8,w=8,c=64,t=4,p=8), level=11, scale=7.03687e+13
+  time_ms: 9284
+  output: shape(k=1,h=1,w=1,c=64,t=4,p=1), level=10, scale=7.03688e+13
+  cipher decrypt preview: -5.24902e+139 1.96157e+140 2.47296e+140 1.10959e+140 -1.50955e+139 -3.27711e+139 2.10089e+139 -1.01111e+140
+
+  plain average pool output: shape(h=1,w=1,c=64)
+  plain preview: 1.76609 1.18438 1.46063 0.0607251 0.359039 2.17316 0.514435 1.61466
+
+[ fully connected ]
+  input: shape(k=1,h=1,w=1,c=64,t=4,p=1), level=10, scale=7.03688e+13
+  time_ms: 35413
+  output: shape(k=1,h=1,w=1,c=64,t=4,p=1), level=9, scale=7.03688e+13
+  cipher decrypt preview: 1.75153e+126 -5.64825e+125 1.44654e+126 -1.32619e+126 2.209e+126 -2.00006e+126 7.65274e+125 -1.48359e+126
+
+logits: 1.75153e+126 -5.64825e+125 1.44654e+126 -1.32619e+126 2.209e+126 -2.00006e+126 7.65274e+125 -1.48359e+126 -1.82521e+126 -1.31659e+126
+predicted label: 4
+plain logits: -6.57955 2.3563 1.84491 22.4412 -5.86229 5.58276 -3.48701 -7.5949 -1.99719 -6.70019
+plain predicted label: 3
