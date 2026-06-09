@@ -13,6 +13,7 @@ add_executable(
 )
 add_executable(
   resnet20_test_relu
+  cnn.cpp
   test_relu_levels.cpp
 )
 target_include_directories(
