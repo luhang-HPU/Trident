@@ -49,5 +49,4 @@ std::vector<double> plain_fully_connected(const PlainTensor &input,
                                           const std::vector<double> &bias, int q, int r);
 
 void log_plain_tensor(const std::string &label, const PlainTensor &tensor, std::ostream &output,
-                      std::size_t preview_count = 8);
-
+                      std::size_t preview_count = 32);

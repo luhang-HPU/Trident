@@ -13,11 +13,34 @@
 
 #include <cstddef>
 #include <iosfwd>
+#include <map>
 #include <vector>
+
+enum class EvalType : int
+{
+    None = 0,
+    OddBaby = 1,
+    Baby = 2,
+};
 
 struct Tree
 {
+    int depth = 0;
+    EvalType type = EvalType::None;
+    std::vector<int> tree;
+    int m = 0;
+    int l = 0;
+    int b = 0;
+
+    Tree();
+    explicit Tree(EvalType eval_type);
+
+    void clear();
+    void merge(const Tree &lhs, const Tree &rhs, int g);
 };
+
+void upgrade_oddbaby(long degree, Tree &tree);
+void upgrade_baby(long degree, Tree &tree);
 
 class TensorCipher
 {
@@ -144,7 +167,7 @@ void ReLU_seal(const TensorCipher &cnn_in, TensorCipher &cnn_out, long comp_no,
                double scale = 1.0);
 
 void cnn_add_seal(const TensorCipher &cnn1, const TensorCipher &cnn2, TensorCipher &destination,
-                  poseidon::EvaluatorCkksBase &evaluator);
+                  poseidon::EvaluatorCkksBase &evaluator, poseidon::CKKSEncoder &encoder);
 
 void multiplexed_parallel_downsampling_seal(const TensorCipher &cnn_in, TensorCipher &cnn_out,
                                             poseidon::EvaluatorCkksBase &evaluator,
