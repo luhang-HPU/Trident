@@ -108,7 +108,7 @@ struct PoseidonRuntime
 vector<uint32_t> logq_chain()
 {
     return {
-        46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 
+        46, 46, 46, 46, 46, 46, 46, 46, 46, 
         46, 46, 46, 46, 46, 46, 46, 46, 46, 51, 51, 51, 51, 51, 51, 51,
         51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51};
 }
@@ -740,7 +740,7 @@ void ResNet_cifar10_sparse(size_t start_image_id, size_t end_image_id)
                << ", scale=" << cnn.cipher().scale() << '\n';
         log_plain_tensor("plain input", plain_cnn, output);
 
-        for (int i = 0; i < plan.boot_level - 3; ++i)
+        for (int i = 0; i < plan.boot_level + 5; ++i)
         {
             runtime.evaluator->drop_modulus_to_next(cnn.cipher(), cnn.cipher());
         }
