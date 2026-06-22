@@ -1540,6 +1540,21 @@ void bootstrap_print(const TensorCipher &cnn_in, TensorCipher &cnn_out,
     bootstrapper.evaluator->bootstrap(result, result, *bootstrapper.relin_keys,
                                       *bootstrapper.galois_keys, *bootstrapper.encoder,
                                       *bootstrapper.bootstrap_poly);
+
+    output << "  bootstrap real projection: compute (cipher + conjugate(cipher)) / 2\n";
+    const double target_scale = result.scale();
+    Ciphertext conjugated;
+    bootstrapper.evaluator->conjugate(result, *bootstrapper.galois_keys, conjugated);
+    Ciphertext real_sum;
+    bootstrapper.evaluator->add(result, conjugated, real_sum);
+    Ciphertext real_projected;
+    bootstrapper.evaluator->multiply_const(real_sum, 0.5,
+                                           multiply_plain_scale(real_sum, encoder),
+                                           real_projected, encoder);
+    bootstrapper.evaluator->rescale_dynamic(real_projected, real_projected, target_scale);
+    real_projected.scale() = target_scale;
+    result = real_projected;
+
     const auto time_end = chrono::high_resolution_clock::now();
 
     cnn_out = TensorCipher(cnn_in.logn(), cnn_in.k(), cnn_in.h(), cnn_in.w(), cnn_in.c(),
