@@ -1294,14 +1294,6 @@ void relu_impl(const TensorCipher &cnn_in, TensorCipher &cnn_out, long comp_no,
                CKKSEncoder &encoder, RelinKeys &relin_keys, double scale, ostream *output,
                const PoseidonContext *context)
 {
-    (void)comp_no;
-    (void)deg;
-    (void)alpha;
-    (void)tree;
-    (void)scaled_val;
-    (void)evaluator;
-    (void)relin_keys;
-
     const int ki = cnn_in.k();
     const int hi = cnn_in.h();
     const int wi = cnn_in.w();
@@ -1316,31 +1308,37 @@ void relu_impl(const TensorCipher &cnn_in, TensorCipher &cnn_out, long comp_no,
         decode_preview(cnn_in.cipher(), decryptor, encoder, *output);
     }
 
-    Plaintext plain_in;
-    vector<complex<double>> decoded;
-    decryptor.decrypt(cnn_in.cipher(), plain_in);
-    encoder.decode(plain_in, decoded);
-    for (auto &value : decoded)
+    if (comp_no != static_cast<long>(deg.size()) || deg.size() != tree.size())
     {
-        value = complex<double>(max(0.0, value.real()), 0.0);
+        throw invalid_argument("relu polynomial component count does not match degree/tree config");
     }
 
-    Plaintext plain_out;
-    encoder.encode(decoded, scale, plain_out);
-
-    Ciphertext relu_cipher;
-    encryptor.encrypt(plain_out, relu_cipher);
-    if (relu_cipher.parms_id() != cnn_in.cipher().parms_id())
-    {
-        evaluator.drop_modulus(relu_cipher, relu_cipher, cnn_in.cipher().parms_id());
-    }
     if (output)
     {
-        *output << "  relu mode: decrypt -> exact plaintext relu -> encrypt\n";
+        *output << "  relu mode: ciphertext polynomial approximation\n";
     }
+
+    Ciphertext mask = approximate_sign01(cnn_in.cipher(), deg, alpha, tree, scaled_val, encryptor,
+                                         encoder, evaluator, &decryptor, relin_keys, &cnn_in,
+                                         context, output);
     if (output && context)
     {
-        log_labeled_cipher_state("relu debug re-encrypt", relu_cipher, cnn_in, *context, *output);
+        log_labeled_cipher_state("relu polynomial mask", mask, cnn_in, *context, *output);
+        decode_preview(mask, decryptor, encoder, *output);
+    }
+
+    Ciphertext relu_cipher;
+    evaluator.multiply_relin_dynamic(cnn_in.cipher(), mask, relu_cipher, relin_keys);
+    if (output && context)
+    {
+        log_labeled_cipher_state("relu post-multiply", relu_cipher, cnn_in, *context, *output);
+    }
+
+    evaluator.rescale(relu_cipher, relu_cipher);
+    assign_scale_for_relu_reference(relu_cipher, scale);
+    if (output && context)
+    {
+        log_labeled_cipher_state("relu post-rescale", relu_cipher, cnn_in, *context, *output);
         decode_preview(relu_cipher, decryptor, encoder, *output);
     }
 
