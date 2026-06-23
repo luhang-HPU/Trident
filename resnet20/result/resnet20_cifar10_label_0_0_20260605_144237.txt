@@ -1,3 +1,0 @@
-image_id: 0, image label: 3, predicted label: 7, plain predicted label: 3
-
-all threads time : 3052255 ms

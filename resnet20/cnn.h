@@ -98,7 +98,7 @@ void multiplexed_parallel_convolution_print(
     std::ostream &output, poseidon::Decryptor &decryptor, poseidon::PoseidonContext &context,
     std::size_t stage, bool end = false);
 
-void multiplexed_parallel_batch_norm_seal_print(
+void multiplexed_parallel_batch_norm_print(
     const TensorCipher &cnn_in, TensorCipher &cnn_out, std::vector<double> bias,
     std::vector<double> running_mean, std::vector<double> running_var, std::vector<double> weight,
     double epsilon, poseidon::CKKSEncoder &encoder, poseidon::Encryptor &encryptor,
@@ -106,45 +106,44 @@ void multiplexed_parallel_batch_norm_seal_print(
     poseidon::Decryptor &decryptor, poseidon::PoseidonContext &context, std::size_t stage,
     bool end = false);
 
-void approx_ReLU_seal_print(
+void approx_relu_print(
     const TensorCipher &cnn_in, TensorCipher &cnn_out, long comp_no, std::vector<int> deg,
-    long alpha, std::vector<Tree> &tree, double scaled_val, long scalingfactor,
+    long alpha, std::vector<Tree> &tree, double scaled_val,
     poseidon::Encryptor &encryptor, poseidon::EvaluatorCkksBase &evaluator,
     poseidon::Decryptor &decryptor, poseidon::CKKSEncoder &encoder,
-    poseidon::PublicKey &public_key, poseidon::SecretKey &secret_key,
-    poseidon::RelinKeys &relin_keys, double B, std::ostream &output,
-    poseidon::PoseidonContext &context, poseidon::GaloisKeys &gal_keys, std::size_t stage);
+    poseidon::RelinKeys &relin_keys, double target_scale, std::ostream &output,
+    poseidon::PoseidonContext &context, std::size_t stage);
 
 void bootstrap_print(const TensorCipher &cnn_in, TensorCipher &cnn_out,
                      PoseidonBootstrapContext &bootstrapper, std::ostream &output,
                      poseidon::Decryptor &decryptor, poseidon::CKKSEncoder &encoder,
                      poseidon::PoseidonContext &context, std::size_t stage);
 
-void cipher_add_seal_print(const TensorCipher &cnn1, const TensorCipher &cnn2,
+void cipher_add_stage_print(const TensorCipher &cnn1, const TensorCipher &cnn2,
                            TensorCipher &destination, poseidon::EvaluatorCkksBase &evaluator,
                            std::ostream &output, poseidon::Decryptor &decryptor,
                            poseidon::CKKSEncoder &encoder, poseidon::PoseidonContext &context);
 
-void multiplexed_parallel_downsampling_seal_print(
+void multiplexed_parallel_downsampling_print(
     const TensorCipher &cnn_in, TensorCipher &cnn_out, poseidon::EvaluatorCkksBase &evaluator,
     poseidon::Decryptor &decryptor, poseidon::CKKSEncoder &encoder,
     poseidon::PoseidonContext &context, poseidon::GaloisKeys &gal_keys, std::ostream &output);
 
-void averagepooling_seal_scale_print(const TensorCipher &cnn_in, TensorCipher &cnn_out,
+void averagepooling_scale_print(const TensorCipher &cnn_in, TensorCipher &cnn_out,
                                      poseidon::EvaluatorCkksBase &evaluator,
                                      poseidon::GaloisKeys &gal_keys, double B,
                                      std::ostream &output, poseidon::Decryptor &decryptor,
                                      poseidon::CKKSEncoder &encoder,
                                      poseidon::PoseidonContext &context);
 
-void fully_connected_seal_print(const TensorCipher &cnn_in, TensorCipher &cnn_out,
+void fully_connected_print(const TensorCipher &cnn_in, TensorCipher &cnn_out,
                                 std::vector<double> matrix, std::vector<double> bias, int q,
                                 int r, poseidon::EvaluatorCkksBase &evaluator,
                                 poseidon::GaloisKeys &gal_keys, std::ostream &output,
                                 poseidon::Decryptor &decryptor, poseidon::CKKSEncoder &encoder,
                                 poseidon::PoseidonContext &context);
 
-void multiplexed_parallel_convolution_seal(
+void multiplexed_parallel_convolution(
     const TensorCipher &cnn_in, TensorCipher &cnn_out, int co, int st, int fh, int fw,
     const std::vector<double> &data, std::vector<double> running_var,
     std::vector<double> constant_weight, double epsilon, poseidon::CKKSEncoder &encoder,
@@ -152,35 +151,27 @@ void multiplexed_parallel_convolution_seal(
     poseidon::GaloisKeys &gal_keys, std::vector<poseidon::Ciphertext> &cipher_pool,
     bool end = false);
 
-void multiplexed_parallel_batch_norm_seal(
+void multiplexed_parallel_batch_norm(
     const TensorCipher &cnn_in, TensorCipher &cnn_out, std::vector<double> bias,
     std::vector<double> running_mean, std::vector<double> running_var, std::vector<double> weight,
     double epsilon, poseidon::CKKSEncoder &encoder, poseidon::Encryptor &encryptor,
     poseidon::EvaluatorCkksBase &evaluator, double B, bool end = false);
 
-void ReLU_seal(const TensorCipher &cnn_in, TensorCipher &cnn_out, long comp_no,
-               std::vector<int> deg, long alpha, std::vector<Tree> &tree, double scaled_val,
-               long scalingfactor, poseidon::Encryptor &encryptor,
-               poseidon::EvaluatorCkksBase &evaluator, poseidon::Decryptor &decryptor,
-               poseidon::CKKSEncoder &encoder, poseidon::PublicKey &public_key,
-               poseidon::SecretKey &secret_key, poseidon::RelinKeys &relin_keys,
-               double scale = 1.0);
-
-void cnn_add_seal(const TensorCipher &cnn1, const TensorCipher &cnn2, TensorCipher &destination,
+void cnn_add(const TensorCipher &cnn1, const TensorCipher &cnn2, TensorCipher &destination,
                   poseidon::EvaluatorCkksBase &evaluator, poseidon::CKKSEncoder &encoder);
 
-void multiplexed_parallel_downsampling_seal(const TensorCipher &cnn_in, TensorCipher &cnn_out,
+void multiplexed_parallel_downsampling(const TensorCipher &cnn_in, TensorCipher &cnn_out,
                                             poseidon::EvaluatorCkksBase &evaluator,
                                             poseidon::GaloisKeys &gal_keys,
                                             poseidon::CKKSEncoder &encoder);
 
-void averagepooling_seal_scale(const TensorCipher &cnn_in, TensorCipher &cnn_out,
+void averagepooling_scale(const TensorCipher &cnn_in, TensorCipher &cnn_out,
                                poseidon::EvaluatorCkksBase &evaluator,
                                poseidon::GaloisKeys &gal_keys, double B,
                                poseidon::CKKSEncoder &encoder, poseidon::Decryptor &decryptor,
                                std::ostream &output);
 
-void matrix_multiplication_seal(const TensorCipher &cnn_in, TensorCipher &cnn_out,
+void matrix_multiplication(const TensorCipher &cnn_in, TensorCipher &cnn_out,
                                 std::vector<double> matrix, std::vector<double> bias, int q,
                                 int r, poseidon::EvaluatorCkksBase &evaluator,
                                 poseidon::GaloisKeys &gal_keys, poseidon::CKKSEncoder &encoder);
