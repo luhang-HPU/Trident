@@ -249,7 +249,7 @@ void upgrade_baby(long degree, Tree &tree)
 namespace
 {
 
-constexpr int kPreviewSlots = 32;
+constexpr int kPreviewSlots = 64;
 namespace fs = std::filesystem;
 
 size_t slot_count_from_logn(int logn)
@@ -536,19 +536,6 @@ void multiply_reduced_cipher(const Ciphertext &lhs, const Ciphertext &rhs, Ciphe
     evaluator.multiply_relin_dynamic(lhs_aligned, rhs_aligned, result, relin_keys);
 }
 
-void eval_t(EvaluatorCkksBase &evaluator, const RelinKeys &relin_keys, CKKSEncoder &encoder,
-            Ciphertext &output, const Ciphertext &tm, const Ciphertext &tn,
-            const Ciphertext &tm_minus_n)
-{
-    Ciphertext product;
-    multiply_reduced_cipher(tm, tn, product, evaluator, relin_keys, encoder);
-
-    Ciphertext doubled;
-    evaluator.add_dynamic(product, product, doubled, encoder);
-    evaluator.rescale(doubled, doubled);
-    sub_lazy_cipher(doubled, tm_minus_n, output, evaluator, encoder);
-}
-
 Ciphertext encrypt_constant_cipher(double value, size_t slot_count, double scale,
                                   Encryptor &encryptor, CKKSEncoder &encoder)
 {
@@ -594,11 +581,18 @@ void decode_preview(const Ciphertext &cipher, Decryptor &decryptor, CKKSEncoder 
     vector<complex<double>> values;
     encoder.decode(plain, values);
 
-    output << "  cipher decrypt preview:";
+    output << "  cipher decrypt real preview:";
     const size_t preview = min(values.size(), static_cast<size_t>(kPreviewSlots));
     for (size_t i = 0; i < preview; ++i)
     {
         output << ' ' << values[i].real();
+    }
+    output << '\n';
+
+    output << "  cipher decrypt imag preview:";
+    for (size_t i = 0; i < preview; ++i)
+    {
+        output << ' ' << values[i].imag();
     }
     output << '\n';
 }
@@ -635,10 +629,6 @@ void multiply_by_vector_inplace(Ciphertext &input, const vector<double> &weights
 
 void log_labeled_tensor_state(const string &label, const TensorCipher &tensor,
                               const PoseidonContext &context, ostream &output);
-
-void log_labeled_cipher_state(const string &label, const Ciphertext &cipher,
-                              const TensorCipher &meta_source, const PoseidonContext &context,
-                              ostream &output);
 
 void add_assign_dynamic(Ciphertext &accumulator, const Ciphertext &term, CKKSEncoder &encoder,
                         EvaluatorCkksBase &evaluator)
@@ -893,358 +883,21 @@ Ciphertext eval_polynomial_integrate_for_relu_reference(
     return *pt[1];
 }
 
-Ciphertext eval_polynomial_integrate(const Ciphertext &cipher, long degree,
-                                     const vector<double> &decomp_coeff, const Tree &tree,
-                                     Encryptor &encryptor, EvaluatorCkksBase &evaluator,
-                                     CKKSEncoder &encoder, const RelinKeys &relin_keys,
-                                     ostream *debug_output = nullptr)
-{
-    const double scale = cipher.scale();
-    const double lazy_scale = scale * scale;
-    const long total_depth =
-        static_cast<long>(ceil_to_int(log(static_cast<double>(degree + 1)) / log(2.0)));
-    const int tree_size = 1 << (tree.depth + 1);
-    vector<long> decomp_deg(static_cast<size_t>(tree_size), -1);
-    vector<long> start_index(static_cast<size_t>(tree_size), -1);
-    vector<unique_ptr<Ciphertext>> t(100);
-    vector<unique_ptr<Ciphertext>> pt(100);
-    t[0] = make_unique<Ciphertext>();
-    t[1] = make_unique<Ciphertext>();
-
-    long temp_index = (tree.type == EvalType::OddBaby) ? 1 : 0;
-    decomp_deg[1] = degree;
-    for (int level = 1; level <= tree.depth; ++level)
-    {
-        for (int node = 1 << level; node < (1 << (level + 1)); ++node)
-        {
-            if ((node % 2) == 0)
-            {
-                decomp_deg[node] = tree.tree[node / 2] - 1;
-            }
-            else
-            {
-                decomp_deg[node] = decomp_deg[node / 2] - tree.tree[node / 2];
-            }
-        }
-    }
-    for (int node = 1; node < tree_size; ++node)
-    {
-        if (tree.tree[node] == 0)
-        {
-            start_index[node] = temp_index;
-            temp_index += decomp_deg[node] + 1;
-        }
-    }
-
-    generate_t0_t1(encryptor, encoder, cipher, *t[0], *t[1]);
-
-    if (tree.type == EvalType::OddBaby)
-    {
-        for (int stage = 1; stage <= total_depth; ++stage)
-        {
-            for (int node = 1; node < tree_size; ++node)
-            {
-                if (tree.tree[node] == 0 && total_depth + 1 - num_one(node) == stage)
-                {
-                    int coeff_index = static_cast<int>(start_index[node]);
-                    pt[node] = make_unique<Ciphertext>();
-                    multiply_const_reduced_error(
-                        *t[1], decomp_coeff.at(static_cast<size_t>(coeff_index)), lazy_scale,
-                        *pt[node], evaluator, encoder);
-                    coeff_index += 2;
-                    for (int cheb_degree = 3; cheb_degree <= decomp_deg[node]; cheb_degree += 2)
-                    {
-                        if (!t[cheb_degree])
-                        {
-                            throw runtime_error("missing Chebyshev basis ciphertext");
-                        }
-                        Ciphertext term;
-                        multiply_const_reduced_error(
-                            *t[cheb_degree], decomp_coeff.at(static_cast<size_t>(coeff_index)),
-                            lazy_scale, term, evaluator, encoder);
-                        try
-                        {
-                            add_lazy_cipher(*pt[node], term, evaluator, encoder);
-                        }
-                        catch (const std::exception &e)
-                        {
-                            if (debug_output)
-                            {
-                                *debug_output << "eval_poly leaf add failure"
-                                              << " stage=" << stage
-                                              << " node=" << node
-                                              << " cheb_degree=" << cheb_degree
-                                              << " acc_level=" << pt[node]->level()
-                                              << " acc_scale=" << pt[node]->scale()
-                                              << " acc_mod_size=" << pt[node]->coeff_modulus_size()
-                                              << " term_level=" << term.level()
-                                              << " term_scale=" << term.scale()
-                                              << " term_mod_size=" << term.coeff_modulus_size()
-                                              << " what=" << e.what() << '\n';
-                            }
-                            throw;
-                        }
-                        coeff_index += 2;
-                    }
-                    evaluator.rescale(*pt[node], *pt[node]);
-                }
-            }
-
-            for (int node = 1; node < tree_size; ++node)
-            {
-                if (tree.tree[node] > 0 && total_depth + 1 - num_one(node) == stage &&
-                    (node % 2) == 1)
-                {
-                    long walk = node;
-                    pt[node] = make_unique<Ciphertext>();
-                    evaluator.multiply_relin_dynamic(*t[tree.tree[walk]], *pt[2 * walk + 1],
-                                                    *pt[node], relin_keys);
-                    walk *= 2;
-                    while (true)
-                    {
-                        if (tree.tree[walk] == 0)
-                        {
-                            break;
-                        }
-                        Ciphertext term;
-                        evaluator.multiply_relin_dynamic(*t[tree.tree[walk]], *pt[2 * walk + 1],
-                                                        term, relin_keys);
-                        add_lazy_cipher(*pt[node], term, evaluator, encoder);
-                        walk *= 2;
-                    }
-                    evaluator.rescale(*pt[node], *pt[node]);
-                    add_lazy_cipher(*pt[node], *pt[walk], evaluator, encoder);
-                }
-            }
-
-            if (stage <= tree.m - 1)
-            {
-                const int cheb_degree = pow2(stage);
-                t[cheb_degree] = make_unique<Ciphertext>();
-                eval_t(evaluator, relin_keys, encoder, *t[cheb_degree], *t[pow2(stage - 1)],
-                       *t[pow2(stage - 1)], *t[0]);
-            }
-            if (stage <= tree.l)
-            {
-                for (int cheb_degree = pow2(stage - 1) + 1; cheb_degree <= pow2(stage) - 1;
-                     cheb_degree += 2)
-                {
-                    t[cheb_degree] = make_unique<Ciphertext>();
-                    eval_t(evaluator, relin_keys, encoder, *t[cheb_degree], *t[pow2(stage - 1)],
-                           *t[cheb_degree - pow2(stage - 1)],
-                           *t[pow2(stage) - cheb_degree]);
-                }
-            }
-        }
-    }
-    else if (tree.type == EvalType::Baby)
-    {
-        Ciphertext ctxt_zero =
-            zero_cipher_for_lazy_sum(encoder.slot_count(), scale, encryptor, encoder);
-        for (int stage = 1; stage <= total_depth; ++stage)
-        {
-            for (int node = 1; node < tree_size; ++node)
-            {
-                if (tree.tree[node] == 0 && total_depth + 1 - num_one(node) == stage)
-                {
-                    int coeff_index = static_cast<int>(start_index[node]);
-                    pt[node] = make_unique<Ciphertext>(ctxt_zero);
-                    for (int cheb_degree = 0; cheb_degree <= decomp_deg[node]; ++cheb_degree)
-                    {
-                        const double coeff = decomp_coeff.at(static_cast<size_t>(coeff_index));
-                        if (abs(coeff) > 1.0 / scale)
-                        {
-                            if (!t[cheb_degree])
-                            {
-                                throw runtime_error("missing Chebyshev basis ciphertext");
-                            }
-                            Ciphertext term;
-                            multiply_const_reduced_error(*t[cheb_degree], coeff, lazy_scale, term,
-                                                        evaluator, encoder);
-                            try
-                            {
-                                add_lazy_cipher(*pt[node], term, evaluator, encoder);
-                            }
-                            catch (const std::exception &e)
-                            {
-                                if (debug_output)
-                                {
-                                    *debug_output << "eval_poly baby leaf add failure"
-                                                  << " stage=" << stage
-                                                  << " node=" << node
-                                                  << " cheb_degree=" << cheb_degree
-                                                  << " acc_level=" << pt[node]->level()
-                                                  << " acc_scale=" << pt[node]->scale()
-                                                  << " acc_mod_size=" << pt[node]->coeff_modulus_size()
-                                                  << " term_level=" << term.level()
-                                                  << " term_scale=" << term.scale()
-                                                  << " term_mod_size=" << term.coeff_modulus_size()
-                                                  << " what=" << e.what() << '\n';
-                                }
-                                throw;
-                            }
-                        }
-                        ++coeff_index;
-                    }
-                    evaluator.rescale(*pt[node], *pt[node]);
-                }
-            }
-
-            vector<long> covered_ancestors;
-            for (int node = 1; node < tree_size; ++node)
-            {
-                if (!(tree.tree[node] > 0 && total_depth + 1 - num_one(node) == stage))
-                {
-                    continue;
-                }
-
-                bool skip = false;
-                for (long ancestor : covered_ancestors)
-                {
-                    int walk = node;
-                    while (true)
-                    {
-                        if (walk == ancestor)
-                        {
-                            skip = true;
-                            break;
-                        }
-                        if ((walk % 2) == 0)
-                        {
-                            walk /= 2;
-                        }
-                        else
-                        {
-                            break;
-                        }
-                    }
-                    if (skip)
-                    {
-                        break;
-                    }
-                }
-                if (skip)
-                {
-                    continue;
-                }
-
-                covered_ancestors.emplace_back(node);
-                long walk = node;
-                pt[node] = make_unique<Ciphertext>();
-                evaluator.multiply_relin_dynamic(*t[tree.tree[walk]], *pt[2 * walk + 1],
-                                                *pt[node], relin_keys);
-                walk *= 2;
-                while (true)
-                {
-                    if (tree.tree[walk] == 0)
-                    {
-                        break;
-                    }
-                    Ciphertext term;
-                    evaluator.multiply_relin_dynamic(*t[tree.tree[walk]], *pt[2 * walk + 1], term,
-                                                    relin_keys);
-                    add_lazy_cipher(*pt[node], term, evaluator, encoder);
-                    walk *= 2;
-                }
-                evaluator.rescale(*pt[node], *pt[node]);
-                add_lazy_cipher(*pt[node], *pt[walk], evaluator, encoder);
-            }
-
-            for (int cheb_degree = 2; cheb_degree <= tree.b; ++cheb_degree)
-            {
-                if (pow2(stage - 1) < cheb_degree && cheb_degree <= pow2(stage))
-                {
-                    t[cheb_degree] = make_unique<Ciphertext>();
-                    if ((cheb_degree % 2) == 0)
-                    {
-                        eval_t(evaluator, relin_keys, encoder, *t[cheb_degree],
-                               *t[cheb_degree / 2], *t[cheb_degree / 2], *t[0]);
-                    }
-                    else
-                    {
-                        eval_t(evaluator, relin_keys, encoder, *t[cheb_degree],
-                               *t[cheb_degree / 2], *t[(cheb_degree + 1) / 2], *t[1]);
-                    }
-                }
-            }
-            for (int giant = 1; giant <= tree.m - 1; ++giant)
-            {
-                const int cheb_degree = pow2(giant) * tree.b;
-                if (pow2(stage - 1) < cheb_degree && cheb_degree <= pow2(stage))
-                {
-                    t[cheb_degree] = make_unique<Ciphertext>();
-                    if ((cheb_degree % 2) == 0)
-                    {
-                        eval_t(evaluator, relin_keys, encoder, *t[cheb_degree],
-                               *t[cheb_degree / 2], *t[cheb_degree / 2], *t[0]);
-                    }
-                    else
-                    {
-                        eval_t(evaluator, relin_keys, encoder, *t[cheb_degree],
-                               *t[cheb_degree / 2], *t[(cheb_degree + 1) / 2], *t[1]);
-                    }
-                }
-            }
-        }
-    }
-    else
-    {
-        throw invalid_argument("tree evaluation type is not set");
-    }
-
-    if (!pt[1])
-    {
-        throw runtime_error("tree polynomial evaluation failed to produce root ciphertext");
-    }
-    return *pt[1];
-}
-
 Ciphertext approximate_sign01(const Ciphertext &input, const vector<int> &deg, long alpha,
                               const vector<Tree> &tree, double scaled_val, Encryptor &encryptor,
                               CKKSEncoder &encoder, EvaluatorCkksBase &evaluator,
-                              Decryptor *decryptor, RelinKeys &relin_keys,
-                              const TensorCipher *meta_source = nullptr,
-                              const PoseidonContext *context = nullptr,
-                              ostream *output = nullptr)
+                              RelinKeys &relin_keys)
 {
     Ciphertext result = input;
     const vector<vector<double>> coeffs = load_relu_component_coeffs(alpha, deg, tree, scaled_val);
-    if (output)
-    {
-        log_relu_component_coeffs(coeffs, *output);
-    }
 
     for (size_t i = 0; i < coeffs.size(); ++i)
     {
-        if (meta_source && context && output)
-        {
-            log_labeled_cipher_state("sign poly step " + to_string(i + 1) + " pre-eval state",
-                                     result, *meta_source, *context, *output);
-        }
         result = eval_polynomial_integrate_for_relu_reference(
             result, deg.at(i), coeffs[i], tree.at(i), encryptor, evaluator, encoder, relin_keys);
-        if (meta_source && context && output)
-        {
-            log_labeled_cipher_state("sign poly step " + to_string(i + 1) + " post-eval state",
-                                     result, *meta_source, *context, *output);
-        }
-    }
-
-    if (meta_source && context && output)
-    {
-        log_labeled_cipher_state("sign poly result", result, *meta_source, *context, *output);
-        if (decryptor)
-        {
-            decode_preview(result, *decryptor, encoder, *output);
-        }
     }
 
     evaluator.add_const(result, 0.5, result, encoder);
-    if (meta_source && context && output)
-    {
-        log_labeled_cipher_state("sign poly add-const state", result, *meta_source, *context,
-                                 *output);
-    }
 
     return result;
 }
@@ -1271,15 +924,6 @@ void log_labeled_tensor_state(const string &label, const TensorCipher &tensor,
     output << "  " << label << ": " << tensor_summary(tensor, context) << '\n';
 }
 
-void log_labeled_cipher_state(const string &label, const Ciphertext &cipher,
-                              const TensorCipher &meta_source, const PoseidonContext &context,
-                              ostream &output)
-{
-    TensorCipher tensor(meta_source.logn(), meta_source.k(), meta_source.h(), meta_source.w(),
-                        meta_source.c(), meta_source.t(), meta_source.p(), cipher);
-    log_labeled_tensor_state(label, tensor, context, output);
-}
-
 void log_after_stage(const TensorCipher &tensor, Decryptor &decryptor, CKKSEncoder &encoder,
                      PoseidonContext &context, ostream &output)
 {
@@ -1290,9 +934,8 @@ void log_after_stage(const TensorCipher &tensor, Decryptor &decryptor, CKKSEncod
 
 void relu_impl(const TensorCipher &cnn_in, TensorCipher &cnn_out, long comp_no,
                const vector<int> &deg, long alpha, const vector<Tree> &tree, double scaled_val,
-               Encryptor &encryptor, EvaluatorCkksBase &evaluator, Decryptor &decryptor,
-               CKKSEncoder &encoder, RelinKeys &relin_keys, double scale, ostream *output,
-               const PoseidonContext *context)
+               Encryptor &encryptor, EvaluatorCkksBase &evaluator, CKKSEncoder &encoder,
+               RelinKeys &relin_keys, double scale)
 {
     const int ki = cnn_in.k();
     const int hi = cnn_in.h();
@@ -1302,45 +945,19 @@ void relu_impl(const TensorCipher &cnn_in, TensorCipher &cnn_out, long comp_no,
     const int pi = cnn_in.p();
     const int logn = cnn_in.logn();
 
-    if (output && context)
-    {
-        log_labeled_tensor_state("relu input", cnn_in, *context, *output);
-        decode_preview(cnn_in.cipher(), decryptor, encoder, *output);
-    }
-
     if (comp_no != static_cast<long>(deg.size()) || deg.size() != tree.size())
     {
         throw invalid_argument("relu polynomial component count does not match degree/tree config");
     }
 
-    if (output)
-    {
-        *output << "  relu mode: ciphertext polynomial approximation\n";
-    }
-
     Ciphertext mask = approximate_sign01(cnn_in.cipher(), deg, alpha, tree, scaled_val, encryptor,
-                                         encoder, evaluator, &decryptor, relin_keys, &cnn_in,
-                                         context, output);
-    if (output && context)
-    {
-        log_labeled_cipher_state("relu polynomial mask", mask, cnn_in, *context, *output);
-        decode_preview(mask, decryptor, encoder, *output);
-    }
+                                         encoder, evaluator, relin_keys);
 
     Ciphertext relu_cipher;
     evaluator.multiply_relin_dynamic(cnn_in.cipher(), mask, relu_cipher, relin_keys);
-    if (output && context)
-    {
-        log_labeled_cipher_state("relu post-multiply", relu_cipher, cnn_in, *context, *output);
-    }
 
     evaluator.rescale(relu_cipher, relu_cipher);
     assign_scale_for_relu_reference(relu_cipher, scale);
-    if (output && context)
-    {
-        log_labeled_cipher_state("relu post-rescale", relu_cipher, cnn_in, *context, *output);
-        decode_preview(relu_cipher, decryptor, encoder, *output);
-    }
 
     cnn_out = TensorCipher(logn, ki, hi, wi, ci, ti, pi, relu_cipher);
 }
@@ -1466,7 +1083,7 @@ void multiplexed_parallel_convolution_print(
     print_stage_banner("conv stage " + to_string(stage), output);
     log_labeled_tensor_state("input", cnn_in, context, output);
     const auto time_start = chrono::high_resolution_clock::now();
-    multiplexed_parallel_convolution_seal(cnn_in, cnn_out, co, st, fh, fw, data,
+    multiplexed_parallel_convolution(cnn_in, cnn_out, co, st, fh, fw, data,
                                           std::move(running_var), std::move(constant_weight),
                                           epsilon, encoder, encryptor, evaluator, gal_keys,
                                           cipher_pool, end);
@@ -1476,7 +1093,7 @@ void multiplexed_parallel_convolution_print(
     log_after_stage(cnn_out, decryptor, encoder, context, output);
 }
 
-void multiplexed_parallel_batch_norm_seal_print(
+void multiplexed_parallel_batch_norm_print(
     const TensorCipher &cnn_in, TensorCipher &cnn_out, vector<double> bias,
     vector<double> running_mean, vector<double> running_var, vector<double> weight,
     double epsilon, CKKSEncoder &encoder, Encryptor &encryptor, EvaluatorCkksBase &evaluator,
@@ -1486,7 +1103,7 @@ void multiplexed_parallel_batch_norm_seal_print(
     print_stage_banner("batchnorm stage " + to_string(stage), output);
     log_labeled_tensor_state("input", cnn_in, context, output);
     const auto time_start = chrono::high_resolution_clock::now();
-    multiplexed_parallel_batch_norm_seal(cnn_in, cnn_out, std::move(bias), std::move(running_mean),
+    multiplexed_parallel_batch_norm(cnn_in, cnn_out, std::move(bias), std::move(running_mean),
                                          std::move(running_var), std::move(weight), epsilon,
                                          encoder, encryptor, evaluator, B, end);
     const auto time_end = chrono::high_resolution_clock::now();
@@ -1495,25 +1112,17 @@ void multiplexed_parallel_batch_norm_seal_print(
     log_after_stage(cnn_out, decryptor, encoder, context, output);
 }
 
-void approx_ReLU_seal_print(const TensorCipher &cnn_in, TensorCipher &cnn_out, long comp_no,
-                            vector<int> deg, long alpha, vector<Tree> &tree, double scaled_val,
-                            long scalingfactor, Encryptor &encryptor,
-                            EvaluatorCkksBase &evaluator, Decryptor &decryptor,
-                            CKKSEncoder &encoder, PublicKey &public_key, SecretKey &secret_key,
-                            RelinKeys &relin_keys, double B, ostream &output,
-                            PoseidonContext &context, GaloisKeys &gal_keys, size_t stage)
+void approx_relu_print(const TensorCipher &cnn_in, TensorCipher &cnn_out, long comp_no,
+                       vector<int> deg, long alpha, vector<Tree> &tree, double scaled_val,
+                       Encryptor &encryptor, EvaluatorCkksBase &evaluator, Decryptor &decryptor,
+                       CKKSEncoder &encoder, RelinKeys &relin_keys, double target_scale,
+                       ostream &output, PoseidonContext &context, size_t stage)
 {
-    (void)public_key;
-    (void)secret_key;
-    (void)scalingfactor;
-    (void)B;
-    (void)gal_keys;
-
     print_stage_banner("relu stage " + to_string(stage), output);
     log_labeled_tensor_state("input", cnn_in, context, output);
     const auto time_start = chrono::high_resolution_clock::now();
     relu_impl(cnn_in, cnn_out, comp_no, deg, alpha, tree, scaled_val, encryptor, evaluator,
-              decryptor, encoder, relin_keys, B, &output, &context);
+              encoder, relin_keys, target_scale);
     const auto time_end = chrono::high_resolution_clock::now();
     output << "  time_ms: "
            << chrono::duration_cast<chrono::milliseconds>(time_end - time_start).count() << '\n';
@@ -1539,7 +1148,6 @@ void bootstrap_print(const TensorCipher &cnn_in, TensorCipher &cnn_out,
                                       *bootstrapper.galois_keys, *bootstrapper.encoder,
                                       *bootstrapper.bootstrap_poly);
 
-    output << "  bootstrap real projection: compute (cipher + conjugate(cipher)) / 2\n";
     const double target_scale = result.scale();
     Ciphertext conjugated;
     bootstrapper.evaluator->conjugate(result, *bootstrapper.galois_keys, conjugated);
@@ -1563,17 +1171,17 @@ void bootstrap_print(const TensorCipher &cnn_in, TensorCipher &cnn_out,
     log_after_stage(cnn_out, decryptor, encoder, context, output);
 }
 
-void cipher_add_seal_print(const TensorCipher &cnn1, const TensorCipher &cnn2,
+void cipher_add_stage_print(const TensorCipher &cnn1, const TensorCipher &cnn2,
                            TensorCipher &destination, EvaluatorCkksBase &evaluator,
                            ostream &output, Decryptor &decryptor, CKKSEncoder &encoder,
                            PoseidonContext &context)
 {
     print_stage_banner("residual add", output);
-    cnn_add_seal(cnn1, cnn2, destination, evaluator, encoder);
+    cnn_add(cnn1, cnn2, destination, evaluator, encoder);
     log_after_stage(destination, decryptor, encoder, context, output);
 }
 
-void multiplexed_parallel_downsampling_seal_print(const TensorCipher &cnn_in,
+void multiplexed_parallel_downsampling_print(const TensorCipher &cnn_in,
                                                   TensorCipher &cnn_out,
                                                   EvaluatorCkksBase &evaluator,
                                                   Decryptor &decryptor, CKKSEncoder &encoder,
@@ -1583,14 +1191,14 @@ void multiplexed_parallel_downsampling_seal_print(const TensorCipher &cnn_in,
     print_stage_banner("downsample shortcut", output);
     log_labeled_tensor_state("input", cnn_in, context, output);
     const auto time_start = chrono::high_resolution_clock::now();
-    multiplexed_parallel_downsampling_seal(cnn_in, cnn_out, evaluator, gal_keys, encoder);
+    multiplexed_parallel_downsampling(cnn_in, cnn_out, evaluator, gal_keys, encoder);
     const auto time_end = chrono::high_resolution_clock::now();
     output << "  time_ms: "
            << chrono::duration_cast<chrono::milliseconds>(time_end - time_start).count() << '\n';
     log_after_stage(cnn_out, decryptor, encoder, context, output);
 }
 
-void averagepooling_seal_scale_print(const TensorCipher &cnn_in, TensorCipher &cnn_out,
+void averagepooling_scale_print(const TensorCipher &cnn_in, TensorCipher &cnn_out,
                                      EvaluatorCkksBase &evaluator, GaloisKeys &gal_keys, double B,
                                      ostream &output, Decryptor &decryptor,
                                      CKKSEncoder &encoder, PoseidonContext &context)
@@ -1598,7 +1206,7 @@ void averagepooling_seal_scale_print(const TensorCipher &cnn_in, TensorCipher &c
     print_stage_banner("average pool", output);
     log_labeled_tensor_state("input", cnn_in, context, output);
     const auto time_start = chrono::high_resolution_clock::now();
-    averagepooling_seal_scale(cnn_in, cnn_out, evaluator, gal_keys, B, encoder, decryptor,
+    averagepooling_scale(cnn_in, cnn_out, evaluator, gal_keys, B, encoder, decryptor,
                               output);
     const auto time_end = chrono::high_resolution_clock::now();
     output << "  time_ms: "
@@ -1606,7 +1214,7 @@ void averagepooling_seal_scale_print(const TensorCipher &cnn_in, TensorCipher &c
     log_after_stage(cnn_out, decryptor, encoder, context, output);
 }
 
-void fully_connected_seal_print(const TensorCipher &cnn_in, TensorCipher &cnn_out,
+void fully_connected_print(const TensorCipher &cnn_in, TensorCipher &cnn_out,
                                 vector<double> matrix, vector<double> bias, int q, int r,
                                 EvaluatorCkksBase &evaluator, GaloisKeys &gal_keys,
                                 ostream &output, Decryptor &decryptor, CKKSEncoder &encoder,
@@ -1615,7 +1223,7 @@ void fully_connected_seal_print(const TensorCipher &cnn_in, TensorCipher &cnn_ou
     print_stage_banner("fully connected", output);
     log_labeled_tensor_state("input", cnn_in, context, output);
     const auto time_start = chrono::high_resolution_clock::now();
-    matrix_multiplication_seal(cnn_in, cnn_out, std::move(matrix), std::move(bias), q, r,
+    matrix_multiplication(cnn_in, cnn_out, std::move(matrix), std::move(bias), q, r,
                                evaluator, gal_keys, encoder);
     const auto time_end = chrono::high_resolution_clock::now();
     output << "  time_ms: "
@@ -1623,7 +1231,7 @@ void fully_connected_seal_print(const TensorCipher &cnn_in, TensorCipher &cnn_ou
     log_after_stage(cnn_out, decryptor, encoder, context, output);
 }
 
-void multiplexed_parallel_convolution_seal(
+void multiplexed_parallel_convolution(
     const TensorCipher &cnn_in, TensorCipher &cnn_out, int co, int st, int fh, int fw,
     const vector<double> &data, vector<double> running_var, vector<double> constant_weight,
     double epsilon, CKKSEncoder &encoder, Encryptor &encryptor, EvaluatorCkksBase &evaluator,
@@ -1897,7 +1505,7 @@ void multiplexed_parallel_convolution_seal(
     cnn_out = TensorCipher(logn, ko, ho, wo, co, to, po, var);
 }
 
-void multiplexed_parallel_batch_norm_seal(const TensorCipher &cnn_in, TensorCipher &cnn_out,
+void multiplexed_parallel_batch_norm(const TensorCipher &cnn_in, TensorCipher &cnn_out,
                                           vector<double> bias, vector<double> running_mean,
                                           vector<double> running_var, vector<double> weight,
                                           double epsilon, CKKSEncoder &encoder,
@@ -1961,21 +1569,7 @@ void multiplexed_parallel_batch_norm_seal(const TensorCipher &cnn_in, TensorCiph
     cnn_out = TensorCipher(logn, ko, ho, wo, co, to, po, temp);
 }
 
-void ReLU_seal(const TensorCipher &cnn_in, TensorCipher &cnn_out, long comp_no, vector<int> deg,
-               long alpha, vector<Tree> &tree, double scaled_val, long scalingfactor,
-               Encryptor &encryptor, EvaluatorCkksBase &evaluator, Decryptor &decryptor,
-               CKKSEncoder &encoder, PublicKey &public_key, SecretKey &secret_key,
-               RelinKeys &relin_keys, double scale)
-{
-    (void)scalingfactor;
-    (void)public_key;
-    (void)secret_key;
-
-    relu_impl(cnn_in, cnn_out, comp_no, deg, alpha, tree, scaled_val, encryptor, evaluator,
-              decryptor, encoder, relin_keys, scale, nullptr, nullptr);
-}
-
-void cnn_add_seal(const TensorCipher &cnn1, const TensorCipher &cnn2, TensorCipher &destination,
+void cnn_add(const TensorCipher &cnn1, const TensorCipher &cnn2, TensorCipher &destination,
                   EvaluatorCkksBase &evaluator, CKKSEncoder &encoder)
 {
     if (cnn1.k() != cnn2.k() || cnn1.h() != cnn2.h() || cnn1.w() != cnn2.w() ||
@@ -1991,7 +1585,7 @@ void cnn_add_seal(const TensorCipher &cnn1, const TensorCipher &cnn2, TensorCiph
                                cnn1.p(), temp);
 }
 
-void multiplexed_parallel_downsampling_seal(const TensorCipher &cnn_in, TensorCipher &cnn_out,
+void multiplexed_parallel_downsampling(const TensorCipher &cnn_in, TensorCipher &cnn_out,
                                             EvaluatorCkksBase &evaluator, GaloisKeys &gal_keys,
                                             CKKSEncoder &encoder)
 {
@@ -2083,7 +1677,7 @@ void multiplexed_parallel_downsampling_seal(const TensorCipher &cnn_in, TensorCi
     cnn_out = TensorCipher(logn, ko, ho, wo, co, to, po, sum);
 }
 
-void averagepooling_seal_scale(const TensorCipher &cnn_in, TensorCipher &cnn_out,
+void averagepooling_scale(const TensorCipher &cnn_in, TensorCipher &cnn_out,
                                EvaluatorCkksBase &evaluator, GaloisKeys &gal_keys, double B,
                                CKKSEncoder &encoder, Decryptor &decryptor, ostream &output)
 {
@@ -2153,7 +1747,7 @@ void averagepooling_seal_scale(const TensorCipher &cnn_in, TensorCipher &cnn_out
     cnn_out = TensorCipher(logn, 1, 1, 1, ci, ti, 1, sum);
 }
 
-void matrix_multiplication_seal(const TensorCipher &cnn_in, TensorCipher &cnn_out,
+void matrix_multiplication(const TensorCipher &cnn_in, TensorCipher &cnn_out,
                                 vector<double> matrix, vector<double> bias, int q, int r,
                                 EvaluatorCkksBase &evaluator, GaloisKeys &gal_keys,
                                 CKKSEncoder &encoder)
@@ -2255,6 +1849,6 @@ void cipher_add_print(const TensorCipher &lhs, const TensorCipher &rhs, TensorCi
                       EvaluatorCkksBase &evaluator, const PoseidonContext &context, ostream &log)
 {
     CKKSEncoder encoder(context);
-    cnn_add_seal(lhs, rhs, output, evaluator, encoder);
+    cnn_add(lhs, rhs, output, evaluator, encoder);
     log_cipher_state(output, context, log);
 }

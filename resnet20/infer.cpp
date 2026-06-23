@@ -44,6 +44,7 @@ constexpr const char *kResNet20ParameterDir = "resnet20_new";
 constexpr const char *kResNet20ResultPrefix = "resnet20_cifar10";
 constexpr double kBatchNormEpsilon = 1.0e-5;
 constexpr bool kEnableBootstrap = true;
+constexpr bool kLogPlainIntermediate = false;
 
 struct ReluConfig
 {
@@ -350,13 +351,15 @@ void run_relu(TensorCipher &input, TensorCipher &output, PlainTensor &plain_inpu
               PlainTensor &plain_output, PoseidonRuntime &runtime, ofstream &log, size_t stage,
               ReluConfig &relu_config)
 {
-    approx_ReLU_seal_print(input, output, relu_config.comp_no, relu_config.deg, relu_config.alpha,
-                           relu_config.tree, relu_config.scaled_val, relu_config.scalingfactor,
-                           runtime.encryptor, *runtime.evaluator, runtime.decryptor, runtime.encoder,
-                           runtime.public_key, runtime.secret_key, runtime.relin_keys,
-                           runtime.scale, log, runtime.context, runtime.galois_keys, stage);
+    approx_relu_print(input, output, relu_config.comp_no, relu_config.deg, relu_config.alpha,
+                      relu_config.tree, relu_config.scaled_val, runtime.encryptor,
+                      *runtime.evaluator, runtime.decryptor, runtime.encoder,
+                      runtime.relin_keys, runtime.scale, log, runtime.context, stage);
     plain_output = plain_relu_reference(plain_input, relu_config.plain_coeffs);
-    log_plain_tensor("plain relu output", plain_output, log);
+    if (kLogPlainIntermediate)
+    {
+        log_plain_tensor("plain relu output", plain_output, log);
+    }
 }
 
 void run_stem(TensorCipher &cnn, PlainTensor &plain_cnn, vector<vector<double>> &conv_weight,
@@ -382,17 +385,23 @@ void run_stem(TensorCipher &cnn, PlainTensor &plain_cnn, vector<vector<double>> 
     plain_conv_out =
         plain_convolution(plain_cnn, 16, 1, 3, 3, conv_weight.at(conv_idx), bn_running_var.at(bn_idx),
                           bn_weight.at(bn_idx), kBatchNormEpsilon);
-    log_plain_tensor("plain conv output", plain_conv_out, output);
+    if (kLogPlainIntermediate)
+    {
+        log_plain_tensor("plain conv output", plain_conv_out, output);
+    }
     ++conv_idx;
 
-    multiplexed_parallel_batch_norm_seal_print(
+    multiplexed_parallel_batch_norm_print(
         conv_out, bn_out, bn_bias.at(bn_idx), bn_running_mean.at(bn_idx), bn_running_var.at(bn_idx),
         bn_weight.at(bn_idx), kBatchNormEpsilon, runtime.encoder, runtime.encryptor,
         *runtime.evaluator, 40.0, output, runtime.decryptor, runtime.context, 0, false);
     plain_bn_out =
         plain_batch_norm(plain_conv_out, bn_bias.at(bn_idx), bn_running_mean.at(bn_idx),
                          bn_running_var.at(bn_idx), bn_weight.at(bn_idx), kBatchNormEpsilon, 40.0);
-    log_plain_tensor("plain batchnorm output", plain_bn_out, output);
+    if (kLogPlainIntermediate)
+    {
+        log_plain_tensor("plain batchnorm output", plain_bn_out, output);
+    }
     ++bn_idx;
 
     run_relu(bn_out, relu_out, plain_bn_out, plain_relu_out, runtime, output, 0, relu_config);
@@ -441,10 +450,13 @@ void run_residual_block(TensorCipher &cnn, PlainTensor &plain_cnn, const Poseido
         plain_convolution(plain_cnn, stage_plan.out_channels, stride, 3, 3,
                           conv_weight.at(conv_idx), bn_running_var.at(bn_idx),
                           bn_weight.at(bn_idx), kBatchNormEpsilon);
-    log_plain_tensor("plain conv1 output", plain_branch_conv1, output);
+    if (kLogPlainIntermediate)
+    {
+        log_plain_tensor("plain conv1 output", plain_branch_conv1, output);
+    }
     ++conv_idx;
 
-    multiplexed_parallel_batch_norm_seal_print(
+    multiplexed_parallel_batch_norm_print(
         branch_conv1, branch_bn1, bn_bias.at(bn_idx), bn_running_mean.at(bn_idx),
         bn_running_var.at(bn_idx), bn_weight.at(bn_idx), kBatchNormEpsilon, runtime.encoder,
         runtime.encryptor, *runtime.evaluator, 40.0, output, runtime.decryptor, runtime.context,
@@ -452,7 +464,10 @@ void run_residual_block(TensorCipher &cnn, PlainTensor &plain_cnn, const Poseido
     plain_branch_bn1 =
         plain_batch_norm(plain_branch_conv1, bn_bias.at(bn_idx), bn_running_mean.at(bn_idx),
                          bn_running_var.at(bn_idx), bn_weight.at(bn_idx), kBatchNormEpsilon, 40.0);
-    log_plain_tensor("plain bn1 output", plain_branch_bn1, output);
+    if (kLogPlainIntermediate)
+    {
+        log_plain_tensor("plain bn1 output", plain_branch_bn1, output);
+    }
     ++bn_idx;
 
     maybe_bootstrap(branch_bn1, runtime, output, logical_layer);
@@ -469,10 +484,13 @@ void run_residual_block(TensorCipher &cnn, PlainTensor &plain_cnn, const Poseido
         plain_convolution(plain_branch_relu1, stage_plan.out_channels, 1, 3, 3,
                           conv_weight.at(conv_idx), bn_running_var.at(bn_idx),
                           bn_weight.at(bn_idx), kBatchNormEpsilon);
-    log_plain_tensor("plain conv2 output", plain_branch_conv2, output);
+    if (kLogPlainIntermediate)
+    {
+        log_plain_tensor("plain conv2 output", plain_branch_conv2, output);
+    }
     ++conv_idx;
 
-    multiplexed_parallel_batch_norm_seal_print(
+    multiplexed_parallel_batch_norm_print(
         branch_conv2, branch_bn2, bn_bias.at(bn_idx), bn_running_mean.at(bn_idx),
         bn_running_var.at(bn_idx), bn_weight.at(bn_idx), kBatchNormEpsilon, runtime.encoder,
         runtime.encryptor, *runtime.evaluator, 40.0, output, runtime.decryptor, runtime.context,
@@ -480,25 +498,34 @@ void run_residual_block(TensorCipher &cnn, PlainTensor &plain_cnn, const Poseido
     plain_branch_bn2 =
         plain_batch_norm(plain_branch_conv2, bn_bias.at(bn_idx), bn_running_mean.at(bn_idx),
                          bn_running_var.at(bn_idx), bn_weight.at(bn_idx), kBatchNormEpsilon, 40.0);
-    log_plain_tensor("plain bn2 output", plain_branch_bn2, output);
+    if (kLogPlainIntermediate)
+    {
+        log_plain_tensor("plain bn2 output", plain_branch_bn2, output);
+    }
     ++bn_idx;
 
     if (stage_index > 0 && block_index == 0)
     {
-        multiplexed_parallel_downsampling_seal_print(shortcut, shortcut_down, *runtime.evaluator,
+        multiplexed_parallel_downsampling_print(shortcut, shortcut_down, *runtime.evaluator,
                                                      runtime.decryptor, runtime.encoder,
                                                      runtime.context, runtime.galois_keys, output);
         plain_shortcut_down = plain_downsample_shortcut(plain_shortcut);
-        log_plain_tensor("plain shortcut output", plain_shortcut_down, output);
+        if (kLogPlainIntermediate)
+        {
+            log_plain_tensor("plain shortcut output", plain_shortcut_down, output);
+        }
         shortcut = std::move(shortcut_down);
         plain_shortcut = std::move(plain_shortcut_down);
     }
 
     align_for_add(branch_bn2, shortcut, runtime);
-    cipher_add_seal_print(branch_bn2, shortcut, added, *runtime.evaluator, output,
+    cipher_add_stage_print(branch_bn2, shortcut, added, *runtime.evaluator, output,
                           runtime.decryptor, runtime.encoder, runtime.context);
     plain_added = plain_add(plain_branch_bn2, plain_shortcut);
-    log_plain_tensor("plain add output", plain_added, output);
+    if (kLogPlainIntermediate)
+    {
+        log_plain_tensor("plain add output", plain_added, output);
+    }
 
     maybe_bootstrap(added, runtime, output, logical_layer);
     run_relu(added, block_output, plain_added, plain_block_output, runtime, output, logical_layer,
@@ -515,11 +542,14 @@ vector<double> run_head(TensorCipher &cnn, PlainTensor &plain_cnn, const vector<
     TensorCipher logits;
     PlainTensor plain_pooled;
 
-    averagepooling_seal_scale_print(cnn, pooled, *runtime.evaluator, runtime.galois_keys, 40.0,
+    averagepooling_scale_print(cnn, pooled, *runtime.evaluator, runtime.galois_keys, 40.0,
                                     output, runtime.decryptor, runtime.encoder, runtime.context);
     plain_pooled = plain_average_pool(plain_cnn, 40.0);
-    log_plain_tensor("plain average pool output", plain_pooled, output);
-    fully_connected_seal_print(pooled, logits, linear_weight, linear_bias, 10, 64,
+    if (kLogPlainIntermediate)
+    {
+        log_plain_tensor("plain average pool output", plain_pooled, output);
+    }
+    fully_connected_print(pooled, logits, linear_weight, linear_bias, 10, 64,
                                *runtime.evaluator, runtime.galois_keys, output, runtime.decryptor,
                                runtime.encoder, runtime.context);
     plain_logits = plain_fully_connected(plain_pooled, linear_weight, linear_bias, 10, 64);
@@ -684,7 +714,6 @@ void ResNet_cifar10_sparse(size_t start_image_id, size_t end_image_id)
     PoseidonRuntime runtime = make_poseidon_runtime(plan);
     cout << "Poseidon slot count: " << runtime.slot_count << endl;
     cout << "Poseidon scale: " << runtime.scale << endl;
-    cout << "ReLU parameter root: " << kReluParamRoot << endl;
 
     fs::create_directories(result_dir());
     const fs::path shared_result_path =
@@ -738,7 +767,10 @@ void ResNet_cifar10_sparse(size_t start_image_id, size_t end_image_id)
                          image_slots, runtime.encryptor, runtime.encoder, plan.log_scale);
         output << "input ciphertext: level=" << cipher_chain_index(runtime, cnn.cipher())
                << ", scale=" << cnn.cipher().scale() << '\n';
-        log_plain_tensor("plain input", plain_cnn, output);
+        if (kLogPlainIntermediate)
+        {
+            log_plain_tensor("plain input", plain_cnn, output);
+        }
 
         for (int i = 0; i < plan.boot_level + 5; ++i)
         {
