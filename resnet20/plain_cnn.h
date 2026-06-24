@@ -22,9 +22,6 @@ struct PlainTensor
 
 PlainTensor plain_input_tensor_from_image_slots(const std::vector<double> &image_slots);
 
-std::vector<std::vector<double>> load_plain_relu_component_coeffs(
-    const std::string &relu_file, long alpha, const std::vector<int> &deg, double scaled_val);
-
 PlainTensor plain_convolution(const PlainTensor &input, int out_channels, int stride, int fh, int fw,
                               const std::vector<double> &weights,
                               const std::vector<double> &running_var,
@@ -35,8 +32,7 @@ PlainTensor plain_batch_norm(const PlainTensor &input, const std::vector<double>
                              const std::vector<double> &running_var,
                              const std::vector<double> &weight, double epsilon, double B);
 
-PlainTensor plain_relu_reference(const PlainTensor &input,
-                                 const std::vector<std::vector<double>> &relu_coeffs);
+PlainTensor plain_relu_reference(const PlainTensor &input);
 
 PlainTensor plain_add(const PlainTensor &lhs, const PlainTensor &rhs);
 

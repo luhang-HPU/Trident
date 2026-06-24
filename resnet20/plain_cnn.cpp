@@ -2,29 +2,11 @@
 
 #include <algorithm>
 #include <cmath>
-#include <filesystem>
-#include <fstream>
+#include <ostream>
 #include <stdexcept>
 #include <utility>
 
 using namespace std;
-
-namespace fs = std::filesystem;
-
-namespace
-{
-
-double eval_polynomial(double x, const vector<double> &coeffs)
-{
-    double value = 0.0;
-    for (auto it = coeffs.rbegin(); it != coeffs.rend(); ++it)
-    {
-        value = value * x + *it;
-    }
-    return value;
-}
-
-} // namespace
 
 PlainTensor::PlainTensor(int height, int width, int channels)
     : h(height), w(width), c(channels), values(static_cast<size_t>(height * width * channels), 0.0)
@@ -60,53 +42,6 @@ PlainTensor plain_input_tensor_from_image_slots(const vector<double> &image_slot
 
     vector<double> values(image_slots.begin(), image_slots.begin() + static_cast<long>(image_values));
     return PlainTensor(32, 32, 3, std::move(values));
-}
-
-vector<vector<double>> load_plain_relu_component_coeffs(const string &relu_file, long alpha,
-                                                        const vector<int> &deg, double scaled_val)
-{
-    const fs::path path = fs::path(relu_file) / ("d" + to_string(alpha) + ".txt");
-    ifstream input(path);
-    if (!input.is_open())
-    {
-        throw runtime_error("failed to open relu parameter file: " + path.string());
-    }
-
-    vector<vector<double>> coeffs;
-    coeffs.reserve(deg.size());
-    for (int degree : deg)
-    {
-        vector<double> component;
-        component.reserve(static_cast<size_t>(degree + 1));
-        for (int i = 0; i <= degree; ++i)
-        {
-            double coeff = 0.0;
-            if (!(input >> coeff))
-            {
-                throw runtime_error("failed to read relu coefficients from: " + path.string());
-            }
-            component.push_back(coeff);
-        }
-        coeffs.push_back(std::move(component));
-    }
-
-    if (coeffs.size() >= 3)
-    {
-        for (double &coeff : coeffs[0])
-        {
-            coeff /= 2.0;
-        }
-        for (double &coeff : coeffs[1])
-        {
-            coeff /= scaled_val;
-        }
-        for (double &coeff : coeffs[2])
-        {
-            coeff *= 0.5;
-        }
-    }
-
-    return coeffs;
 }
 
 PlainTensor plain_convolution(const PlainTensor &input, int out_channels, int stride, int fh, int fw,
@@ -201,10 +136,8 @@ PlainTensor plain_batch_norm(const PlainTensor &input, const vector<double> &bia
     return output;
 }
 
-PlainTensor plain_relu_reference(const PlainTensor &input,
-                                 const vector<vector<double>> &relu_coeffs)
+PlainTensor plain_relu_reference(const PlainTensor &input)
 {
-    (void)relu_coeffs;
     PlainTensor output = input;
     for (size_t idx = 0; idx < input.values.size(); ++idx)
     {
