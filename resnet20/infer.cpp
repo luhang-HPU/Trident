@@ -409,6 +409,7 @@ void ResNet_cifar10_sparse(size_t start_image_id, size_t end_image_id)
     const auto all_time_start = chrono::high_resolution_clock::now();
     for (size_t image_id = start_image_id; image_id <= end_image_id; ++image_id)
     {
+        const auto image_time_start = chrono::high_resolution_clock::now();
         out_status << "image_start: " << image_id << '\n';
         out_status.flush();
 
@@ -473,6 +474,9 @@ void ResNet_cifar10_sparse(size_t start_image_id, size_t end_image_id)
         vector<double> logits = run_head(state, ctx, output, plain_logits);
         const int predicted_label = argmax_index(logits);
         const int plain_predicted_label = argmax_index(plain_logits);
+        const auto image_time_end = chrono::high_resolution_clock::now();
+        const auto image_time_diff =
+            chrono::duration_cast<chrono::milliseconds>(image_time_end - image_time_start);
 
         output << "logits:";
         for (double logit : logits)
@@ -483,14 +487,21 @@ void ResNet_cifar10_sparse(size_t start_image_id, size_t end_image_id)
         output << "predicted label: " << predicted_label << endl;
         log_plain_logits(plain_logits, output);
         output << "plain predicted label: " << plain_predicted_label << '\n';
+        output << "image time : " << image_time_diff.count() << " ms" << endl;
 
         out_share << "image_id: " << image_id << ", image label: " << image_label
                   << ", predicted label: " << predicted_label
-                  << ", plain predicted label: " << plain_predicted_label << endl;
+                  << ", plain predicted label: " << plain_predicted_label
+                  << ", image time : " << image_time_diff.count() << " ms" << endl;
+        cout << "image_id: " << image_id << ", image label: " << image_label
+             << ", predicted label: " << predicted_label
+             << ", plain predicted label: " << plain_predicted_label
+             << ", image time : " << image_time_diff.count() << " ms" << endl;
         out_status << "image_done: " << image_id
                    << ", image label: " << image_label
                    << ", predicted label: " << predicted_label
-                   << ", plain predicted label: " << plain_predicted_label << '\n';
+                   << ", plain predicted label: " << plain_predicted_label
+                   << ", image_time_ms=" << image_time_diff.count() << '\n';
         out_status.flush();
     }
 
