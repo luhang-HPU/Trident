@@ -1,0 +1,59 @@
+
+==================== run_start ====================
+image_id: 0
+run_timestamp: 20260627_235013
+log_file: "/home/guoshuai/github/poseidon/Trident/resnet18/result/resnet18_imagenet_image0_20260627_235013.txt"
+runtime: poseidon ready
+input values=150528, slot_count=32768, input_chunk_count=5
+TensorCipherGroup(shape h=224, w=224, c=3, values=150528, slots_per_chunk=32768, chunks=5)
+input decrypt max_abs_error: 1.61693e-08
+conv1 single-output preview skipped for bootstrap debug
+conv1 im2col packing: encrypting 7x7x3 patch ciphertexts
+conv1 im2col patches: 147, spatial_count=12544
+conv1 im2col: encrypted output channel 0 evaluation
+conv1 channel0 count: 12544
+conv1 channel0 max_abs_error: 7.29744e-09
+conv1 batch norm offset: encrypted channel 0 evaluation
+conv1 batch norm channel0 max_abs_error: 7.29743e-09
+conv1 full 64-channel check skipped for relu preview
+conv1 relu preview: generating relinearization keys
+conv1 relu preview: encrypted channel 0 evaluation
+conv1 relu channel0 max_abs_error: 0.000115172
+conv1 relu channel0 chain index: 9, scale: 7.03687e+13
+conv1 relu channel0 debug refresh: decrypt and re-encrypt
+conv1 relu channel0 post-refresh chain index: 24, scale: 7.03687e+13
+conv1 relu debug refresh channel0 max_abs_error: 0.000115172
+conv1 sparse maxpool: generating rotation keys
+conv1 sparse maxpool rotation key count: 8
+conv1 sparse maxpool: encrypted full channel 0 evaluation
+conv1 sparse maxpool output[0]: 0, plain: 0.00365639, abs_error: 0.00365639
+conv1 sparse maxpool output[1]: 0, plain: 0.0115038, abs_error: 0.0115038
+conv1 sparse maxpool output[2]: 0, plain: 0.0135673, abs_error: 0.0135673
+conv1 sparse maxpool output[3]: 0, plain: 0.0135673, abs_error: 0.0135673
+conv1 sparse maxpool output[4]: 0, plain: 0.0123501, abs_error: 0.0123501
+conv1 sparse maxpool output[5]: 0, plain: 0.0118464, abs_error: 0.0118464
+conv1 sparse maxpool output[6]: 0, plain: 0.00149311, abs_error: 0.00149311
+conv1 sparse maxpool output[7]: 0, plain: 0.0034134, abs_error: 0.0034134
+conv1 sparse maxpool output[8]: 0, plain: 0.00420895, abs_error: 0.00420895
+conv1 sparse maxpool output[9]: 0, plain: 0.00481513, abs_error: 0.00481513
+conv1 sparse maxpool output[10]: 0, plain: 0.00622696, abs_error: 0.00622696
+conv1 sparse maxpool output[11]: 0, plain: 0.00651462, abs_error: 0.00651462
+conv1 sparse maxpool output[12]: 0, plain: 0.00789536, abs_error: 0.00789536
+conv1 sparse maxpool output[13]: 0, plain: 0.00819448, abs_error: 0.00819448
+conv1 sparse maxpool output[14]: 0, plain: 0.0112554, abs_error: 0.0112554
+conv1 sparse maxpool output[15]: 0, plain: 0.0126741, abs_error: 0.0126741
+conv1 sparse maxpool channel0 count: 3136
+conv1 sparse maxpool channel0 max_abs_error: 0.0398264
+stem full 64-channel: encrypted conv1 evaluation
+stem conv1 all max_abs_error: 1.34728e-08
+stem full 64-channel: encrypted BN offset evaluation
+stem BN all max_abs_error: 1.34728e-08
+stem full 64-channel: encrypted ReLU + debug refresh evaluation
+stem ReLU refresh all max_abs_error: 0.00011518
+stem full 64-channel: encrypted sparse maxpool evaluation
+stem sparse maxpool all max_abs_error: 0.0571705
+layer1 block0 conv1 channel0: encrypted dense conv evaluation
+layer1 block0 conv1 rotation key count: 8
+layer1 block0 conv1 channel0 max_abs_error: 0.0371182
+image label: 65
+image time : 2055606 ms
