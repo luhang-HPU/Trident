@@ -1,0 +1,375 @@
+[2026-06-28 18:36:45.557] Setting Poseidon Parameters
+[2026-06-28 18:36:49.338] Poseidon slot count: 32768
+[2026-06-28 18:36:49.338] Poseidon scale: 7.03687e+13
+[2026-06-28 18:36:49.338] ImageNet input values: 150528, encrypted input chunks: 5
+run_start: start_image_id=0, end_image_id=0, run_timestamp=20260628_183645, log_file="/home/guoshuai/github/poseidon/Trident/resnet18/result/resnet18_imagenet_run_0_0_20260628_183645.txt"
+image_start: 0
+
+==================== run_start ====================
+image_id: 0
+run_timestamp: 20260628_183645
+log_file: "/home/guoshuai/github/poseidon/Trident/resnet18/result/resnet18_imagenet_run_0_0_20260628_183645.txt"
+runtime: poseidon ready
+input values=150528, slot_count=32768, input_chunk_count=5
+TensorCipherGroup(shape h=224, w=224, c=3, values=150528, slots_per_chunk=32768, chunks=5)
+input decrypt max_abs_error: 1.51177e-08
+conv1 single-output preview skipped for bootstrap debug
+[2026-06-28 18:36:59.741] conv1 single-output preview skipped for bootstrap debug
+conv1 im2col packing: encrypting 7x7x3 patch ciphertexts
+[2026-06-28 18:36:59.741] conv1 im2col encrypt patches
+conv1 im2col patches: 147, spatial_count=12544
+[2026-06-28 18:37:20.994] conv1 im2col patches: 147
+conv1 im2col: encrypted output channel 0 evaluation
+[2026-06-28 18:37:20.995] conv1 im2col output channel 0 encrypted evaluation
+conv1 channel0 count: 12544
+conv1 channel0 max_abs_error: 6.97809e-09
+[2026-06-28 18:37:33.936] conv1 channel0 max_abs_error: 6.97809e-09
+conv1 batch norm offset: encrypted channel 0 evaluation
+[2026-06-28 18:37:33.948] conv1 batch norm channel0 encrypted evaluation
+conv1 batch norm channel0 max_abs_error: 6.97808e-09
+[2026-06-28 18:37:34.360] conv1 batch norm channel0 max_abs_error: 6.97808e-09
+conv1 full 64-channel check skipped for relu preview
+[2026-06-28 18:37:34.360] conv1 full 64-channel check skipped for relu preview
+conv1 relu preview: generating relinearization keys
+[2026-06-28 18:37:34.360] conv1 relu preview generating relin keys
+conv1 relu preview: encrypted channel 0 evaluation
+[2026-06-28 18:37:38.744] conv1 relu channel0 encrypted evaluation
+conv1 relu channel0 max_abs_error: 0.000115172
+[2026-06-28 18:37:50.621] conv1 relu channel0 max_abs_error: 0.000115172
+[2026-06-28 18:37:50.621] [cipher-state] conv1 relu channel0 output: shape(h=112, w=112, c=1), chain_index=9, scale=7.03687e+13
+[2026-06-28 18:37:50.621] conv1 relu channel0 chain index: 9, scale: 7.03687e+13
+conv1 relu channel0 chain index: 9, scale: 7.03687e+13
+conv1 relu channel0 debug refresh: decrypt and re-encrypt
+[2026-06-28 18:37:50.621] conv1 relu channel0 debug refresh decrypt-reencrypt
+[2026-06-28 18:37:50.838] [cipher-state] conv1 relu channel0 debug refresh output: shape(h=112, w=112, c=1), chain_index=24, scale=7.03687e+13
+[2026-06-28 18:37:50.838] conv1 relu channel0 post-refresh chain index: 24, scale: 7.03687e+13
+conv1 relu channel0 post-refresh chain index: 24, scale: 7.03687e+13
+conv1 relu debug refresh channel0 max_abs_error: 0.000115173
+[2026-06-28 18:37:51.266] conv1 relu debug refresh channel0 max_abs_error: 0.000115173
+conv1 sparse maxpool: generating rotation keys
+[2026-06-28 18:37:51.266] conv1 sparse maxpool rotation key count: 8
+conv1 sparse maxpool rotation key count: 8
+conv1 sparse maxpool: encrypted full channel 0 evaluation
+[2026-06-28 18:38:32.374] conv1 sparse maxpool channel0 encrypted full evaluation
+[2026-06-28 18:38:36.273] maxpool pair diff chain index: 24, scale: 7.03687e+13
+[2026-06-28 18:38:47.676] maxpool pair standard relu(diff) chain index: 10, scale: 7.03687e+13
+[2026-06-28 18:38:47.713] maxpool pair result chain index: 10, scale: 7.03687e+13
+[2026-06-28 18:38:47.923] maxpool pair post-refresh chain index: 24, scale: 7.03687e+13
+[2026-06-28 18:38:47.998] maxpool pair diff chain index: 24, scale: 7.03687e+13
+[2026-06-28 18:38:59.373] maxpool pair standard relu(diff) chain index: 10, scale: 7.03687e+13
+[2026-06-28 18:38:59.402] maxpool pair result chain index: 10, scale: 7.03687e+13
+[2026-06-28 18:38:59.610] maxpool pair post-refresh chain index: 24, scale: 7.03687e+13
+[2026-06-28 18:38:59.663] maxpool pair diff chain index: 24, scale: 7.03687e+13
+[2026-06-28 18:39:10.464] maxpool pair standard relu(diff) chain index: 10, scale: 7.03687e+13
+[2026-06-28 18:39:10.491] maxpool pair result chain index: 10, scale: 7.03687e+13
+[2026-06-28 18:39:10.685] maxpool pair post-refresh chain index: 24, scale: 7.03687e+13
+[2026-06-28 18:39:10.749] maxpool pair diff chain index: 24, scale: 7.03687e+13
+[2026-06-28 18:39:21.969] maxpool pair standard relu(diff) chain index: 10, scale: 7.03687e+13
+[2026-06-28 18:39:21.996] maxpool pair result chain index: 10, scale: 7.03687e+13
+[2026-06-28 18:39:22.180] maxpool pair post-refresh chain index: 24, scale: 7.03687e+13
+[2026-06-28 18:39:22.234] maxpool pair diff chain index: 24, scale: 7.03687e+13
+[2026-06-28 18:39:33.843] maxpool pair standard relu(diff) chain index: 10, scale: 7.03687e+13
+[2026-06-28 18:39:33.871] maxpool pair result chain index: 10, scale: 7.03687e+13
+[2026-06-28 18:39:34.118] maxpool pair post-refresh chain index: 24, scale: 7.03687e+13
+[2026-06-28 18:39:34.160] maxpool pair diff chain index: 24, scale: 7.03687e+13
+[2026-06-28 18:39:45.601] maxpool pair standard relu(diff) chain index: 10, scale: 7.03687e+13
+[2026-06-28 18:39:45.625] maxpool pair result chain index: 10, scale: 7.03687e+13
+[2026-06-28 18:39:45.852] maxpool pair post-refresh chain index: 24, scale: 7.03687e+13
+[2026-06-28 18:39:45.893] maxpool pair diff chain index: 24, scale: 7.03687e+13
+[2026-06-28 18:39:58.285] maxpool pair standard relu(diff) chain index: 10, scale: 7.03687e+13
+[2026-06-28 18:39:58.357] maxpool pair result chain index: 10, scale: 7.03687e+13
+[2026-06-28 18:39:58.764] maxpool pair post-refresh chain index: 24, scale: 7.03687e+13
+[2026-06-28 18:39:58.967] maxpool pair diff chain index: 24, scale: 7.03687e+13
+[2026-06-28 18:40:11.658] maxpool pair standard relu(diff) chain index: 10, scale: 7.03687e+13
+[2026-06-28 18:40:11.734] maxpool pair result chain index: 10, scale: 7.03687e+13
+[2026-06-28 18:40:11.990] maxpool pair post-refresh chain index: 24, scale: 7.03687e+13
+conv1 sparse maxpool output[0]: 1.61364e-09, plain: 0.00365639, abs_error: 0.00365639
+conv1 sparse maxpool output[1]: -2.21387e-10, plain: 0.0115038, abs_error: 0.0115038
+conv1 sparse maxpool output[2]: -6.01643e-10, plain: 0.0135673, abs_error: 0.0135673
+conv1 sparse maxpool output[3]: -2.72858e-09, plain: 0.0135673, abs_error: 0.0135673
+conv1 sparse maxpool output[4]: 1.47653e-09, plain: 0.0123501, abs_error: 0.0123501
+conv1 sparse maxpool output[5]: -6.44205e-10, plain: 0.0118464, abs_error: 0.0118464
+conv1 sparse maxpool output[6]: 1.45804e-09, plain: 0.00149311, abs_error: 0.00149311
+conv1 sparse maxpool output[7]: -1.08284e-09, plain: 0.0034134, abs_error: 0.0034134
+conv1 sparse maxpool output[8]: 6.84489e-10, plain: 0.00420895, abs_error: 0.00420894
+conv1 sparse maxpool output[9]: -2.11732e-09, plain: 0.00481513, abs_error: 0.00481513
+conv1 sparse maxpool output[10]: -2.64694e-09, plain: 0.00622696, abs_error: 0.00622696
+conv1 sparse maxpool output[11]: 1.21638e-09, plain: 0.00651462, abs_error: 0.00651462
+conv1 sparse maxpool output[12]: -6.61812e-10, plain: 0.00789536, abs_error: 0.00789536
+conv1 sparse maxpool output[13]: -9.73128e-11, plain: 0.00819448, abs_error: 0.00819448
+conv1 sparse maxpool output[14]: 8.41779e-11, plain: 0.0112554, abs_error: 0.0112554
+conv1 sparse maxpool output[15]: 3.89219e-09, plain: 0.0126741, abs_error: 0.0126741
+conv1 sparse maxpool channel0 count: 3136
+conv1 sparse maxpool channel0 max_abs_error: 0.0398264
+[2026-06-28 18:40:12.491] conv1 sparse maxpool channel0 max_abs_error: 0.0398264
+stem full 64-channel: encrypted conv1 evaluation
+[2026-06-28 18:40:12.491] stem full 64-channel conv1 encrypted evaluation
+[2026-06-28 18:40:12.491] [start] conv_im2col_all_channels
+[2026-06-28 18:40:12.491] conv im2col encrypted channel parallel threads: 16
+[2026-06-28 18:42:32.778] conv im2col encrypted channel progress: 64/64
+[2026-06-28 18:42:32.778] [cipher-state] conv_im2col_all_channels output: shape(h=112, w=112, c=64, spatial=12544), channels=64, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-28 18:42:32.778] [duration] conv_im2col_all_channels: 140287 ms
+stem conv1 all max_abs_error: 1.29461e-08
+[2026-06-28 18:42:58.136] stem conv1 all max_abs_error: 1.29461e-08
+stem full 64-channel: encrypted BN offset evaluation
+[2026-06-28 18:42:58.137] stem full 64-channel BN encrypted evaluation
+[2026-06-28 18:42:58.137] [start] batch_norm
+[2026-06-28 18:42:58.137] [cipher-state] batch_norm input: shape(h=112, w=112, c=64, spatial=12544), channels=64, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-28 18:42:58.137] batch norm channel parallel threads: 16
+[2026-06-28 18:42:58.469] [cipher-state] batch_norm output: shape(h=112, w=112, c=64, spatial=12544), channels=64, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-28 18:42:58.469] [duration] batch_norm: 332 ms
+stem BN all max_abs_error: 1.29461e-08
+[2026-06-28 18:43:25.544] stem BN all max_abs_error: 1.29461e-08
+stem full 64-channel: encrypted ReLU + debug refresh evaluation
+[2026-06-28 18:43:25.544] stem full 64-channel ReLU + debug refresh evaluation
+[2026-06-28 18:43:25.544] stem ReLU parallel threads: 16
+[2026-06-28 18:46:32.478] stem ReLU channel progress: 64/64
+[2026-06-28 18:46:32.478] [cipher-state] stem ReLU refresh output: shape(h=112, w=112, c=64, spatial=12544), channels=64, chain_index(first/min/max)=24/24/24, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+stem ReLU refresh all max_abs_error: 0.000115178
+[2026-06-28 18:47:01.267] stem ReLU refresh all max_abs_error: 0.000115178
+[2026-06-28 18:47:01.267] [duration] stem ReLU refresh: 215723 ms
+stem full 64-channel: encrypted sparse maxpool evaluation
+[2026-06-28 18:47:01.267] stem full 64-channel sparse maxpool encrypted evaluation
+[2026-06-28 18:47:01.267] stem sparse maxpool parallel threads: 16
+[2026-06-28 19:18:31.567] stem sparse maxpool channel progress: 64/64
+[2026-06-28 19:18:31.567] [cipher-state] stem sparse maxpool output: shape(h=56, w=56, c=64, spatial=3136), channels=64, chain_index(first/min/max)=24/24/24, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+stem sparse maxpool all max_abs_error: 0.0571705
+[2026-06-28 19:18:31.567] stem sparse maxpool all max_abs_error: 0.0571705
+[2026-06-28 19:18:31.567] [duration] stem sparse maxpool: 1890299 ms
+layer1 block0 conv1 channel0: encrypted dense conv evaluation
+[2026-06-28 19:18:31.567] layer1 block0 conv1 channel0 encrypted evaluation
+[2026-06-28 19:18:31.567] layer1 block0 conv1 rotation key count: 8
+layer1 block0 conv1 rotation key count: 8
+layer1 block0 conv1 channel0 max_abs_error: 0.0371182
+[2026-06-28 19:23:37.291] layer1 block0 conv1 channel0 max_abs_error: 0.0371182
+layer1 block0 conv1 full 64-channel: encrypted dense conv evaluation
+[2026-06-28 19:23:37.291] layer1 block0 conv1 full 64-channel encrypted evaluation
+[2026-06-28 19:23:37.291] [start] dense_conv2d_all_channels
+[2026-06-28 19:23:37.291] [cipher-state] dense_conv2d_all_channels input: shape(h=56, w=56, c=64, spatial=3136), channels=64, chain_index(first/min/max)=24/24/24, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-28 19:23:37.291] dense conv encrypted channel parallel threads: 16
+[2026-06-28 21:33:20.656] dense conv encrypted channel progress: 64/ 64
+[2026-06-28 21:33:20.656] [cipher-state] dense_conv2d_all_channels output: shape(h=56, w=56, c=64, spatial=3136), channels=64, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-28 21:33:20.656] [duration] dense_conv2d_all_channels: 7783365 ms
+layer1 block0 conv1 all max_abs_error: 0.0876645
+[2026-06-28 21:33:33.004] layer1 block0 conv1 all max_abs_error: 0.0876645
+layer1 block0 bn1 full 64-channel: encrypted BN offset evaluation
+[2026-06-28 21:33:33.004] layer1 block0 bn1 full 64-channel encrypted evaluation
+[2026-06-28 21:33:33.004] [start] batch_norm
+[2026-06-28 21:33:33.004] [cipher-state] batch_norm input: shape(h=56, w=56, c=64, spatial=3136), channels=64, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-28 21:33:33.004] batch norm channel parallel threads: 16
+[2026-06-28 21:33:33.308] [cipher-state] batch_norm output: shape(h=56, w=56, c=64, spatial=3136), channels=64, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-28 21:33:33.308] [duration] batch_norm: 303 ms
+layer1 block0 bn1 all max_abs_error: 0.0876645
+[2026-06-28 21:33:43.476] layer1 block0 bn1 all max_abs_error: 0.0876645
+layer1 block0 relu1 full 64-channel: encrypted ReLU + debug refresh evaluation
+[2026-06-28 21:33:43.476] layer1 block0 relu1 full 64-channel ReLU + debug refresh evaluation
+[2026-06-28 21:33:43.478] layer1 block0 relu1 parallel threads: 16
+[2026-06-28 21:37:11.918] layer1 block0 relu1 channel progress: 64/64
+[2026-06-28 21:37:11.918] [cipher-state] layer1 block0 relu1 refresh output: shape(h=56, w=56, c=64, spatial=3136), channels=64, chain_index(first/min/max)=24/24/24, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+layer1 block0 relu1 refresh all max_abs_error: 0.0275565
+[2026-06-28 21:37:41.176] layer1 block0 relu1 refresh all max_abs_error: 0.0275565
+[2026-06-28 21:37:41.176] [duration] layer1 block0 relu1 refresh: 237699 ms
+layer1 block0 conv2 full 64-channel: encrypted dense conv evaluation
+[2026-06-28 21:37:41.176] layer1 block0 conv2 full 64-channel encrypted evaluation
+[2026-06-28 21:37:41.176] [start] dense_conv2d_all_channels
+[2026-06-28 21:37:41.176] [cipher-state] dense_conv2d_all_channels input: shape(h=56, w=56, c=64, spatial=3136), channels=64, chain_index(first/min/max)=24/24/24, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-28 21:37:41.176] dense conv encrypted channel parallel threads: 16
+[2026-06-28 23:51:32.682] dense conv encrypted channel progress: 64/64
+[2026-06-28 23:51:32.682] [cipher-state] dense_conv2d_all_channels output: shape(h=56, w=56, c=64, spatial=3136), channels=64, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-28 23:51:32.682] [duration] dense_conv2d_all_channels: 8031506 ms
+layer1 block0 conv2 all max_abs_error: 0.0694519
+[2026-06-28 23:51:46.229] layer1 block0 conv2 all max_abs_error: 0.0694519
+layer1 block0 bn2 full 64-channel: encrypted BN offset evaluation
+[2026-06-28 23:51:46.229] layer1 block0 bn2 full 64-channel encrypted evaluation
+[2026-06-28 23:51:46.229] [start] batch_norm
+[2026-06-28 23:51:46.229] [cipher-state] batch_norm input: shape(h=56, w=56, c=64, spatial=3136), channels=64, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-28 23:51:46.229] batch norm channel parallel threads: 16
+[2026-06-28 23:51:46.517] [cipher-state] batch_norm output: shape(h=56, w=56, c=64, spatial=3136), channels=64, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-28 23:51:46.518] [duration] batch_norm: 288 ms
+layer1 block0 bn2 all max_abs_error: 0.0694519
+[2026-06-28 23:51:56.887] layer1 block0 bn2 all max_abs_error: 0.0694519
+layer1 block0 residual add: encrypted channel add evaluation
+[2026-06-28 23:51:56.887] layer1 block0 residual add encrypted evaluation
+[2026-06-28 23:51:56.887] [start] channel_add
+[2026-06-28 23:51:56.887] [cipher-state] channel_add lhs input: shape(h=56, w=56, c=64, spatial=3136), channels=64, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-28 23:51:56.887] [cipher-state] channel_add rhs input: shape(h=56, w=56, c=64, spatial=3136), channels=64, chain_index(first/min/max)=24/24/24, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-28 23:51:56.887] channel add parallel threads: 16
+[2026-06-28 23:51:57.549] [cipher-state] channel_add output: shape(h=56, w=56, c=64, spatial=3136), channels=64, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-28 23:51:57.549] [duration] channel_add: 661 ms
+layer1 block0 add all max_abs_error: 0.0663189
+[2026-06-28 23:52:25.551] layer1 block0 add all max_abs_error: 0.0663189
+layer1 block0 output ReLU full 64-channel: encrypted ReLU + debug refresh evaluation
+[2026-06-28 23:52:25.551] layer1 block0 output full 64-channel ReLU + debug refresh evaluation
+[2026-06-28 23:52:25.553] layer1 block0 output ReLU parallel threads: 16
+[2026-06-28 23:55:56.687] layer1 block0 output ReLU channel progress: 64/64
+[2026-06-28 23:55:56.687] [cipher-state] layer1 block0 output ReLU refresh output: shape(h=56, w=56, c=64, spatial=3136), channels=64, chain_index(first/min/max)=24/24/24, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+layer1 block0 output refresh all max_abs_error: 0.0641496
+[2026-06-28 23:56:22.824] layer1 block0 output refresh all max_abs_error: 0.0641496
+[2026-06-28 23:56:22.824] [duration] layer1 block0 output ReLU refresh: 237273 ms
+layer1 block1 conv1 full 64-channel: encrypted dense conv evaluation
+[2026-06-28 23:56:22.824] layer1 block1 conv1 full 64-channel encrypted evaluation
+[2026-06-28 23:56:22.824] [start] dense_conv2d_all_channels
+[2026-06-28 23:56:22.824] [cipher-state] dense_conv2d_all_channels input: shape(h=56, w=56, c=64, spatial=3136), channels=64, chain_index(first/min/max)=24/24/24, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-28 23:56:22.824] dense conv encrypted channel parallel threads: 16
+[2026-06-29 02:05:05.120] dense conv encrypted channel progress: 64/64
+[2026-06-29 02:05:05.121] [cipher-state] dense_conv2d_all_channels output: shape(h=56, w=56, c=64, spatial=3136), channels=64, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 02:05:05.121] [duration] dense_conv2d_all_channels: 7722296 ms
+layer1 block1 conv1 all max_abs_error: 0.0703954
+[2026-06-29 02:05:16.297] layer1 block1 conv1 all max_abs_error: 0.0703954
+layer1 block1 bn1 full 64-channel: encrypted BN offset evaluation
+[2026-06-29 02:05:16.297] layer1 block1 bn1 full 64-channel encrypted evaluation
+[2026-06-29 02:05:16.297] [start] batch_norm
+[2026-06-29 02:05:16.297] [cipher-state] batch_norm input: shape(h=56, w=56, c=64, spatial=3136), channels=64, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 02:05:16.298] batch norm channel parallel threads: 16
+[2026-06-29 02:05:16.634] [cipher-state] batch_norm output: shape(h=56, w=56, c=64, spatial=3136), channels=64, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 02:05:16.634] [duration] batch_norm: 336 ms
+layer1 block1 bn1 all max_abs_error: 0.0703954
+[2026-06-29 02:05:28.306] layer1 block1 bn1 all max_abs_error: 0.0703954
+layer1 block1 relu1 full 64-channel: encrypted ReLU + debug refresh evaluation
+[2026-06-29 02:05:28.306] layer1 block1 relu1 full 64-channel ReLU + debug refresh evaluation
+[2026-06-29 02:05:28.307] [start] layer1 block1 relu1 ReLU refresh
+[2026-06-29 02:05:28.307] [cipher-state] layer1 block1 relu1 input: shape(h=56, w=56, c=64, spatial=3136), channels=64, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 02:05:28.307] layer1 block1 relu1 parallel threads: 16
+[2026-06-29 02:09:00.422] layer1 block1 relu1 channel progress: 64/64
+[2026-06-29 02:09:00.422] [cipher-state] layer1 block1 relu1 refresh output: shape(h=56, w=56, c=64, spatial=3136), channels=64, chain_index(first/min/max)=24/24/24, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 02:09:00.422] [duration] layer1 block1 relu1 ReLU refresh: 212115 ms
+layer1 block1 relu1 refresh all max_abs_error: 0.0313397
+[2026-06-29 02:09:30.442] layer1 block1 relu1 refresh all max_abs_error: 0.0313397
+layer1 block1 conv2 full 64-channel: encrypted dense conv evaluation
+[2026-06-29 02:09:30.442] layer1 block1 conv2 full 64-channel encrypted evaluation
+[2026-06-29 02:09:30.442] [start] dense_conv2d_all_channels
+[2026-06-29 02:09:30.442] [cipher-state] dense_conv2d_all_channels input: shape(h=56, w=56, c=64, spatial=3136), channels=64, chain_index(first/min/max)=24/24/24, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 02:09:30.442] dense conv encrypted channel parallel threads: 16
+[2026-06-29 04:11:05.106] dense conv encrypted channel progress: 64/64
+[2026-06-29 04:11:05.106] [cipher-state] dense_conv2d_all_channels output: shape(h=56, w=56, c=64, spatial=3136), channels=64, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 04:11:05.106] [duration] dense_conv2d_all_channels: 7294664 ms
+layer1 block1 conv2 all max_abs_error: 0.0819604
+[2026-06-29 04:11:17.020] layer1 block1 conv2 all max_abs_error: 0.0819604
+layer1 block1 bn2 full 64-channel: encrypted BN offset evaluation
+[2026-06-29 04:11:17.020] layer1 block1 bn2 full 64-channel encrypted evaluation
+[2026-06-29 04:11:17.020] [start] batch_norm
+[2026-06-29 04:11:17.020] [cipher-state] batch_norm input: shape(h=56, w=56, c=64, spatial=3136), channels=64, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 04:11:17.020] batch norm channel parallel threads: 16
+[2026-06-29 04:11:17.312] [cipher-state] batch_norm output: shape(h=56, w=56, c=64, spatial=3136), channels=64, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 04:11:17.313] [duration] batch_norm: 292 ms
+layer1 block1 bn2 all max_abs_error: 0.0819604
+[2026-06-29 04:11:27.033] layer1 block1 bn2 all max_abs_error: 0.0819604
+layer1 block1 residual add: encrypted channel add evaluation
+[2026-06-29 04:11:27.033] layer1 block1 residual add encrypted evaluation
+[2026-06-29 04:11:27.033] [start] channel_add
+[2026-06-29 04:11:27.033] [cipher-state] channel_add lhs input: shape(h=56, w=56, c=64, spatial=3136), channels=64, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 04:11:27.033] [cipher-state] channel_add rhs input: shape(h=56, w=56, c=64, spatial=3136), channels=64, chain_index(first/min/max)=24/24/24, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 04:11:27.033] channel add parallel threads: 16
+[2026-06-29 04:11:27.695] [cipher-state] channel_add output: shape(h=56, w=56, c=64, spatial=3136), channels=64, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 04:11:27.695] [duration] channel_add: 661 ms
+layer1 block1 add all max_abs_error: 0.0886642
+[2026-06-29 04:11:54.262] layer1 block1 add all max_abs_error: 0.0886642
+layer1 block1 output ReLU full 64-channel: encrypted ReLU + debug refresh evaluation
+[2026-06-29 04:11:54.262] layer1 block1 output full 64-channel ReLU + debug refresh evaluation
+[2026-06-29 04:11:54.262] [start] layer1 block1 output ReLU ReLU refresh
+[2026-06-29 04:11:54.262] [cipher-state] layer1 block1 output ReLU input: shape(h=56, w=56, c=64, spatial=3136), channels=64, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 04:11:54.262] layer1 block1 output ReLU parallel threads: 16
+[2026-06-29 04:15:22.609] layer1 block1 output ReLU channel progress: 64/64
+[2026-06-29 04:15:22.610] [cipher-state] layer1 block1 output ReLU refresh output: shape(h=56, w=56, c=64, spatial=3136), channels=64, chain_index(first/min/max)=24/24/24, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 04:15:22.610] [duration] layer1 block1 output ReLU ReLU refresh: 208347 ms
+layer1 block1 output refresh all max_abs_error: 0.0838853
+[2026-06-29 04:15:49.335] layer1 block1 output refresh all max_abs_error: 0.0838853
+layer2 block0 conv1 sparse stride-2 full 128-channel: encrypted dense conv evaluation
+[2026-06-29 04:15:49.335] layer2 block0 conv1 sparse stride-2 full 128-channel encrypted evaluation
+[2026-06-29 04:15:49.335] [start] sparse_stride_conv2d_all_channels
+[2026-06-29 04:15:49.335] [cipher-state] sparse_stride_conv2d_all_channels input: shape(h=56, w=56, c=64, spatial=3136), channels=64, chain_index(first/min/max)=24/24/24, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 04:15:49.335] sparse stride conv encrypted channel parallel threads: 16
+[2026-06-29 08:12:03.302] sparse stride conv encrypted channel progress: 128/128
+[2026-06-29 08:12:03.303] [cipher-state] sparse_stride_conv2d_all_channels output: shape(h=56, w=56, c=128, spatial=3136), channels=128, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 08:12:03.303] [duration] sparse_stride_conv2d_all_channels: 14173967 ms
+layer2 block0 conv1 sparse max_abs_error: 0.0501458
+[2026-06-29 08:12:29.297] layer2 block0 conv1 sparse max_abs_error: 0.0501458
+layer2 block0 bn1 sparse stride-2 full 128-channel: encrypted BN offset evaluation
+[2026-06-29 08:12:29.297] layer2 block0 bn1 sparse stride-2 full 128-channel encrypted evaluation
+[2026-06-29 08:12:29.297] [start] sparse_stride_batch_norm
+[2026-06-29 08:12:29.297] [cipher-state] sparse_stride_batch_norm input: shape(h=56, w=56, c=128, spatial=3136), channels=128, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 08:12:29.297] sparse stride batch norm channel parallel threads: 16
+[2026-06-29 08:12:30.349] [cipher-state] sparse_stride_batch_norm output: shape(h=56, w=56, c=128, spatial=3136), channels=128, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 08:12:30.350] [duration] sparse_stride_batch_norm: 1052 ms
+layer2 block0 bn1 sparse max_abs_error: 0.0501458
+[2026-06-29 08:13:19.029] layer2 block0 bn1 sparse max_abs_error: 0.0501458
+layer2 block0 relu1 sparse stride-2: encrypted ReLU + compact debug refresh evaluation
+[2026-06-29 08:13:19.029] layer2 block0 relu1 sparse stride-2 ReLU + compact debug refresh evaluation
+[2026-06-29 08:13:19.030] [start] layer2 block0 relu1 sparse ReLU refresh
+[2026-06-29 08:13:19.030] [cipher-state] layer2 block0 relu1 sparse input: shape(h=56, w=56, c=128, spatial=3136), channels=128, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 08:13:19.030] layer2 block0 relu1 sparse parallel threads: 16
+[2026-06-29 08:20:01.533] layer2 block0 relu1 sparse channel progress: 128/128
+[2026-06-29 08:20:01.534] [cipher-state] layer2 block0 relu1 sparse refresh output: shape(h=56, w=56, c=128, spatial=3136), channels=128, chain_index(first/min/max)=24/24/24, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 08:20:01.534] [duration] layer2 block0 relu1 sparse ReLU refresh: 402503 ms
+[2026-06-29 08:20:01.534] [start] compact_sparse_stride_channel_group
+[2026-06-29 08:20:01.534] [cipher-state] compact_sparse_stride_channel_group input: shape(h=56, w=56, c=128, spatial=3136), channels=128, chain_index(first/min/max)=24/24/24, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 08:20:01.534] compact sparse stride channel parallel threads: 16
+[2026-06-29 08:20:09.721] [cipher-state] compact_sparse_stride_channel_group output: shape(h=28, w=28, c=128, spatial=784), channels=128, chain_index(first/min/max)=24/24/24, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 08:20:09.722] [duration] compact_sparse_stride_channel_group: 8187 ms
+layer2 block0 relu1 compact refresh all max_abs_error: 0.0401927 
+[2026-06-29 08:21:05.148] layer2 block0 relu1 compact refresh all max_abs_error: 0.0401927
+[2026-06-29 08:21:05.148] layer2 dense 28x28 conv rotation key count: 8
+layer2 dense 28x28 conv rotation key count: 8
+layer2 block0 conv2 full 128-channel: encrypted dense conv evaluation
+[2026-06-29 08:21:46.300] layer2 block0 conv2 full 128-channel encrypted evaluation
+[2026-06-29 08:21:46.300] [start] dense_conv2d_all_channels
+[2026-06-29 08:21:46.300] [cipher-state] dense_conv2d_all_channels input: shape(h=28, w=28, c=128, spatial=784), channels=128, chain_index(first/min/max)=24/24/24, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 08:21:46.300] dense conv encrypted channel parallel threads: 1[2026-06-29 16:52:53.306] dense conv encrypted channel progress: 128/128
+[2026-06-29 16:52:53.306] [cipher-state] dense_conv2d_all_channels output: shape(h=28, w=28, c=128, spatial=784), channels=128, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 16:52:53.306] [duration] dense_conv2d_all_channels: 30667005 ms
+layer2 block0 conv2 all max_abs_error: 0.0825236
+[2026-06-29 16:53:15.803] layer2 block0 conv2 all max_abs_error: 0.0825236
+layer2 block0 bn2 full 128-channel: encrypted BN offset evaluation
+[2026-06-29 16:53:15.803] layer2 block0 bn2 full 128-channel encrypted evaluation
+[2026-06-29 16:53:15.803] [start] batch_norm
+[2026-06-29 16:53:15.803] [cipher-state] batch_norm input: shape(h=28, w=28, c=128, spatial=784), channels=128, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 16:53:15.803] batch norm channel parallel threads: 16
+[2026-06-29 16:53:16.488] [cipher-state] batch_norm output: shape(h=28, w=28, c=128, spatial=784), channels=128, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 16:53:16.488] [duration] batch_norm: 685 ms
+layer2 block0 bn2 all max_abs_error: 0.0825236
+[2026-06-29 16:53:38.493] layer2 block0 bn2 all max_abs_error: 0.0825236
+layer2 block0 projection shortcut sparse stride-2 full 128-channel evaluation
+[2026-06-29 16:53:38.493] layer2 block0 projection shortcut sparse stride-2 full 128-channel evaluation
+[2026-06-29 16:53:38.493] [start] sparse_stride_conv2d_all_channels
+[2026-06-29 16:53:38.494] [cipher-state] sparse_stride_conv2d_all_channels input: shape(h=56, w=56, c=64, spatial=3136), channels=64, chain_index(first/min/max)=24/24/24, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 16:53:38.494] sparse stride conv encrypted channel parallel threads: 16
+[2026-06-29 16:57:23.718] sparse stride conv encrypted channel progress: 128/128
+[2026-06-29 16:57:23.718] [cipher-state] sparse_stride_conv2d_all_channels output: shape(h=56, w=56, c=128, spatial=3136), channels=128, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 16:57:23.718] [duration] sparse_stride_conv2d_all_channels: 225224 ms
+[2026-06-29 16:57:23.718] [start] sparse_stride_batch_norm
+[2026-06-29 16:57:23.718] [cipher-state] sparse_stride_batch_norm input: shape(h=56, w=56, c=128, spatial=3136), channels=128, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 16:57:23.718] sparse stride batch norm channel parallel threads: 16
+[2026-06-29 16:57:24.860] [cipher-state] sparse_stride_batch_norm output: shape(h=56, w=56, c=128, spatial=3136), channels=128, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 16:57:24.860] [duration] sparse_stride_batch_norm: 1142 ms
+[2026-06-29 16:57:24.860] [start] compact_sparse_stride_channel_group
+[2026-06-29 16:57:24.860] [cipher-state] compact_sparse_stride_channel_group input: shape(h=56, w=56, c=128, spatial=3136), channels=128, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 16:57:24.861] compact sparse stride channel parallel threads: 16
+[2026-06-29 16:57:31.894] [cipher-state] compact_sparse_stride_channel_group output: shape(h=28, w=28, c=128, spatial=784), channels=128, chain_index(first/min/max)=24/24/24, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 16:57:31.894] [duration] compact_sparse_stride_channel_group: 7033 ms
+layer2 block0 shortcut all max_abs_error: 0.0430067
+[2026-06-29 16:58:31.007] layer2 block0 shortcut all max_abs_error: 0.0430067
+layer2 block0 residual add: encrypted channel add evaluation
+[2026-06-29 16:58:31.007] layer2 block0 residual add encrypted evaluation
+[2026-06-29 16:58:31.007] [start] channel_add
+[2026-06-29 16:58:31.007] [cipher-state] channel_add lhs input: shape(h=28, w=28, c=128, spatial=784), channels=128, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 16:58:31.007] [cipher-state] channel_add rhs input: shape(h=28, w=28, c=128, spatial=784), channels=128, chain_index(first/min/max)=24/24/24, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 16:58:31.007] channel add parallel threads: 16
+[2026-06-29 16:58:32.362] [cipher-state] channel_add output: shape(h=28, w=28, c=128, spatial=784), channels=128, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 16:58:32.362] [duration] channel_add: 1355 ms
+layer2 block0 add all max_abs_error: 0.0877808
+[2026-06-29 16:59:24.763] layer2 block0 add all max_abs_error: 0.0877808
+layer2 block0 output ReLU full 128-channel: encrypted ReLU + debug refresh evaluation
+[2026-06-29 16:59:24.763] layer2 block0 output full 128-channel ReLU + debug refresh evaluation
+[2026-06-29 16:59:24.763] [start] layer2 block0 output ReLU ReLU refresh
+[2026-06-29 16:59:24.763] [cipher-state] layer2 block0 output ReLU input: shape(h=28, w=28, c=128, spatial=784), channels=128, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 16:59:24.763] layer2 block0 output ReLU parallel threads: 16
+[2026-06-29 17:06:23.843] layer2 block0 output ReLU channel progress: 128/128
+[2026-06-29 17:06:23.843] [cipher-state] layer2 block0 output ReLU refresh output: shape(h=28, w=28, c=128, spatial=784), channels=128, chain_index(first/min/max)=24/24/24, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 17:06:23.843] [duration] layer2 block0 output ReLU ReLU refresh: 419079 ms
+layer2 block0 output refresh all max_abs_error: 0.0573927
+[2026-06-29 17:07:23.266] layer2 block0 output refresh all max_abs_error: 0.0573927
+layer2 block1 conv1 full 128-channel: encrypted dense conv evaluation
+[2026-06-29 17:07:23.266] layer2 block1 conv1 full 128-channel encrypted evaluation
+[2026-06-29 17:07:23.266] [start] dense_conv2d_all_channels
+[2026-06-29 17:07:23.266] [cipher-state] dense_conv2d_all_channels input: shape(h=28, w=28, c=128, spatial=784), channels=128, chain_index(first/min/max)=24/24/24, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 17:07:23.266] dense conv encrypted channel parallel threads: 16

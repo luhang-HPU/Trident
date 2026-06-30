@@ -1,10 +1,12 @@
 #include "encrypted_group_ops.h"
 
+#include "parallel_utils.h"
 #include "progress_log.h"
 
 #include "poseidon/plaintext.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <complex>
 #include <iostream>
@@ -20,6 +22,27 @@ using namespace std;
 
 namespace
 {
+
+class ScopedDurationLog
+{
+public:
+    explicit ScopedDurationLog(string label)
+        : label_(std::move(label)), start_(chrono::steady_clock::now())
+    {
+        resnet18_progress_log() << "[start] " << label_ << endl;
+    }
+
+    ~ScopedDurationLog()
+    {
+        const auto end = chrono::steady_clock::now();
+        const auto elapsed = chrono::duration_cast<chrono::milliseconds>(end - start_).count();
+        resnet18_progress_log() << "[duration] " << label_ << ": " << elapsed << " ms" << endl;
+    }
+
+private:
+    string label_;
+    chrono::steady_clock::time_point start_;
+};
 
 double multiply_plain_scale(const Ciphertext &input, const CKKSEncoder &encoder)
 {
@@ -74,115 +97,6 @@ void log_channel_group_cipher_state(const string &label, const ChannelCipherGrou
                             << "/" << max_scale << endl;
 }
 
-struct PreviewTerm
-{
-    size_t output_slot = 0;
-    double weight = 0.0;
-};
-
-size_t output_value_count(const TensorCipherGroup &input, int out_channels, int stride)
-{
-    return static_cast<size_t>((input.h() / stride) * (input.w() / stride) * out_channels);
-}
-
-void validate_conv_args(const TensorCipherGroup &input, int out_channels, int stride, int fh, int fw,
-                        const vector<double> &weights, const vector<double> &running_var,
-                        const vector<double> &constant_weight)
-{
-    if (stride != 1 && stride != 2)
-    {
-        throw invalid_argument("group conv preview supports stride 1 or 2 only");
-    }
-    if (fh % 2 == 0 || fw % 2 == 0)
-    {
-        throw invalid_argument("group conv preview expects odd kernel sizes");
-    }
-    if (static_cast<int>(weights.size()) != fh * fw * input.c() * out_channels)
-    {
-        throw invalid_argument("group conv preview weight size is invalid");
-    }
-    if (static_cast<int>(running_var.size()) != out_channels ||
-        static_cast<int>(constant_weight.size()) != out_channels)
-    {
-        throw invalid_argument("group conv preview BN fold vector size is invalid");
-    }
-}
-
-map<size_t, map<int, vector<PreviewTerm>>> build_preview_plan(
-    const TensorCipherGroup &input, int out_channels, int stride, int fh, int fw,
-    const vector<double> &weights, const vector<double> &running_var,
-    const vector<double> &constant_weight, double epsilon, size_t preview_count,
-    int rotation_sign)
-{
-    validate_conv_args(input, out_channels, stride, fh, fw, weights, running_var,
-                       constant_weight);
-
-    const int out_h = input.h() / stride;
-    const int out_w = input.w() / stride;
-    const int pad_h = fh / 2;
-    const int pad_w = fw / 2;
-    const size_t slot_count = input.slot_count();
-    const size_t total_outputs = output_value_count(input, out_channels, stride);
-    const size_t planned_outputs = min(preview_count, total_outputs);
-    map<size_t, map<int, vector<PreviewTerm>>> plan;
-
-    for (size_t output_index = 0; output_index < planned_outputs; ++output_index)
-    {
-        const int oc = static_cast<int>(output_index / static_cast<size_t>(out_h * out_w));
-        const size_t spatial = output_index % static_cast<size_t>(out_h * out_w);
-        const int oh = static_cast<int>(spatial / static_cast<size_t>(out_w));
-        const int ow = static_cast<int>(spatial % static_cast<size_t>(out_w));
-        const size_t output_slot = output_index;
-        const double folded_scale = constant_weight[oc] / sqrt(running_var[oc] + epsilon);
-
-        for (int ic = 0; ic < input.c(); ++ic)
-        {
-            for (int kh = 0; kh < fh; ++kh)
-            {
-                for (int kw = 0; kw < fw; ++kw)
-                {
-                    const int ih = oh * stride + kh - pad_h;
-                    const int iw = ow * stride + kw - pad_w;
-                    if (ih < 0 || ih >= input.h() || iw < 0 || iw >= input.w())
-                    {
-                        continue;
-                    }
-
-                    const size_t input_index =
-                        static_cast<size_t>(ic * input.h() * input.w() + ih * input.w() + iw);
-                    const size_t input_chunk = input_index / slot_count;
-                    const size_t input_slot = input_index % slot_count;
-                    const size_t weight_index = static_cast<size_t>(
-                        fh * fw * input.c() * oc + fh * fw * ic + fw * kh + kw);
-                    const double weight = weights[weight_index] * folded_scale;
-                    if (weight == 0.0)
-                    {
-                        continue;
-                    }
-
-                    const int step = rotation_sign *
-                                     static_cast<int>(static_cast<long long>(input_slot) -
-                                                      static_cast<long long>(output_slot));
-                    plan[input_chunk][step].push_back(PreviewTerm{output_slot, weight});
-                }
-            }
-        }
-    }
-
-    return plan;
-}
-
-Ciphertext multiply_by_mask(const Ciphertext &input, const vector<double> &mask,
-                            CKKSEncoder &encoder, EvaluatorCkksBase &evaluator)
-{
-    Plaintext plain;
-    encoder.encode(mask, input.parms_id(), multiply_plain_scale(input, encoder), plain);
-    Ciphertext output;
-    evaluator.multiply_plain(input, plain, output);
-    evaluator.rescale_dynamic(output, output, input.scale());
-    return output;
-}
-
 Ciphertext multiply_by_binary_mask(const Ciphertext &input, const vector<double> &mask,
                                    CKKSEncoder &encoder, EvaluatorCkksBase &evaluator)
 {
@@ -192,14 +106,6 @@ Ciphertext multiply_by_binary_mask(const Ciphertext &input, const vector<double>
     evaluator.multiply_plain(input, plain, output);
     output.scale() = input.scale();
     return output;
-}
-
-Ciphertext multiply_by_constant_vector(const Ciphertext &input, double coeff,
-                                       size_t slot_count, CKKSEncoder &encoder,
-                                       EvaluatorCkksBase &evaluator)
-{
-    vector<double> mask(slot_count, coeff);
-    return multiply_by_mask(input, mask, encoder, evaluator);
 }
 
 Ciphertext multiply_by_constant_scalar(const Ciphertext &input, double coeff,
@@ -220,211 +126,6 @@ bool coefficient_encodes_to_zero(const Ciphertext &input, double coeff,
 }
 
 } // namespace
-
-vector<int> conv2d_group_preview_rotation_steps(const TensorCipherGroup &input, int out_channels,
-                                                int stride, int fh, int fw,
-                                                size_t preview_count, int rotation_sign)
-{
-    vector<double> dummy_weights(static_cast<size_t>(fh * fw * input.c() * out_channels), 1.0);
-    vector<double> dummy_running_var(static_cast<size_t>(out_channels), 1.0);
-    vector<double> dummy_constant_weight(static_cast<size_t>(out_channels), 1.0);
-    map<size_t, map<int, vector<PreviewTerm>>> plan =
-        build_preview_plan(input, out_channels, stride, fh, fw, dummy_weights, dummy_running_var,
-                           dummy_constant_weight, 0.0, preview_count, rotation_sign);
-
-    set<int> steps;
-    for (const auto &chunk_entry : plan)
-    {
-        for (const auto &rotation_entry : chunk_entry.second)
-        {
-            if (rotation_entry.first != 0)
-            {
-                steps.insert(rotation_entry.first);
-            }
-        }
-    }
-    return vector<int>(steps.begin(), steps.end());
-}
-
-vector<double> encrypted_conv2d_group_preview(
-    const TensorCipherGroup &input, int out_channels, int stride, int fh, int fw,
-    const vector<double> &weights, const vector<double> &running_var,
-    const vector<double> &constant_weight, double epsilon, size_t preview_count,
-    PoseidonRuntime &runtime, int rotation_sign)
-{
-    map<size_t, map<int, vector<PreviewTerm>>> plan =
-        build_preview_plan(input, out_channels, stride, fh, fw, weights, running_var,
-                           constant_weight, epsilon, preview_count, rotation_sign);
-    const size_t slot_count = input.slot_count();
-    const size_t total_outputs = output_value_count(input, out_channels, stride);
-    const size_t planned_outputs = min(preview_count, total_outputs);
-
-    Ciphertext sum;
-    bool has_sum = false;
-    for (const auto &chunk_entry : plan)
-    {
-        const size_t input_chunk = chunk_entry.first;
-        if (input_chunk >= input.chunks().size())
-        {
-            throw out_of_range("group conv preview input chunk is out of range");
-        }
-
-        for (const auto &rotation_entry : chunk_entry.second)
-        {
-            Ciphertext rotated;
-            if (rotation_entry.first == 0)
-            {
-                rotated = input.chunks().at(input_chunk);
-            }
-            else
-            {
-                runtime.evaluator->rotate(input.chunks().at(input_chunk), rotated,
-                                          rotation_entry.first, runtime.galois_keys);
-            }
-
-            vector<double> mask(slot_count, 0.0);
-            for (const PreviewTerm &term : rotation_entry.second)
-            {
-                mask[term.output_slot] += term.weight;
-            }
-            Ciphertext term_cipher = multiply_by_mask(rotated, mask, runtime.encoder,
-                                                      *runtime.evaluator);
-            if (!has_sum)
-            {
-                sum = std::move(term_cipher);
-                has_sum = true;
-            }
-            else
-            {
-                add_assign_dynamic(sum, term_cipher, runtime.encoder, *runtime.evaluator);
-            }
-        }
-    }
-
-    if (!has_sum)
-    {
-        throw runtime_error("group conv preview produced no encrypted terms");
-    }
-
-    Plaintext plain;
-    runtime.decryptor.decrypt(sum, plain);
-    vector<complex<double>> decoded;
-    runtime.encoder.decode(plain, decoded);
-    vector<double> result(planned_outputs, 0.0);
-    for (size_t i = 0; i < planned_outputs; ++i)
-    {
-        result[i] = decoded[i].real();
-    }
-    return result;
-}
-
-vector<int> slot_sum_rotation_steps(const TensorCipherGroup &input)
-{
-    vector<int> steps;
-    for (size_t step = 1; step < input.slot_count(); step <<= 1)
-    {
-        steps.push_back(static_cast<int>(step));
-    }
-    return steps;
-}
-
-double encrypted_conv2d_group_single_output(
-    const TensorCipherGroup &input, size_t output_index, int out_channels, int stride, int fh,
-    int fw, const vector<double> &weights, const vector<double> &running_var,
-    const vector<double> &constant_weight, double epsilon, PoseidonRuntime &runtime)
-{
-    validate_conv_args(input, out_channels, stride, fh, fw, weights, running_var,
-                       constant_weight);
-
-    const int out_h = input.h() / stride;
-    const int out_w = input.w() / stride;
-    if (output_index >= output_value_count(input, out_channels, stride))
-    {
-        throw out_of_range("single output conv index is out of range");
-    }
-
-    const int oc = static_cast<int>(output_index / static_cast<size_t>(out_h * out_w));
-    const size_t spatial = output_index % static_cast<size_t>(out_h * out_w);
-    const int oh = static_cast<int>(spatial / static_cast<size_t>(out_w));
-    const int ow = static_cast<int>(spatial % static_cast<size_t>(out_w));
-    const int pad_h = fh / 2;
-    const int pad_w = fw / 2;
-    const size_t slot_count = input.slot_count();
-    const double folded_scale = constant_weight[oc] / sqrt(running_var[oc] + epsilon);
-
-    vector<vector<double>> masks(input.chunks().size(), vector<double>(slot_count, 0.0));
-    for (int ic = 0; ic < input.c(); ++ic)
-    {
-        for (int kh = 0; kh < fh; ++kh)
-        {
-            for (int kw = 0; kw < fw; ++kw)
-            {
-                const int ih = oh * stride + kh - pad_h;
-                const int iw = ow * stride + kw - pad_w;
-                if (ih < 0 || ih >= input.h() || iw < 0 || iw >= input.w())
-                {
-                    continue;
-                }
-
-                const size_t input_index =
-                    static_cast<size_t>(ic * input.h() * input.w() + ih * input.w() + iw);
-                const size_t input_chunk = input_index / slot_count;
-                const size_t input_slot = input_index % slot_count;
-                const size_t weight_index = static_cast<size_t>(
-                    fh * fw * input.c() * oc + fh * fw * ic + fw * kh + kw);
-                masks.at(input_chunk).at(input_slot) += weights[weight_index] * folded_scale;
-            }
-        }
-    }
-
-    Ciphertext sum;
-    bool has_sum = false;
-    for (size_t chunk = 0; chunk < input.chunks().size(); ++chunk)
-    {
-        bool has_nonzero = false;
-        for (double value : masks[chunk])
-        {
-            if (value != 0.0)
-            {
-                has_nonzero = true;
-                break;
-            }
-        }
-        if (!has_nonzero)
-        {
-            continue;
-        }
-
-        Ciphertext term = multiply_by_mask(input.chunks().at(chunk), masks[chunk], runtime.encoder,
-                                           *runtime.evaluator);
-        if (!has_sum)
-        {
-            sum = std::move(term);
-            has_sum = true;
-        }
-        else
-        {
-            add_assign_dynamic(sum, term, runtime.encoder, *runtime.evaluator);
-        }
-    }
-    if (!has_sum)
-    {
-        throw runtime_error("single output conv produced no encrypted terms");
-    }
-
-    for (int step : slot_sum_rotation_steps(input))
-    {
-        Ciphertext rotated;
-        runtime.evaluator->rotate(sum, rotated, step, runtime.galois_keys);
-        add_assign_dynamic(sum, rotated, runtime.encoder, *runtime.evaluator);
-    }
-
-    Plaintext plain;
-    runtime.decryptor.decrypt(sum, plain);
-    vector<complex<double>> decoded;
-    runtime.encoder.decode(plain, decoded);
-    return decoded.at(0).real();
-}
 
 Im2ColCipherGroup encrypt_conv2d_im2col_patches(const vector<double> &image_values, int input_h,
                                                 int input_w, int input_c, int stride, int fh,
@@ -603,22 +304,20 @@ ChannelCipherGroup encrypted_conv2d_im2col_all_channels(
     const vector<double> &running_var, const vector<double> &constant_weight, double epsilon,
     PoseidonRuntime &runtime)
 {
+    ScopedDurationLog duration("conv_im2col_all_channels");
     ChannelCipherGroup group;
     group.h = im2col.out_h;
     group.w = im2col.out_w;
     group.c = out_channels;
     group.spatial_count = im2col.spatial_count;
     group.slot_count = im2col.slot_count;
-    group.channels.reserve(static_cast<size_t>(out_channels));
+    vector<Ciphertext> output_channels(static_cast<size_t>(out_channels));
 
-    for (int output_channel = 0; output_channel < out_channels; ++output_channel)
-    {
-        if (output_channel % 8 == 0)
-        {
-            resnet18_progress_log() << "conv im2col encrypted channel progress: " << output_channel << "/"
-                 << out_channels << endl;
-        }
-
+    resnet18_progress_log() << "conv im2col encrypted channel parallel threads: "
+                            << resnet18_parallel_thread_count(static_cast<size_t>(out_channels))
+                            << endl;
+    resnet18_parallel_for(static_cast<size_t>(out_channels), [&](size_t output_channel_index) {
+        const int output_channel = static_cast<int>(output_channel_index);
         Ciphertext sum;
         bool has_sum = false;
         const double folded_scale = constant_weight[output_channel] /
@@ -673,8 +372,10 @@ ChannelCipherGroup encrypted_conv2d_im2col_all_channels(
         {
             throw runtime_error("im2col output channel produced no encrypted terms");
         }
-        group.channels.emplace_back(std::move(sum));
-    }
+        output_channels.at(output_channel_index) = std::move(sum);
+    });
+
+    group.channels = std::move(output_channels);
 
     resnet18_progress_log() << "conv im2col encrypted channel progress: " << out_channels << "/"
          << out_channels << endl;
@@ -688,6 +389,8 @@ ChannelCipherGroup encrypted_channel_batch_norm(
     const vector<double> &running_mean, const vector<double> &running_var,
     const vector<double> &weight, double epsilon, double boundary, PoseidonRuntime &runtime)
 {
+    ScopedDurationLog duration("batch_norm");
+    log_channel_group_cipher_state("batch_norm input", input, runtime);
     if (static_cast<int>(bias.size()) != input.c ||
         static_cast<int>(running_mean.size()) != input.c ||
         static_cast<int>(running_var.size()) != input.c ||
@@ -702,10 +405,12 @@ ChannelCipherGroup encrypted_channel_batch_norm(
     output.c = input.c;
     output.spatial_count = input.spatial_count;
     output.slot_count = input.slot_count;
-    output.channels.reserve(input.channels.size());
+    vector<Ciphertext> output_channels(input.channels.size());
 
-    for (int channel = 0; channel < input.c; ++channel)
-    {
+    resnet18_progress_log() << "batch norm channel parallel threads: "
+                            << resnet18_parallel_thread_count(input.channels.size()) << endl;
+    resnet18_parallel_for(input.channels.size(), [&](size_t channel_index) {
+        const int channel = static_cast<int>(channel_index);
         const double offset =
             (bias[channel] - running_mean[channel] * weight[channel] /
                                  sqrt(running_var[channel] + epsilon)) /
@@ -722,8 +427,10 @@ ChannelCipherGroup encrypted_channel_batch_norm(
             runtime.evaluator->add_const(input.channels.at(static_cast<size_t>(channel)), offset,
                                          adjusted, runtime.encoder);
         }
-        output.channels.emplace_back(std::move(adjusted));
-    }
+        output_channels.at(channel_index) = std::move(adjusted);
+    });
+
+    output.channels = std::move(output_channels);
 
     log_channel_group_cipher_state("batch_norm output", output, runtime);
     return output;
@@ -735,6 +442,8 @@ ChannelCipherGroup encrypted_channel_batch_norm_sparse_stride(
     const vector<double> &weight, double epsilon, double boundary, int dense_h,
     int dense_w, int stride, PoseidonRuntime &runtime)
 {
+    ScopedDurationLog duration("sparse_stride_batch_norm");
+    log_channel_group_cipher_state("sparse_stride_batch_norm input", input, runtime);
     if (stride <= 0 || dense_h <= 0 || dense_w <= 0)
     {
         throw invalid_argument("sparse stride batch norm shape is invalid");
@@ -757,10 +466,12 @@ ChannelCipherGroup encrypted_channel_batch_norm_sparse_stride(
     output.c = input.c;
     output.spatial_count = input.spatial_count;
     output.slot_count = input.slot_count;
-    output.channels.reserve(input.channels.size());
+    vector<Ciphertext> output_channels(input.channels.size());
 
-    for (int channel = 0; channel < input.c; ++channel)
-    {
+    resnet18_progress_log() << "sparse stride batch norm channel parallel threads: "
+                            << resnet18_parallel_thread_count(input.channels.size()) << endl;
+    resnet18_parallel_for(input.channels.size(), [&](size_t channel_index) {
+        const int channel = static_cast<int>(channel_index);
         const double offset =
             (bias[channel] - running_mean[channel] * weight[channel] /
                                  sqrt(running_var[channel] + epsilon)) /
@@ -769,8 +480,8 @@ ChannelCipherGroup encrypted_channel_batch_norm_sparse_stride(
         if (coefficient_encodes_to_zero(input.channels.at(static_cast<size_t>(channel)), offset,
                                         runtime.encoder))
         {
-            output.channels.emplace_back(input.channels.at(static_cast<size_t>(channel)));
-            continue;
+            output_channels.at(channel_index) = input.channels.at(static_cast<size_t>(channel));
+            return;
         }
 
         vector<double> offsets(output.slot_count, 0.0);
@@ -795,8 +506,10 @@ ChannelCipherGroup encrypted_channel_batch_norm_sparse_stride(
         Ciphertext adjusted;
         runtime.evaluator->add_plain(input.channels.at(static_cast<size_t>(channel)), plain,
                                      adjusted);
-        output.channels.emplace_back(std::move(adjusted));
-    }
+        output_channels.at(channel_index) = std::move(adjusted);
+    });
+
+    output.channels = std::move(output_channels);
 
     log_channel_group_cipher_state("sparse_stride_batch_norm output", output, runtime);
     return output;
@@ -806,6 +519,9 @@ ChannelCipherGroup encrypted_channel_add(const ChannelCipherGroup &lhs,
                                           const ChannelCipherGroup &rhs,
                                           PoseidonRuntime &runtime)
 {
+    ScopedDurationLog duration("channel_add");
+    log_channel_group_cipher_state("channel_add lhs input", lhs, runtime);
+    log_channel_group_cipher_state("channel_add rhs input", rhs, runtime);
     if (lhs.h != rhs.h || lhs.w != rhs.w || lhs.c != rhs.c ||
         lhs.spatial_count != rhs.spatial_count)
     {
@@ -823,10 +539,12 @@ ChannelCipherGroup encrypted_channel_add(const ChannelCipherGroup &lhs,
     output.c = lhs.c;
     output.spatial_count = lhs.spatial_count;
     output.slot_count = lhs.slot_count;
-    output.channels.reserve(lhs.channels.size());
+    vector<Ciphertext> output_channels(lhs.channels.size());
 
-    for (int channel = 0; channel < lhs.c; ++channel)
-    {
+    resnet18_progress_log() << "channel add parallel threads: "
+                            << resnet18_parallel_thread_count(lhs.channels.size()) << endl;
+    resnet18_parallel_for(lhs.channels.size(), [&](size_t channel_index) {
+        const int channel = static_cast<int>(channel_index);
         Ciphertext lhs_cipher = lhs.channels.at(static_cast<size_t>(channel));
         Ciphertext rhs_cipher = rhs.channels.at(static_cast<size_t>(channel));
         const size_t lhs_chain = cipher_chain_index(runtime, lhs_cipher);
@@ -842,8 +560,10 @@ ChannelCipherGroup encrypted_channel_add(const ChannelCipherGroup &lhs,
 
         Ciphertext sum;
         runtime.evaluator->add_dynamic(lhs_cipher, rhs_cipher, sum, runtime.encoder);
-        output.channels.emplace_back(std::move(sum));
-    }
+        output_channels.at(channel_index) = std::move(sum);
+    });
+
+    output.channels = std::move(output_channels);
 
     log_channel_group_cipher_state("channel_add output", output, runtime);
     return output;
@@ -1192,6 +912,8 @@ ChannelCipherGroup encrypted_channel_conv2d_all_channels(
     const vector<double> &weights, const vector<double> &running_var,
     const vector<double> &constant_weight, double epsilon, PoseidonRuntime &runtime)
 {
+    ScopedDurationLog duration("dense_conv2d_all_channels");
+    log_channel_group_cipher_state("dense_conv2d_all_channels input", input, runtime);
     if (stride != 1)
     {
         throw invalid_argument("dense channel conv all-channels currently supports stride 1 only");
@@ -1203,19 +925,19 @@ ChannelCipherGroup encrypted_channel_conv2d_all_channels(
     output.c = out_channels;
     output.spatial_count = static_cast<size_t>(output.h * output.w);
     output.slot_count = runtime.encoder.slot_count();
-    output.channels.reserve(static_cast<size_t>(out_channels));
+    vector<Ciphertext> output_channels(static_cast<size_t>(out_channels));
 
-    for (int output_channel = 0; output_channel < out_channels; ++output_channel)
-    {
-        if (output_channel % 8 == 0)
-        {
-            resnet18_progress_log() << "dense conv encrypted channel progress: " << output_channel << "/"
-                 << out_channels << endl;
-        }
-        output.channels.emplace_back(encrypted_channel_conv2d_output_channel_cipher(
+    resnet18_progress_log() << "dense conv encrypted channel parallel threads: "
+                            << resnet18_parallel_thread_count(static_cast<size_t>(out_channels))
+                            << endl;
+    resnet18_parallel_for(static_cast<size_t>(out_channels), [&](size_t output_channel_index) {
+        const int output_channel = static_cast<int>(output_channel_index);
+        output_channels.at(output_channel_index) = encrypted_channel_conv2d_output_channel_cipher(
             input, output_channel, out_channels, stride, fh, fw, weights, running_var,
-            constant_weight, epsilon, runtime));
-    }
+            constant_weight, epsilon, runtime);
+    });
+
+    output.channels = std::move(output_channels);
     resnet18_progress_log() << "dense conv encrypted channel progress: " << out_channels << "/"
          << out_channels << endl;
     log_channel_group_cipher_state("dense_conv2d_all_channels output", output, runtime);
@@ -1228,6 +950,8 @@ ChannelCipherGroup encrypted_channel_conv2d_sparse_stride_all_channels(
     const vector<double> &weights, const vector<double> &running_var,
     const vector<double> &constant_weight, double epsilon, PoseidonRuntime &runtime)
 {
+    ScopedDurationLog duration("sparse_stride_conv2d_all_channels");
+    log_channel_group_cipher_state("sparse_stride_conv2d_all_channels input", input, runtime);
     if (stride <= 1)
     {
         throw invalid_argument("sparse stride conv expects stride greater than 1");
@@ -1266,16 +990,13 @@ ChannelCipherGroup encrypted_channel_conv2d_sparse_stride_all_channels(
     output.c = out_channels;
     output.spatial_count = input.spatial_count;
     output.slot_count = input.slot_count;
-    output.channels.reserve(static_cast<size_t>(out_channels));
+    vector<Ciphertext> output_channels(static_cast<size_t>(out_channels));
 
-    for (int output_channel = 0; output_channel < out_channels; ++output_channel)
-    {
-        if (output_channel % 8 == 0)
-        {
-            resnet18_progress_log() << "sparse stride conv encrypted channel progress: " << output_channel
-                 << "/" << out_channels << endl;
-        }
-
+    resnet18_progress_log() << "sparse stride conv encrypted channel parallel threads: "
+                            << resnet18_parallel_thread_count(static_cast<size_t>(out_channels))
+                            << endl;
+    resnet18_parallel_for(static_cast<size_t>(out_channels), [&](size_t output_channel_index) {
+        const int output_channel = static_cast<int>(output_channel_index);
         Ciphertext sum;
         bool has_sum = false;
         const double folded_scale =
@@ -1347,8 +1068,10 @@ ChannelCipherGroup encrypted_channel_conv2d_sparse_stride_all_channels(
         {
             throw runtime_error("sparse stride conv output channel produced no encrypted terms");
         }
-        output.channels.emplace_back(std::move(sum));
-    }
+        output_channels.at(output_channel_index) = std::move(sum);
+    });
+
+    output.channels = std::move(output_channels);
 
     resnet18_progress_log() << "sparse stride conv encrypted channel progress: " << out_channels << "/"
          << out_channels << endl;

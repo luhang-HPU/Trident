@@ -13,7 +13,7 @@ cmake --build Trident/build --target resnet18_plain -j2
 
 当前 `resnet18` 是密文入口。Poseidon 目前 `logN` 最大为 `16`，单个 CKKS
 ciphertext 只有 `32768` slots，而一张 ImageNet 输入有 `224*224*3=150528`
-个值。因此密文入口已经使用 `TensorCipherGroup` 把一张图拆成 5 个 ciphertext
+个值。因此密文入口已经使用 `TensorCipherGroup` 按通道把一张图拆成 6 个 ciphertext
 加密，并会解密回读检查输入误差：
 
 ```bash
@@ -23,7 +23,7 @@ ciphertext 只有 `32768` slots，而一张 ImageNet 输入有 `224*224*3=150528
 当前密文入口会完成：
 
 ```text
-ImageNet input -> 5 ciphertext TensorCipherGroup
+ImageNet input -> 6 ciphertext TensorCipherGroup
 conv1 output[0..3] encrypted dot-product preview
 conv1 im2col packing -> encrypted conv1 output channel 0
 ```
@@ -57,17 +57,9 @@ layer4: 2 BasicBlock, 512 channels, first block stride 2 + projection shortcut
 global average pool -> fc(512, 1000)
 ```
 
-标准 torchvision ResNet-18 的 stem 使用 `maxpool`。当前明文参考路径实现了标准
-`3x3 stride-2 padding-1 maxpool`。密文路径默认使用近似 maxpool：
-
-```text
-max(a,b) ~= b + ReLU(a-b)
-```
-
-其中 `ReLU` 使用现有 sign/ReLU 多项式近似。`3x3` 窗口会先拆成 9 个
-stride-2 one-hot depthwise convolution 候选，再通过 pairwise max 归约。
-这个实现很重；如需回退到 HE 友好的 average pool，可在 `infer_config.h`
-中关闭 `kUseApproximateEncryptedMaxPool`。
+标准 torchvision ResNet-18 的 stem 使用 `maxpool`。当前密文验证路径为了先打通
+packed 主链路，stem 使用 HE 友好的 `3x3 stride-2 padding-1 average pool`，
+并且明文参考路径同步使用同一个 average pool 进行误差比较。
 
 ## Parameters
 

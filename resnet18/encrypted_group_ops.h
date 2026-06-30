@@ -1,7 +1,6 @@
 #pragma once
 
 #include "infer_runtime.h"
-#include "tensor_cipher_group.h"
 
 #include <cstddef>
 #include <vector>
@@ -30,24 +29,6 @@ struct ChannelCipherGroup
     std::size_t slot_count = 0;
     std::vector<poseidon::Ciphertext> channels;
 };
-
-std::vector<int> conv2d_group_preview_rotation_steps(const TensorCipherGroup &input,
-                                                     int out_channels, int stride, int fh,
-                                                     int fw, std::size_t preview_count,
-                                                     int rotation_sign = 1);
-
-std::vector<double> encrypted_conv2d_group_preview(
-    const TensorCipherGroup &input, int out_channels, int stride, int fh, int fw,
-    const std::vector<double> &weights, const std::vector<double> &running_var,
-    const std::vector<double> &constant_weight, double epsilon, std::size_t preview_count,
-    PoseidonRuntime &runtime, int rotation_sign = 1);
-
-std::vector<int> slot_sum_rotation_steps(const TensorCipherGroup &input);
-
-double encrypted_conv2d_group_single_output(
-    const TensorCipherGroup &input, std::size_t output_index, int out_channels, int stride,
-    int fh, int fw, const std::vector<double> &weights, const std::vector<double> &running_var,
-    const std::vector<double> &constant_weight, double epsilon, PoseidonRuntime &runtime);
 
 Im2ColCipherGroup encrypt_conv2d_im2col_patches(
     const std::vector<double> &image_values, int input_h, int input_w, int input_c, int stride,

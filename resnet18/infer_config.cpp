@@ -30,8 +30,8 @@ fs::path result_dir()
 std::vector<std::uint32_t> logq_chain()
 {
     return {
-        46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46,
-        46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46,
+        // 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46,
+        46, 46, 46, 46, 46, 46, 46, 46, 46, 46,
     };
 }
 
@@ -42,12 +42,6 @@ PoseidonInferPlan default_poseidon_plan()
     plan.log_slots = 15;
     plan.init_p = 8;
     plan.logq_chain = logq_chain();
-    plan.stages = {
-        {"layer1", 64, 2, 1},
-        {"layer2", 128, 2, 2},
-        {"layer3", 256, 2, 2},
-        {"layer4", 512, 2, 2},
-    };
     return plan;
 }
 

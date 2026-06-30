@@ -932,32 +932,26 @@ void memory_save_rotate(const Ciphertext &cipher_in, Ciphertext &cipher_out, int
                         EvaluatorCkksBase &evaluator, GaloisKeys &gal_keys)
 {
     const long n = static_cast<long>(cipher_in.poly_modulus_degree() / 2);
-    Ciphertext temp = cipher_in;
     steps = (steps % n + n) % n;
-    int first_step = 0;
-
-    if (34 <= steps && steps <= 55)
-    {
-        first_step = 33;
-    }
-    else if (57 <= steps && steps <= 61)
-    {
-        first_step = 33;
-    }
 
     if (steps == 0)
     {
-        cipher_out = temp;
+        cipher_out = cipher_in;
         return;
     }
 
-    if (first_step == 0)
+    Ciphertext current = cipher_in;
+    int bit = 1;
+    while (steps > 0)
     {
-        evaluator.rotate(temp, cipher_out, steps, gal_keys);
+        if ((steps & bit) != 0)
+        {
+            Ciphertext rotated;
+            evaluator.rotate(current, rotated, bit, gal_keys);
+            current = std::move(rotated);
+            steps -= bit;
+        }
+        bit <<= 1;
     }
-    else
-    {
-        evaluator.rotate(temp, temp, first_step, gal_keys);
-        evaluator.rotate(temp, cipher_out, steps - first_step, gal_keys);
-    }
+    cipher_out = std::move(current);
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <iosfwd>
+#include <memory>
 
 std::ostream &resnet18_progress_log();
 
@@ -15,5 +16,6 @@ public:
 
 private:
     std::ostream *previous_;
+    std::unique_ptr<std::streambuf> timestamp_buffer_;
+    std::unique_ptr<std::ostream> timestamp_stream_;
 };
-

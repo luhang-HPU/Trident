@@ -1,0 +1,60 @@
+[2026-06-29 19:27:53.412] Setting Poseidon Parameters
+[2026-06-29 19:27:56.494] Poseidon slot count: 32768
+[2026-06-29 19:27:56.494] Poseidon scale: 7.03687e+13
+[2026-06-29 19:27:56.494] ImageNet input values: 150528, encrypted input chunks: 6
+run_start: start_image_id=0, end_image_id=0, run_timestamp=20260629_192753, log_file="/home/guoshuai/github/poseidon/Trident/resnet18/result/resnet18_imagenet_run_0_0_20260629_192753.txt"
+image_start: 0
+
+==================== run_start ====================
+image_id: 0
+run_timestamp: 20260629_192753
+log_file: "/home/guoshuai/github/poseidon/Trident/resnet18/result/resnet18_imagenet_run_0_0_20260629_192753.txt"
+runtime: poseidon ready
+input values=150528, slot_count=32768, input_chunk_count=6
+TensorCipherGroup(shape h=224, w=224, c=3, values=150528, slots_per_chunk=32768, chunks=6, layout=channel_split)
+input decrypt max_abs_error: 1.71686e-08
+conv1 single-output preview skipped for bootstrap debug
+[2026-06-29 19:28:05.418] conv1 single-output preview skipped for bootstrap debug
+conv1 im2col packing: encrypting 7x7x3 patch ciphertexts
+[2026-06-29 19:28:05.418] conv1 im2col encrypt patches
+conv1 im2col patches: 147, spatial_count=12544
+[2026-06-29 19:28:25.525] conv1 im2col patches: 147
+conv1 im2col: encrypted output channel 0 evaluation
+[2026-06-29 19:28:25.525] conv1 im2col output channel 0 encrypted evaluation
+conv1 channel0 count: 12544
+conv1 channel0 max_abs_error: 5.91739e-09
+[2026-06-29 19:28:35.404] conv1 channel0 max_abs_error: 5.91739e-09
+conv1 batch norm offset: encrypted channel 0 evaluation
+[2026-06-29 19:28:35.413] conv1 batch norm channel0 encrypted evaluation
+conv1 batch norm channel0 max_abs_error: 5.91738e-09
+[2026-06-29 19:28:35.779] conv1 batch norm channel0 max_abs_error: 5.91738e-09
+conv1 full 64-channel check skipped for relu preview
+[2026-06-29 19:28:35.779] conv1 full 64-channel check skipped for relu preview
+conv1 relu preview: plaintext ReLU refresh
+[2026-06-29 19:28:35.779] conv1 relu preview plaintext ReLU refresh
+conv1 relu preview: decrypt channel 0, apply ReLU, re-encrypt
+[2026-06-29 19:28:39.560] conv1 relu channel0 plaintext refresh evaluation
+conv1 relu channel0 max_abs_error: 1.47604e-08
+[2026-06-29 19:28:40.491] conv1 relu channel0 max_abs_error: 1.47604e-08
+[2026-06-29 19:28:40.491] [cipher-state] conv1 relu channel0 output: shape(h=112, w=112, c=1), chain_index=24, scale=7.03687e+13
+[2026-06-29 19:28:40.491] conv1 relu channel0 chain index: 24, scale: 7.03687e+13
+conv1 relu channel0 chain index: 24, scale: 7.03687e+13
+conv1 relu channel0 debug refresh: decrypt and re-encrypt
+[2026-06-29 19:28:40.491] conv1 relu channel0 debug refresh decrypt-reencrypt
+[2026-06-29 19:28:40.934] [cipher-state] conv1 relu channel0 debug refresh output: shape(h=112, w=112, c=1), chain_index=24, scale=7.03687e+13
+[2026-06-29 19:28:40.934] conv1 relu channel0 post-refresh chain index: 24, scale: 7.03687e+13
+conv1 relu channel0 post-refresh chain index: 24, scale: 7.03687e+13
+conv1 relu debug refresh channel0 max_abs_error: 1.75392e-08
+[2026-06-29 19:28:41.270] conv1 relu debug refresh channel0 max_abs_error: 1.75392e-08
+stem full 64-channel: encrypted conv1 evaluation
+[2026-06-29 19:28:41.270] stem full 64-channel conv1 encrypted evaluation
+[2026-06-29 19:28:41.270] [start] conv_im2col_all_channels
+[2026-06-29 19:28:41.270] conv im2col encrypted channel parallel threads: 16
+[2026-06-29 19:32:27.487] conv im2col encrypted channel progress: 64/64
+[2026-06-29 19:32:27.487] [cipher-state] conv_im2col_all_channels output: shape(h=112, w=112, c=64, spatial=12544), channels=64, chain_index(first/min/max)=23/23/23, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-29 19:32:27.487] [duration] conv_im2col_all_channels: 226216 ms
+stem conv1 all max_abs_error: 1.4627e-08
+[2026-06-29 19:32:47.205] stem conv1 all max_abs_error: 1.4627e-08
+stem conv1: pack 2 output channels per ciphertext
+[2026-06-29 19:32:47.205] stem packed channel rotation key count: 16
+stem packed channel rotation key count: 16

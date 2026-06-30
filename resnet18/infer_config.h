@@ -17,9 +17,6 @@ constexpr int kResNet18FinalChannels = 512;
 constexpr const char *kResNet18ParameterDir = "resnet18_imagenet";
 constexpr const char *kResNet18ResultPrefix = "resnet18_imagenet";
 constexpr double kBatchNormEpsilon = 1.0e-5;
-constexpr bool kEnableBootstrap = true;
-constexpr bool kLogPlainIntermediate = false;
-constexpr bool kUseApproximateEncryptedMaxPool = true;
 
 struct ReluConfig
 {
@@ -29,14 +26,6 @@ struct ReluConfig
     std::vector<Tree> tree;
     double scaled_val = 0.0;
     long scalingfactor = 0;
-};
-
-struct PoseidonStagePlan
-{
-    const char *name = "";
-    int out_channels = 0;
-    int block_count = 0;
-    int first_block_stride = 1;
 };
 
 struct PoseidonInferPlan
@@ -49,7 +38,6 @@ struct PoseidonInferPlan
     int remaining_level = 16;
     int boot_level = 14;
     std::vector<std::uint32_t> logq_chain;
-    std::vector<PoseidonStagePlan> stages;
 };
 
 std::filesystem::path resnet18_root();

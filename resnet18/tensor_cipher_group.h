@@ -12,6 +12,12 @@
 class TensorCipherGroup
 {
 private:
+    struct ChunkLayout
+    {
+        std::size_t value_offset = 0;
+        std::size_t value_count = 0;
+    };
+
     int logn_ = 0;
     int h_ = 0;
     int w_ = 0;
@@ -19,6 +25,7 @@ private:
     std::size_t value_count_ = 0;
     std::size_t slot_count_ = 0;
     std::vector<poseidon::Ciphertext> chunks_;
+    std::vector<ChunkLayout> layouts_;
 
 public:
     TensorCipherGroup() = default;
@@ -33,6 +40,8 @@ public:
     std::size_t value_count() const;
     std::size_t slot_count() const;
     std::size_t chunk_count() const;
+    std::size_t chunk_index_for_value(std::size_t value_index) const;
+    std::size_t slot_index_for_value(std::size_t value_index) const;
 
     const std::vector<poseidon::Ciphertext> &chunks() const;
     std::vector<poseidon::Ciphertext> &chunks();

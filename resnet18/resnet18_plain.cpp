@@ -115,7 +115,7 @@ void run_stem(PlainInferenceState &state, const ModelWeights &weights, ostream &
     ++state.bn_idx;
 
     stem = plain_relu_reference(stem);
-    stem = plain_max_pool2d(stem, 3, 2, 1);
+    stem = plain_average_pool2d(stem, 3, 2, 1);
     log_plain_tensor("plain stem output", stem, log);
     state.tensor = std::move(stem);
 }
