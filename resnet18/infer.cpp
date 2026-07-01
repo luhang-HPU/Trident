@@ -258,6 +258,77 @@ void log_multiplexed_group_cipher_state(const string &label,
                             << "/" << max_scale << endl;
 }
 
+int next_rescale_prime_bits(const Ciphertext &cipher, PoseidonRuntime &runtime)
+{
+    auto context_data = runtime.context.crt_context()->get_context_data(cipher.parms_id());
+    if (!context_data)
+    {
+        throw runtime_error("failed to locate ciphertext parms_id for next prime bit count");
+    }
+    const auto &modulus = context_data->coeff_modulus();
+    if (modulus.empty())
+    {
+        throw runtime_error("ciphertext has no coefficient modulus primes");
+    }
+    return modulus.back().bit_count();
+}
+
+size_t drop_trailing_51_bit_primes(Ciphertext &cipher, PoseidonRuntime &runtime)
+{
+    size_t dropped = 0;
+    while (next_rescale_prime_bits(cipher, runtime) == 51)
+    {
+        Ciphertext next;
+        runtime.evaluator->drop_modulus_to_next(cipher, next);
+        cipher = std::move(next);
+        ++dropped;
+    }
+    return dropped;
+}
+
+size_t drop_trailing_51_bit_primes(vector<Ciphertext> &ciphers, PoseidonRuntime &runtime)
+{
+    size_t max_dropped = 0;
+    for (Ciphertext &cipher : ciphers)
+    {
+        max_dropped = max(max_dropped, drop_trailing_51_bit_primes(cipher, runtime));
+    }
+    return max_dropped;
+}
+
+void log_cipher_vector_level_summary(const string &label, const vector<Ciphertext> &ciphers,
+                                     PoseidonRuntime &runtime)
+{
+    if (ciphers.empty())
+    {
+        resnet18_progress_log() << "[cipher-state] " << label << ": empty" << endl;
+        return;
+    }
+
+    const size_t first_chain = cipher_chain_index(runtime, ciphers.front());
+    size_t min_chain = first_chain;
+    size_t max_chain = first_chain;
+    const int first_prime_bits = next_rescale_prime_bits(ciphers.front(), runtime);
+    int min_prime_bits = first_prime_bits;
+    int max_prime_bits = first_prime_bits;
+    for (const Ciphertext &cipher : ciphers)
+    {
+        const size_t chain = cipher_chain_index(runtime, cipher);
+        min_chain = min(min_chain, chain);
+        max_chain = max(max_chain, chain);
+        const int prime_bits = next_rescale_prime_bits(cipher, runtime);
+        min_prime_bits = min(min_prime_bits, prime_bits);
+        max_prime_bits = max(max_prime_bits, prime_bits);
+    }
+
+    resnet18_progress_log() << "[cipher-state] " << label
+                            << ": count=" << ciphers.size()
+                            << ", chain_index(first/min/max)=" << first_chain << "/"
+                            << min_chain << "/" << max_chain
+                            << ", next_prime_bits(first/min/max)=" << first_prime_bits
+                            << "/" << min_prime_bits << "/" << max_prime_bits << endl;
+}
+
 void log_packed_channel_group_cipher_state(const string &label,
                                            const PackedChannelCipherGroup &group,
                                            PoseidonRuntime &runtime)
@@ -1162,13 +1233,23 @@ MultiplexedCipherGroup multiplexed_channel_homomorphic_relu(
     const MultiplexedCipherGroup &input, long logn, const ReluConfig &relu_config,
     PoseidonRuntime &runtime, const string &label)
 {
-    log_multiplexed_group_cipher_state(label + " homomorphic ReLU input", input, runtime);
-    MultiplexedCipherGroup output = input;
-    output.packs.resize(input.packs.size());
-    for (size_t pack_index = 0; pack_index < input.packs.size(); ++pack_index)
+    MultiplexedCipherGroup relu_input = input;
+    const size_t dropped_51 = drop_trailing_51_bit_primes(relu_input.packs, runtime);
+    if (dropped_51 > 0)
     {
-        TensorCipher tensor_in(static_cast<int>(logn), input.k, input.h, input.w, input.c,
-                               1, input.pages_per_cipher, input.packs.at(pack_index));
+        resnet18_progress_log() << label
+                                << " drop trailing 51-bit primes before ReLU: "
+                                << dropped_51 << endl;
+    }
+    log_multiplexed_group_cipher_state(label + " homomorphic ReLU input", relu_input,
+                                       runtime);
+    MultiplexedCipherGroup output = relu_input;
+    output.packs.resize(relu_input.packs.size());
+    for (size_t pack_index = 0; pack_index < relu_input.packs.size(); ++pack_index)
+    {
+        TensorCipher tensor_in(static_cast<int>(logn), relu_input.k, relu_input.h,
+                               relu_input.w, relu_input.c, 1, relu_input.pages_per_cipher,
+                               relu_input.packs.at(pack_index));
         TensorCipher tensor_out;
         relu(tensor_in, tensor_out, relu_config.comp_no, relu_config.deg,
              relu_config.alpha, relu_config.tree, relu_config.scaled_val,
@@ -1176,7 +1257,8 @@ MultiplexedCipherGroup multiplexed_channel_homomorphic_relu(
              runtime.scale);
         output.packs.at(pack_index) = tensor_out.cipher();
         resnet18_progress_log() << label << " homomorphic ReLU ciphertext progress: "
-                                << (pack_index + 1) << "/" << input.packs.size() << endl;
+                                << (pack_index + 1) << "/" << relu_input.packs.size()
+                                << endl;
     }
     log_multiplexed_group_cipher_state(label + " homomorphic ReLU output", output, runtime);
     return output;
@@ -2654,6 +2736,13 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
         TensorCipherGroup input_group(static_cast<int>(plan.logN), kImageNetInputHeight,
                                       kImageNetInputWidth, kImageNetInputChannels, image_values,
                                       runtime.encryptor, runtime.encoder, plan.log_scale);
+        const size_t input_dropped_51 =
+            drop_trailing_51_bit_primes(input_group.chunks(), runtime);
+        output << "input drop trailing 51-bit primes: " << input_dropped_51 << '\n';
+        resnet18_progress_log()
+            << "input drop trailing 51-bit primes: " << input_dropped_51 << endl;
+        log_cipher_vector_level_summary("input chunks after 51-bit drop",
+                                        input_group.chunks(), runtime);
         input_group.print_summary(output);
 
         vector<double> decrypted_input = input_group.decrypt_values(runtime.decryptor,
@@ -2677,6 +2766,15 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
         Im2ColCipherGroup conv1_im2col = encrypt_conv2d_im2col_patches(
             image_values, kImageNetInputHeight, kImageNetInputWidth, kImageNetInputChannels, 2, 7,
             7, runtime, plan.log_scale);
+        const size_t conv1_im2col_dropped_51 =
+            drop_trailing_51_bit_primes(conv1_im2col.patches, runtime);
+        output << "conv1 im2col drop trailing 51-bit primes: "
+               << conv1_im2col_dropped_51 << '\n';
+        resnet18_progress_log()
+            << "conv1 im2col drop trailing 51-bit primes: "
+            << conv1_im2col_dropped_51 << endl;
+        log_cipher_vector_level_summary("conv1 im2col patches after 51-bit drop",
+                                        conv1_im2col.patches, runtime);
         output << "conv1 im2col patches: " << conv1_im2col.patches.size()
                << ", spatial_count=" << conv1_im2col.spatial_count << '\n';
         resnet18_progress_log() << "conv1 im2col patches: " << conv1_im2col.patches.size() << endl;

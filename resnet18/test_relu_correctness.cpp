@@ -13,6 +13,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace poseidon;
@@ -58,6 +59,37 @@ void drop_to_chain_index(TensorCipher &tensor, size_t target_chain, PoseidonRunt
         runtime.evaluator->drop_modulus_to_next(tensor.cipher(), dropped);
         tensor.set_ciphertext(dropped);
     }
+}
+
+int next_rescale_prime_bits(const Ciphertext &cipher, PoseidonRuntime &runtime)
+{
+    auto context_data = runtime.context.crt_context()->get_context_data(cipher.parms_id());
+    if (!context_data)
+    {
+        throw runtime_error("failed to locate ciphertext parms_id in relu test");
+    }
+    const auto &modulus = context_data->coeff_modulus();
+    if (modulus.empty())
+    {
+        throw runtime_error("ciphertext has no coeff modulus in relu test");
+    }
+    return modulus.back().bit_count();
+}
+
+void drop_trailing_51_bit_primes(TensorCipher &tensor, PoseidonRuntime &runtime)
+{
+    size_t dropped = 0;
+    while (next_rescale_prime_bits(tensor.cipher(), runtime) == 51)
+    {
+        Ciphertext next;
+        runtime.evaluator->drop_modulus_to_next(tensor.cipher(), next);
+        tensor.set_ciphertext(next);
+        ++dropped;
+    }
+    cout << "dropped trailing 51-bit primes: " << dropped
+         << ", chain_index=" << cipher_chain_index(runtime, tensor.cipher())
+         << ", next_prime_bits=" << next_rescale_prime_bits(tensor.cipher(), runtime)
+         << '\n';
 }
 
 vector<double> exact_relu(const vector<double> &values)
@@ -127,7 +159,7 @@ void print_preview(const string &label, const vector<double> &values)
 }
 
 void run_relu_case(const string &label, const vector<double> &message, size_t target_chain,
-                   double far_threshold, PoseidonRuntime &runtime,
+                   bool drop_51_first, double far_threshold, PoseidonRuntime &runtime,
                    const ReluConfig &relu_config)
 {
     cout << "\n=== " << label << " ===\n";
@@ -135,10 +167,16 @@ void run_relu_case(const string &label, const vector<double> &message, size_t ta
                        message, runtime.encryptor, runtime.encoder,
                        default_poseidon_plan().log_scale);
     drop_to_chain_index(input, target_chain, runtime);
+    if (drop_51_first)
+    {
+        drop_trailing_51_bit_primes(input, runtime);
+    }
 
     cout << "input chain_index=" << cipher_chain_index(runtime, input.cipher())
          << ", coeff_modulus_size=" << input.cipher().coeff_modulus_size()
-         << ", scale=" << input.cipher().scale() << '\n';
+         << ", scale=" << input.cipher().scale()
+         << ", next_prime_bits=" << next_rescale_prime_bits(input.cipher(), runtime)
+         << '\n';
 
     Ciphertext mask = approximate_sign(input.cipher(), relu_config.deg, relu_config.alpha,
                                        relu_config.tree, relu_config.scaled_val,
@@ -239,6 +277,12 @@ int main(int argc, char **argv)
     {
         target_chain = static_cast<size_t>(stoul(argv[1]));
     }
+    bool drop_51_first = true;
+    if (argc >= 3)
+    {
+        const string mode = argv[2];
+        drop_51_first = !(mode == "keep51" || mode == "0" || mode == "false");
+    }
 
     const PoseidonInferPlan plan = default_poseidon_plan();
     ReluConfig relu_config = default_relu_config(plan);
@@ -250,7 +294,8 @@ int main(int argc, char **argv)
     const size_t slot_count = static_cast<size_t>(runtime.slot_count);
     cout << "resnet18 relu correctness test\n";
     cout << "slot_count=" << slot_count << ", target_chain=" << target_chain
-         << ", scale=" << runtime.scale << '\n';
+         << ", scale=" << runtime.scale
+         << ", drop_51_first=" << (drop_51_first ? "true" : "false") << '\n';
     cout << "relu config: comp_no=" << relu_config.comp_no
          << ", alpha=" << relu_config.alpha
          << ", scaled_val=" << relu_config.scaled_val << ", deg=";
@@ -261,13 +306,13 @@ int main(int argc, char **argv)
     cout << '\n';
 
     run_relu_case("symmetric [-0.4, 0.4]", make_symmetric_probe(slot_count), target_chain,
-                  0.10, runtime, relu_config);
+                  drop_51_first, 0.10, runtime, relu_config);
     run_relu_case("stem-like near zero", make_stem_like_probe(slot_count), target_chain,
-                  0.05, runtime, relu_config);
+                  drop_51_first, 0.05, runtime, relu_config);
     run_relu_case("far from zero alternating", make_far_from_zero_probe(slot_count),
-                  target_chain, 0.10, runtime, relu_config);
+                  target_chain, drop_51_first, 0.10, runtime, relu_config);
     run_relu_case("sparse active slots, zero inactive tail", make_sparse_active_probe(slot_count),
-                  target_chain, 0.05, runtime, relu_config);
+                  target_chain, drop_51_first, 0.05, runtime, relu_config);
 
     return 0;
 }

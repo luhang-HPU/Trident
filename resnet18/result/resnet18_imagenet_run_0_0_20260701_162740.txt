@@ -1,0 +1,65 @@
+[2026-07-01 16:27:40.228] Setting Poseidon Parameters
+[2026-07-01 16:27:48.715] Poseidon slot count: 32768
+[2026-07-01 16:27:48.716] Poseidon scale: 7.03687e+13
+[2026-07-01 16:27:48.716] ImageNet input values: 150528, encrypted input chunks: 6
+run_start: start_image_id=0, end_image_id=0, run_timestamp=20260701_162740, log_file="/home/guoshuai/github/poseidon/Trident/resnet18/result/resnet18_imagenet_run_0_0_20260701_162740.txt"
+prepare evaluation keys: network_rotation_key_count=17, bootstrap_rotation_key_count=39, merged_galois_key_count=41
+prepare galois keys: steps -12544 0 1 2 3 4 5 6 7 8 16 24 32 64 96 128 160 192 224 256 512 768 1024 2048 3072 4096 5120 6144 7168 8192 12544 16384 24576 31744 32000 32256 32512 32736 32744 32752 32760
+[2026-07-01 16:27:49.323] prepare evaluation keys merged galois key count: 41
+prepare evaluation keys time: 523517 ms
+[2026-07-01 16:36:32.233] [duration] prepare evaluation keys: 523517 ms
+image_start: 0
+
+==================== run_start ====================
+image_id: 0
+run_timestamp: 20260701_162740
+log_file: "/home/guoshuai/github/poseidon/Trident/resnet18/result/resnet18_imagenet_run_0_0_20260701_162740.txt"
+runtime: poseidon ready
+input values=150528, slot_count=32768, input_chunk_count=6
+input drop trailing 51-bit primes: 21
+[2026-07-01 16:36:35.333] input drop trailing 51-bit primes: 21
+[2026-07-01 16:36:35.333] [cipher-state] input chunks after 51-bit drop: count=6, chain_index(first/min/max)=23/23/23, next_prime_bits(first/min/max)=46/46/46
+TensorCipherGroup(shape h=224, w=224, c=3, values=150528, slots_per_chunk=32768, chunks=6, layout=channel_split)
+input decrypt max_abs_error: 1.5814e-08
+conv1 im2col packing: encrypting 7x7x3 patch ciphertexts
+[2026-07-01 16:36:41.916] conv1 im2col encrypt patches
+conv1 im2col drop trailing 51-bit primes: 21
+[2026-07-01 16:37:47.079] conv1 im2col drop trailing 51-bit primes: 21
+[2026-07-01 16:37:47.079] [cipher-state] conv1 im2col patches after 51-bit drop: count=147, chain_index(first/min/max)=23/23/23, next_prime_bits(first/min/max)=46/46/46
+conv1 im2col patches: 147, spatial_count=12544
+[2026-07-01 16:37:47.079] conv1 im2col patches: 147
+stem full 64-channel: encrypted conv1 evaluation
+[2026-07-01 16:37:47.098] stem full 64-channel conv1 encrypted evaluation
+[2026-07-01 16:37:47.098] [start] conv_im2col_all_channels
+[2026-07-01 16:37:47.098] conv im2col encrypted channel parallel threads: 16
+[2026-07-01 16:40:00.786] conv im2col encrypted channel progress: 64/64
+[2026-07-01 16:40:00.786] [cipher-state] conv_im2col_all_channels output: shape(h=112, w=112, c=64, spatial=12544), channels=64, chain_index(first/min/max)=22/22/22, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-07-01 16:40:00.786] [duration] conv_im2col_all_channels: 133687 ms
+stem conv1 all max_abs_error: 1.18301e-08
+[2026-07-01 16:40:19.514] stem conv1 all max_abs_error: 1.18301e-08
+stem conv1: pack output as multiplexed k=1
+[2026-07-01 16:40:19.514] stem conv1 pack output as multiplexed k=1
+[2026-07-01 16:40:39.525] [cipher-state] stem conv1 multiplexed k=1 output: shape(h=112, w=112, c=64, k=1), page_size=12544, pages_per_cipher=2, ciphertexts=32, active_slots_per_cipher<= 25088, chain_index(first/min/max)=20/20/20, scale(first/min/max)=7.03688e+13/7.03688e+13/7.03688e+13
+stem conv1 multiplexed pack max_abs_error: 5.50012e-08
+[2026-07-01 16:40:47.368] stem conv1 multiplexed pack max_abs_error: 5.50012e-08
+stem conv1 multiplexed pack channel0 max_abs_error: 6.72854e-09
+stem conv1 multiplexed pack channel1 max_abs_error: 5.1842e-08
+stem conv1 multiplexed k=1 ciphertexts: 32, page_size=12544, active_slots_per_cipher<=25088
+stem multiplexed k=1: encrypted BN offset evaluation
+[2026-07-01 16:41:03.151] stem multiplexed k=1 BN encrypted evaluation
+[2026-07-01 16:41:03.151] [cipher-state] multiplexed_batch_norm input: shape(h=112, w=112, c=64, k=1), page_size=12544, pages_per_cipher=2, ciphertexts=32, active_slots_per_cipher<= 25088, chain_index(first/min/max)=20/20/20, scale(first/min/max)=7.03688e+13/7.03688e+13/7.03688e+13
+[2026-07-01 16:41:03.890] [cipher-state] multiplexed_batch_norm output: shape(h=112, w=112, c=64, k=1), page_size=12544, pages_per_cipher=2, ciphertexts=32, active_slots_per_cipher<= 25088, chain_index(first/min/max)=20/20/20, scale(first/min/max)=7.03688e+13/7.03688e+13/7.03688e+13
+stem BN all max_abs_error: 5.50019e-08
+[2026-07-01 16:41:11.728] stem BN all max_abs_error: 5.50019e-08
+stem multiplexed k=1: homomorphic ReLU evaluation (first ReLU, no bootstrap)
+[2026-07-01 16:41:11.728] stem multiplexed k=1 homomorphic ReLU evaluation (first ReLU, no bootstrap)
+[2026-07-01 16:41:12.803] [cipher-state] stem ReLU homomorphic ReLU input: shape(h=112, w=112, c=64, k=1), page_size=12544, pages_per_cipher=2, ciphertexts=32, active_slots_per_cipher<= 25088, chain_index(first/min/max)=20/20/20, scale(first/min/max)=7.03688e+13/7.03688e+13/7.03688e+13
+[2026-07-01 16:41:22.381] stem ReLU homomorphic ReLU ciphertext progress: 1/32
+[2026-07-01 16:41:30.686] stem ReLU homomorphic ReLU ciphertext progress: 2/32
+[2026-07-01 16:41:39.197] stem ReLU homomorphic ReLU ciphertext progress: 3/32
+[2026-07-01 16:41:47.235] stem ReLU homomorphic ReLU ciphertext progress: 4/32
+[2026-07-01 16:41:55.473] stem ReLU homomorphic ReLU ciphertext progress: 5/32
+[2026-07-01 16:42:03.735] stem ReLU homomorphic ReLU ciphertext progress: 6/32
+[2026-07-01 16:42:12.150] stem ReLU homomorphic ReLU ciphertext progress: 7/32
+[2026-07-01 16:42:20.507] stem ReLU homomorphic ReLU ciphertext progress: 8/32
+[2026-07-01 16:42:28.938] stem ReLU homomorphic ReLU ciphertext progress: 9/32
