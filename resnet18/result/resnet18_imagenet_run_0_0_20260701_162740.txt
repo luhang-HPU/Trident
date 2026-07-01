@@ -63,3 +63,6 @@ stem multiplexed k=1: homomorphic ReLU evaluation (first ReLU, no bootstrap)
 [2026-07-01 16:42:12.150] stem ReLU homomorphic ReLU ciphertext progress: 7/32
 [2026-07-01 16:42:20.507] stem ReLU homomorphic ReLU ciphertext progress: 8/32
 [2026-07-01 16:42:28.938] stem ReLU homomorphic ReLU ciphertext progress: 9/32
+[2026-07-01 16:42:37.398] stem ReLU homomorphic ReLU ciphertext progress: 10/32
+[2026-07-01 16:42:45.778] stem ReLU homomorphic ReLU ciphertext progress: 11/32
+[2026-07-01 16:42:54.073] stem ReLU homomorphic ReLU ciphertext progress: 12/32
