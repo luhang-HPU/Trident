@@ -122,3 +122,56 @@ layer1 block1 conv1 multiplexed k=2: encrypted dense conv evaluation
 [2026-06-30 14:34:06.465] layer1 block1 conv1 multiplexed k=2 encrypted evaluation
 [2026-06-30 14:34:06.976] [cipher-state] multiplexed_dense_conv2d_all_channels input: shape(h=56, w=56, c=64, k=2), page_size=12544, pages_per_cipher=2, ciphertexts=8, active_slots_per_cipher<= 25088, chain_index(first/min/max)=9/9/9, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
 [2026-06-30 14:34:06.976] multiplexed dense conv encrypted pack parallel threads: 8
+[2026-06-30 16:25:10.036] multiplexed dense conv encrypted pack progress: 8/8
+[2026-06-30 16:25:10.036] [cipher-state] multiplexed_dense_conv2d_all_channels output: shape(h=56, w=56, c=64, k=2), page_size=12544, pages_per_cipher=2, ciphertexts=8, active_slots_per_cipher<= 25088, chain_index(first/min/max)=7/7/7, scale(first/min/max)=7.03688e+13/7.03688e+13/7.03688e+13
+layer1 block1 conv1 multiplexed all max_abs_error: 4.46897e-08
+[2026-06-30 16:25:10.443] layer1 block1 conv1 multiplexed all max_abs_error: 4.46897e-08
+[2026-06-30 16:25:10.443] [duration] layer1 block1 conv1 multiplexed: 6663977 ms
+layer1 block1 bn1 multiplexed k=2: encrypted BN offset evaluation
+[2026-06-30 16:25:10.443] layer1 block1 bn1 multiplexed k=2 encrypted evaluation
+[2026-06-30 16:25:10.443] [cipher-state] multiplexed_batch_norm input: shape(h=56, w=56, c=64, k=2), page_size=12544, pages_per_cipher=2, ciphertexts=8, active_slots_per_cipher<= 25088, chain_index(first/min/max)=7/7/7, scale(first/min/max)=7.03688e+13/7.03688e+13/7.03688e+13
+[2026-06-30 16:25:10.542] [cipher-state] multiplexed_batch_norm output: shape(h=56, w=56, c=64, k=2), page_size=12544, pages_per_cipher=2, ciphertexts=8, active_slots_per_cipher<= 25088, chain_index(first/min/max)=7/7/7, scale(first/min/max)=7.03688e+13/7.03688e+13/7.03688e+13
+layer1 block1 bn1 multiplexed all max_abs_error: 4.46888e-08
+[2026-06-30 16:25:10.939] layer1 block1 bn1 multiplexed all max_abs_error: 4.46888e-08
+layer1 block1 relu1 multiplexed k=2: plaintext ReLU refresh evaluation
+[2026-06-30 16:25:10.939] layer1 block1 relu1 multiplexed k=2 plaintext ReLU refresh evaluation
+[2026-06-30 16:25:10.939] [cipher-state] multiplexed_relu_refresh input: shape(h=56, w=56, c=64, k=2), page_size=12544, pages_per_cipher=2, ciphertexts=8, active_slots_per_cipher<= 25088, chain_index(first/min/max)=7/7/7, scale(first/min/max)=7.03688e+13/7.03688e+13/7.03688e+13
+[2026-06-30 16:25:11.004] multiplexed ReLU refresh parallel threads: 8
+[2026-06-30 16:25:11.174] multiplexed ReLU refresh ciphertext progress: 8/8
+[2026-06-30 16:25:11.174] [cipher-state] multiplexed_relu_refresh output: shape(h=56, w=56, c=64, k=2), page_size=12544, pages_per_cipher=2, ciphertexts=8, active_slots_per_cipher<= 25088, chain_index(first/min/max)=9/9/9, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+layer1 block1 relu1 multiplexed refresh all max_abs_error: 4.47496e-08
+[2026-06-30 16:25:11.717] layer1 block1 relu1 multiplexed refresh all max_abs_error: 4.47496e-08
+layer1 block1 conv2 multiplexed k=2: encrypted dense conv evaluation
+[2026-06-30 16:25:11.717] layer1 block1 conv2 multiplexed k=2 encrypted evaluation
+[2026-06-30 16:25:11.717] [cipher-state] multiplexed_dense_conv2d_all_channels input: shape(h=56, w=56, c=64, k=2), page_size=12544, pages_per_cipher=2, ciphertexts=8, active_slots_per_cipher<= 25088, chain_index(first/min/max)=9/9/9, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-30 16:25:11.717] multiplexed dense conv encrypted pack parallel threads: 8
+[2026-06-30 18:16:54.325] multiplexed dense conv encrypted pack progress: 8/8
+[2026-06-30 18:16:54.325] [cipher-state] multiplexed_dense_conv2d_all_channels output: shape(h=56, w=56, c=64, k=2), page_size=12544, pages_per_cipher=2, ciphertexts=8, active_slots_per_cipher<= 25088, chain_index(first/min/max)=7/7/7, scale(first/min/max)=7.03688e+13/7.03688e+13/7.03688e+13
+layer1 block1 conv2 multiplexed all max_abs_error: 2.10539e-07
+[2026-06-30 18:16:55.217] layer1 block1 conv2 multiplexed all max_abs_error: 2.10539e-07
+[2026-06-30 18:16:55.217] [duration] layer1 block1 conv2 multiplexed: 6703499 ms
+layer1 block1 bn2 multiplexed k=2: encrypted BN offset evaluation
+[2026-06-30 18:16:55.217] layer1 block1 bn2 multiplexed k=2 encrypted evaluation
+[2026-06-30 18:16:55.217] [cipher-state] multiplexed_batch_norm input: shape(h=56, w=56, c=64, k=2), page_size=12544, pages_per_cipher=2, ciphertexts=8, active_slots_per_cipher<= 25088, chain_index(first/min/max)=7/7/7, scale(first/min/max)=7.03688e+13/7.03688e+13/7.03688e+13
+[2026-06-30 18:16:55.305] [cipher-state] multiplexed_batch_norm output: shape(h=56, w=56, c=64, k=2), page_size=12544, pages_per_cipher=2, ciphertexts=8, active_slots_per_cipher<= 25088, chain_index(first/min/max)=7/7/7, scale(first/min/max)=7.03688e+13/7.03688e+13/7.03688e+13
+layer1 block1 bn2 multiplexed all max_abs_error: 2.10539e-07
+[2026-06-30 18:16:55.693] layer1 block1 bn2 multiplexed all max_abs_error: 2.10539e-07
+layer1 block1 residual add multiplexed k=2 evaluation
+[2026-06-30 18:16:55.693] layer1 block1 residual add multiplexed k=2 evaluation
+[2026-06-30 18:16:55.693] [cipher-state] multiplexed_channel_add lhs input: shape(h=56, w=56, c=64, k=2), page_size=12544, pages_per_cipher=2, ciphertexts=8, active_slots_per_cipher<= 25088, chain_index(first/min/max)=7/7/7, scale(first/min/max)=7.03688e+13/7.03688e+13/7.03688e+13
+[2026-06-30 18:16:55.693] [cipher-state] multiplexed_channel_add rhs input: shape(h=56, w=56, c=64, k=2), page_size=12544, pages_per_cipher=2, ciphertexts=8, active_slots_per_cipher<= 25088, chain_index(first/min/max)=9/9/9, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-30 18:16:55.800] [cipher-state] multiplexed_channel_add output: shape(h=56, w=56, c=64, k=2), page_size=12544, pages_per_cipher=2, ciphertexts=8, active_slots_per_cipher<= 25088, chain_index(first/min/max)=7/7/7, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+layer1 block1 add multiplexed all max_abs_error: 4.10287e-07
+[2026-06-30 18:16:56.174] layer1 block1 add multiplexed all max_abs_error: 4.10287e-07
+layer1 block1 output relu multiplexed k=2: plaintext ReLU refresh evaluation
+[2026-06-30 18:16:56.174] layer1 block1 output relu multiplexed k=2 plaintext ReLU refresh evaluation
+[2026-06-30 18:16:56.175] [cipher-state] multiplexed_relu_refresh input: shape(h=56, w=56, c=64, k=2), page_size=12544, pages_per_cipher=2, ciphertexts=8, active_slots_per_cipher<= 25088, chain_index(first/min/max)=7/7/7, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-30 18:16:56.198] multiplexed ReLU refresh parallel threads: 8
+[2026-06-30 18:16:56.367] multiplexed ReLU refresh ciphertext progress: 8/8
+[2026-06-30 18:16:56.367] [cipher-state] multiplexed_relu_refresh output: shape(h=56, w=56, c=64, k=2), page_size=12544, pages_per_cipher=2, ciphertexts=8, active_slots_per_cipher<= 25088, chain_index(first/min/max)=9/9/9, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+layer1 block1 output relu multiplexed refresh all max_abs_error: 2.21584e-07
+[2026-06-30 18:16:56.946] layer1 block1 output relu multiplexed refresh all max_abs_error: 2.21584e-07
+layer2 block0 conv1 multiplexed k=2->k=4 stride-2 evaluation
+[2026-06-30 18:16:56.946] layer2 block0 conv1 multiplexed k=2->k=4 stride-2 evaluation
+[2026-06-30 18:16:57.213] [cipher-state] multiplexed_dense_conv2d_all_channels input: shape(h=56, w=56, c=64, k=2), page_size=12544, pages_per_cipher=2, ciphertexts=8, active_slots_per_cipher<= 25088, chain_index(first/min/max)=9/9/9, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-30 18:16:57.213] multiplexed dense conv encrypted pack parallel threads: 4

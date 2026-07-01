@@ -677,6 +677,118 @@ vector<int> multiplexed_dense_conv2d_rotation_steps(const MultiplexedCipherGroup
     return multiplexed_conv2d_rotation_steps(input, out_channels, 1, fh, fw);
 }
 
+int exact_log2_power_of_two(int value)
+{
+    if (value <= 0 || (value & (value - 1)) != 0)
+    {
+        return -1;
+    }
+    int log_value = 0;
+    while (value > 1)
+    {
+        value >>= 1;
+        ++log_value;
+    }
+    return log_value;
+}
+
+int pow2_int(int exponent)
+{
+    return 1 << exponent;
+}
+
+int multiplexed_local_channel_index(const MultiplexedCipherGroup &group, int channel)
+{
+    const int channels_per_page = multiplexed_channels_per_page(group.k);
+    const int page = channel / channels_per_page;
+    const int local_page = page % group.pages_per_cipher;
+    return local_page * channels_per_page + channel % channels_per_page;
+}
+
+vector<int> multiplexed_channels_for_pack(const MultiplexedCipherGroup &group,
+                                          size_t pack_index)
+{
+    vector<int> channels;
+    for (int channel = 0; channel < group.c; ++channel)
+    {
+        if (multiplexed_cipher_index_for_channel(group, channel) == pack_index)
+        {
+            channels.push_back(channel);
+        }
+    }
+    return channels;
+}
+
+long long multiplexed_spatial_kernel_rotation_step(const MultiplexedCipherGroup &input,
+                                                   int fh, int fw, int kh, int kw)
+{
+    const int pad_h = fh / 2;
+    const int pad_w = fw / 2;
+    return static_cast<long long>(input.k) * static_cast<long long>(input.k) *
+               static_cast<long long>(input.w) * static_cast<long long>(kh - pad_h) +
+           static_cast<long long>(input.k) * static_cast<long long>(kw - pad_w);
+}
+
+long long multiplexed_output_channel_select_rotation_step(
+    const MultiplexedCipherGroup &output, int output_channel)
+{
+    const int local_channel = multiplexed_local_channel_index(output, output_channel);
+    const int channels_per_page = multiplexed_channels_per_page(output.k);
+    const int local_page = local_channel / channels_per_page;
+    const int channel_in_page = local_channel % channels_per_page;
+    const int row_offset = channel_in_page / output.k;
+    const int col_offset = channel_in_page % output.k;
+    return -static_cast<long long>(local_page) * static_cast<long long>(output.page_size) -
+           static_cast<long long>(row_offset) *
+               static_cast<long long>(output.w * output.k) -
+           static_cast<long long>(col_offset);
+}
+
+Ciphertext rotate_multiplexed_local_channel_sum_to_base(const Ciphertext &input_cipher,
+                                                        const MultiplexedCipherGroup &input,
+                                                        PoseidonRuntime &runtime)
+{
+    const int log_k = exact_log2_power_of_two(input.k);
+    if (log_k < 0)
+    {
+        throw invalid_argument("multiplexed compact conv expects k to be a power of two");
+    }
+
+    Ciphertext sum = input_cipher;
+    for (int x = 0; x < log_k; ++x)
+    {
+        Ciphertext rotated;
+        rotate_with_power_of_two_keys(sum, rotated, pow2_int(x), runtime);
+        Ciphertext next_sum;
+        runtime.evaluator->add_dynamic(sum, rotated, next_sum, runtime.encoder);
+        sum = std::move(next_sum);
+    }
+    for (int x = 0; x < log_k; ++x)
+    {
+        Ciphertext rotated;
+        rotate_with_power_of_two_keys(
+            sum, rotated,
+            static_cast<long long>(pow2_int(x)) * static_cast<long long>(input.k) *
+                static_cast<long long>(input.w),
+            runtime);
+        Ciphertext next_sum;
+        runtime.evaluator->add_dynamic(sum, rotated, next_sum, runtime.encoder);
+        sum = std::move(next_sum);
+    }
+    for (int page = 1; page < input.pages_per_cipher; ++page)
+    {
+        Ciphertext rotated;
+        rotate_with_power_of_two_keys(
+            sum, rotated,
+            static_cast<long long>(page) * static_cast<long long>(input.page_size),
+            runtime);
+        Ciphertext next_sum;
+        runtime.evaluator->add_dynamic(sum, rotated, next_sum, runtime.encoder);
+        sum = std::move(next_sum);
+    }
+    return sum;
+}
+
 struct MultiplexedConvFusedKey
 {
     size_t input_pack_index = 0;
@@ -732,113 +844,197 @@ MultiplexedCipherGroup multiplexed_channel_conv2d_all_channels(
     MultiplexedCipherGroup output =
         make_multiplexed_shape(input.h / stride, input.w / stride, out_channels, out_k,
                                input.slot_count);
-    resnet18_progress_log() << "multiplexed dense conv encrypted pack parallel threads: "
-                            << resnet18_parallel_thread_count(output.packs.size()) << endl;
+    const size_t output_pack_threads = resnet18_parallel_thread_count(output.packs.size());
+    resnet18_progress_log()
+        << "multiplexed dense conv compact-vector output pack threads: "
+        << output_pack_threads << endl;
+    size_t max_output_channels_per_pack = 0;
+    for (size_t output_pack_index = 0; output_pack_index < output.packs.size();
+         ++output_pack_index)
+    {
+        max_output_channels_per_pack =
+            max(max_output_channels_per_pack,
+                multiplexed_channels_for_pack(output, output_pack_index).size());
+    }
+    resnet18_progress_log()
+        << "multiplexed dense conv compact-vector estimate: output_packs="
+        << output.packs.size() << ", input_packs=" << input.packs.size()
+        << ", max_output_channels_per_pack=" << max_output_channels_per_pack
+        << ", spatial_rotations_per_pack<=" << input.packs.size() * fh * fw
+        << ", plaintext_vector_multiplies_per_pack<="
+        << input.packs.size() * max_output_channels_per_pack *
+               (static_cast<size_t>(fh * fw) + 1)
+        << endl;
 
-    resnet18_parallel_for(output.packs.size(), [&](size_t output_pack_index) {
-        Ciphertext sum;
-        bool has_sum = false;
-        unordered_map<MultiplexedConvFusedKey, size_t, MultiplexedConvFusedKeyHash>
-            fused_index;
-        vector<MultiplexedConvFusedKey> fused_keys;
-        vector<vector<pair<size_t, double>>> fused_entries;
-        for (int output_channel = 0; output_channel < out_channels; ++output_channel)
+    auto compute_output_pack = [&](size_t output_pack_index) {
+        const vector<int> output_channels =
+            multiplexed_channels_for_pack(output, output_pack_index);
+        if (output_channels.empty())
         {
-            if (multiplexed_cipher_index_for_channel(output, output_channel) !=
-                output_pack_index)
-            {
-                continue;
-            }
-            const double folded_scale =
+            throw runtime_error("multiplexed compact conv output pack has no channels");
+        }
+
+        vector<Ciphertext> output_channel_terms(output_channels.size());
+        vector<bool> has_output_channel_terms(output_channels.size(), false);
+        vector<vector<double>> select_vectors(output_channels.size(),
+                                              vector<double>(output.slot_count, 0.0));
+        for (size_t output_channel_index = 0;
+             output_channel_index < output_channels.size(); ++output_channel_index)
+        {
+            const int output_channel = output_channels.at(output_channel_index);
+            const double folded_bn_scale =
                 constant_weight[output_channel] /
                 sqrt(running_var[output_channel] + epsilon);
-
-            for (int input_channel = 0; input_channel < input.c; ++input_channel)
+            if (folded_bn_scale == 0.0 ||
+                local_coefficient_encodes_to_zero(input.packs.front(), folded_bn_scale,
+                                                  runtime.encoder))
             {
-                const size_t input_pack_index =
-                    multiplexed_cipher_index_for_channel(input, input_channel);
-                for (int kh = 0; kh < fh; ++kh)
+                throw runtime_error("multiplexed compact conv output channel has zero BN scale");
+            }
+
+            for (int oh = 0; oh < output.h; ++oh)
+            {
+                for (int ow = 0; ow < output.w; ++ow)
                 {
-                    for (int kw = 0; kw < fw; ++kw)
-                    {
-                        const size_t weight_index = static_cast<size_t>(
-                            fh * fw * input.c * output_channel +
-                            fh * fw * input_channel + fw * kh + kw);
-                        const double coeff = weights[weight_index] * folded_scale;
-                        const Ciphertext &source = input.packs.at(input_pack_index);
-                        if (coeff == 0.0 ||
-                            local_coefficient_encodes_to_zero(source, coeff,
-                                                              runtime.encoder))
-                        {
-                            continue;
-                        }
-
-                        const int step = multiplexed_conv_rotation_step(
-                            input, output, input_channel, output_channel, stride, fh, fw,
-                            kh, kw);
-                        const MultiplexedConvFusedKey key{input_pack_index, kh, kw, step};
-                        auto key_entry = fused_index.find(key);
-                        if (key_entry == fused_index.end())
-                        {
-                            const size_t new_index = fused_entries.size();
-                            key_entry = fused_index.emplace(key, new_index).first;
-                            fused_keys.push_back(key);
-                            fused_entries.emplace_back();
-                        }
-
-                        vector<pair<size_t, double>> &fused =
-                            fused_entries.at(key_entry->second);
-                        const int pad_h = fh / 2;
-                        const int pad_w = fw / 2;
-                        for (int oh = 0; oh < output.h; ++oh)
-                        {
-                            for (int ow = 0; ow < output.w; ++ow)
-                            {
-                                const int ih = oh * stride + kh - pad_h;
-                                const int iw = ow * stride + kw - pad_w;
-                                if (ih < 0 || ih >= input.h || iw < 0 || iw >= input.w)
-                                {
-                                    continue;
-                                }
-                                fused.emplace_back(
-                                    multiplexed_slot_index(output, output_channel, oh, ow),
-                                    coeff);
-                            }
-                        }
-                    }
+                    select_vectors.at(output_channel_index)
+                        .at(multiplexed_slot_index(output, output_channel, oh, ow)) =
+                        folded_bn_scale;
                 }
             }
         }
 
-        vector<unordered_map<int, Ciphertext>> rotation_cache(input.packs.size());
-        for (size_t term_index = 0; term_index < fused_entries.size(); ++term_index)
+        for (size_t input_pack_index = 0; input_pack_index < input.packs.size();
+             ++input_pack_index)
         {
-            const MultiplexedConvFusedKey &key = fused_keys.at(term_index);
-            const Ciphertext &source = input.packs.at(key.input_pack_index);
-            const Ciphertext *rotated = nullptr;
-            if (key.step == 0)
+            vector<Ciphertext> input_pack_channel_sums(output_channels.size());
+            vector<bool> has_input_pack_channel_sums(output_channels.size(), false);
+            const vector<int> input_channels =
+                multiplexed_channels_for_pack(input, input_pack_index);
+            for (int kh = 0; kh < fh; ++kh)
             {
-                rotated = &source;
-            }
-            else
-            {
-                auto &cache = rotation_cache.at(key.input_pack_index);
-                auto cache_entry = cache.find(key.step);
-                if (cache_entry == cache.end())
+                for (int kw = 0; kw < fw; ++kw)
                 {
-                    Ciphertext cached_rotation;
-                    rotate_with_power_of_two_keys(source, cached_rotation, key.step, runtime);
-                    cache_entry = cache.emplace(key.step, std::move(cached_rotation)).first;
+                    Ciphertext rotated;
+                    rotate_with_power_of_two_keys(
+                        input.packs.at(input_pack_index), rotated,
+                        multiplexed_spatial_kernel_rotation_step(input, fh, fw, kh, kw),
+                        runtime);
+
+                    for (size_t output_channel_index = 0;
+                         output_channel_index < output_channels.size();
+                         ++output_channel_index)
+                    {
+                        const int output_channel =
+                            output_channels.at(output_channel_index);
+                        vector<double> compact_weight(output.slot_count, 0.0);
+                        bool has_compact_weight = false;
+                        for (int input_channel : input_channels)
+                        {
+                            const size_t weight_index = static_cast<size_t>(
+                                fh * fw * input.c * output_channel +
+                                fh * fw * input_channel + fw * kh + kw);
+                            const double coeff = weights[weight_index];
+                            if (coeff == 0.0 ||
+                                local_coefficient_encodes_to_zero(
+                                    input.packs.at(input_pack_index), coeff,
+                                    runtime.encoder))
+                            {
+                                continue;
+                            }
+
+                            const int pad_h = fh / 2;
+                            const int pad_w = fw / 2;
+                            for (int oh = 0; oh < output.h; ++oh)
+                            {
+                                for (int ow = 0; ow < output.w; ++ow)
+                                {
+                                    const int ih = oh * stride + kh - pad_h;
+                                    const int iw = ow * stride + kw - pad_w;
+                                    if (ih < 0 || ih >= input.h || iw < 0 ||
+                                        iw >= input.w)
+                                    {
+                                        continue;
+                                    }
+                                    const size_t slot = multiplexed_slot_index(
+                                        input, input_channel, oh * stride, ow * stride);
+                                    compact_weight.at(slot) = coeff;
+                                    has_compact_weight = true;
+                                }
+                            }
+                        }
+                        if (!has_compact_weight)
+                        {
+                            continue;
+                        }
+
+                        Ciphertext weighted = multiply_plain_vector_rescale(
+                            rotated, compact_weight, runtime);
+                        if (!has_input_pack_channel_sums.at(output_channel_index))
+                        {
+                            input_pack_channel_sums.at(output_channel_index) =
+                                std::move(weighted);
+                            has_input_pack_channel_sums.at(output_channel_index) = true;
+                        }
+                        else
+                        {
+                            Ciphertext next_sum;
+                            runtime.evaluator->add_dynamic(
+                                input_pack_channel_sums.at(output_channel_index), weighted,
+                                next_sum, runtime.encoder);
+                            input_pack_channel_sums.at(output_channel_index) =
+                                std::move(next_sum);
+                        }
+                    }
                 }
-                rotated = &cache_entry->second;
             }
 
-            vector<double> dense_plain(output.slot_count, 0.0);
-            for (const auto &[slot, coeff] : fused_entries.at(term_index))
+            for (size_t output_channel_index = 0;
+                 output_channel_index < output_channels.size(); ++output_channel_index)
             {
-                dense_plain.at(slot) += coeff;
+                if (!has_input_pack_channel_sums.at(output_channel_index))
+                {
+                    continue;
+                }
+
+                Ciphertext folded =
+                    rotate_multiplexed_local_channel_sum_to_base(
+                        input_pack_channel_sums.at(output_channel_index), input, runtime);
+                Ciphertext shifted;
+                rotate_with_power_of_two_keys(
+                    folded, shifted,
+                    multiplexed_output_channel_select_rotation_step(
+                        output, output_channels.at(output_channel_index)),
+                    runtime);
+                Ciphertext selected =
+                    multiply_plain_vector_rescale(
+                        shifted, select_vectors.at(output_channel_index), runtime);
+                if (!has_output_channel_terms.at(output_channel_index))
+                {
+                    output_channel_terms.at(output_channel_index) = std::move(selected);
+                    has_output_channel_terms.at(output_channel_index) = true;
+                }
+                else
+                {
+                    Ciphertext next_sum;
+                    runtime.evaluator->add_dynamic(
+                        output_channel_terms.at(output_channel_index), selected, next_sum,
+                        runtime.encoder);
+                    output_channel_terms.at(output_channel_index) = std::move(next_sum);
+                }
             }
-            Ciphertext term = multiply_plain_vector_rescale(*rotated, dense_plain, runtime);
+        }
+
+        Ciphertext sum;
+        bool has_sum = false;
+        for (size_t output_channel_index = 0;
+             output_channel_index < output_channels.size(); ++output_channel_index)
+        {
+            if (!has_output_channel_terms.at(output_channel_index))
+            {
+                throw runtime_error(
+                    "multiplexed compact conv output channel produced no encrypted terms");
+            }
+            Ciphertext &term = output_channel_terms.at(output_channel_index);
             if (!has_sum)
             {
                 sum = std::move(term);
@@ -856,7 +1052,20 @@ MultiplexedCipherGroup multiplexed_channel_conv2d_all_channels(
             throw runtime_error("multiplexed dense conv output pack produced no encrypted terms");
         }
         output.packs.at(output_pack_index) = std::move(sum);
-    });
+    };
+
+    if (output_pack_threads > 1)
+    {
+        resnet18_parallel_for(output.packs.size(), compute_output_pack);
+    }
+    else
+    {
+        for (size_t output_pack_index = 0; output_pack_index < output.packs.size();
+             ++output_pack_index)
+        {
+            compute_output_pack(output_pack_index);
+        }
+    }
 
     resnet18_progress_log() << "multiplexed dense conv encrypted pack progress: "
                             << output.packs.size() << "/" << output.packs.size() << endl;
