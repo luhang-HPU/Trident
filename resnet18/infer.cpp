@@ -13,6 +13,7 @@
 #include "poseidon/advance/homomorphic_dft.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <complex>
@@ -1325,7 +1326,16 @@ MultiplexedCipherGroup multiplexed_average_pool2d_stride2(
 
     resnet18_progress_log() << "multiplexed avgpool encrypted pack parallel threads: "
                             << resnet18_parallel_thread_count(output.packs.size()) << endl;
+    atomic<size_t> completed_packs{0};
     resnet18_parallel_for(output.packs.size(), [&](size_t output_pack_index) {
+        const auto pack_start = chrono::steady_clock::now();
+        resnet18_progress_log() << "multiplexed avgpool pack start: pack="
+                                << output_pack_index << "/" << output.packs.size()
+                                << ", input_chain_index="
+                                << cipher_chain_index(runtime, input.packs.front())
+                                << ", next_prime_bits="
+                                << next_rescale_prime_bits(input.packs.front(), runtime)
+                                << endl;
         Ciphertext sum;
         bool has_sum = false;
         for (int channel = 0; channel < output.c; ++channel)
@@ -1409,6 +1419,18 @@ MultiplexedCipherGroup multiplexed_average_pool2d_stride2(
         runtime.evaluator->rescale_dynamic(averaged, averaged, sum.scale());
         averaged.scale() = sum.scale();
         output.packs.at(output_pack_index) = std::move(averaged);
+        const size_t done = completed_packs.fetch_add(1) + 1;
+        resnet18_progress_log() << "multiplexed avgpool pack done: " << done
+                                << "/" << output.packs.size()
+                                << ", pack=" << output_pack_index
+                                << ", output_chain_index="
+                                << cipher_chain_index(runtime,
+                                                      output.packs.at(output_pack_index))
+                                << ", elapsed_ms="
+                                << chrono::duration_cast<chrono::milliseconds>(
+                                       chrono::steady_clock::now() - pack_start)
+                                       .count()
+                                << endl;
     });
 
     log_multiplexed_group_cipher_state("multiplexed avgpool output", output, runtime);
