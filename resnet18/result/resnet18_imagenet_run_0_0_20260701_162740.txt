@@ -67,3 +67,31 @@ stem multiplexed k=1: homomorphic ReLU evaluation (first ReLU, no bootstrap)
 [2026-07-01 16:42:45.778] stem ReLU homomorphic ReLU ciphertext progress: 11/32
 [2026-07-01 16:42:54.073] stem ReLU homomorphic ReLU ciphertext progress: 12/32
 [2026-07-01 16:43:06.802] stem ReLU homomorphic ReLU ciphertext progress: 13/32
+[2026-07-01 16:43:15.116] stem ReLU homomorphic ReLU ciphertext progress: 14/32
+[2026-07-01 16:43:23.589] stem ReLU homomorphic ReLU ciphertext progress: 15/32
+[2026-07-01 16:43:31.833] stem ReLU homomorphic ReLU ciphertext progress: 16/32
+[2026-07-01 16:43:40.131] stem ReLU homomorphic ReLU ciphertext progress: 17/32
+[2026-07-01 16:43:48.601] stem ReLU homomorphic ReLU ciphertext progress: 18/32
+[2026-07-01 16:43:57.013] stem ReLU homomorphic ReLU ciphertext progress: 19/32
+[2026-07-01 16:44:05.326] stem ReLU homomorphic ReLU ciphertext progress: 20/32
+[2026-07-01 16:44:14.040] stem ReLU homomorphic ReLU ciphertext progress: 21/32
+[2026-07-01 16:44:22.381] stem ReLU homomorphic ReLU ciphertext progress: 22/32
+[2026-07-01 16:44:31.127] stem ReLU homomorphic ReLU ciphertext progress: 23/32
+[2026-07-01 16:44:39.946] stem ReLU homomorphic ReLU ciphertext progress: 24/32
+[2026-07-01 16:44:48.267] stem ReLU homomorphic ReLU ciphertext progress: 25/32
+[2026-07-01 16:44:56.714] stem ReLU homomorphic ReLU ciphertext progress: 26/32
+[2026-07-01 16:45:05.072] stem ReLU homomorphic ReLU ciphertext progress: 27/32
+[2026-07-01 16:45:13.250] stem ReLU homomorphic ReLU ciphertext progress: 28/32
+[2026-07-01 16:45:21.445] stem ReLU homomorphic ReLU ciphertext progress: 29/32
+[2026-07-01 16:45:29.821] stem ReLU homomorphic ReLU ciphertext progress: 30/32
+[2026-07-01 16:45:37.923] stem ReLU homomorphic ReLU ciphertext progress: 31/32
+[2026-07-01 16:45:46.332] stem ReLU homomorphic ReLU ciphertext progress: 32/32
+[2026-07-01 16:45:46.333] [cipher-state] stem ReLU homomorphic ReLU output: shape(h=112, w=112, c=64, k=1), page_size=12544, pages_per_cipher=2, ciphertexts=32, active_slots_per_cipher<= 25088, chain_index(first/min/max)=6/6/6, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+stem homomorphic ReLU all max_abs_error: 0.000115178
+[2026-07-01 16:45:47.832] stem homomorphic ReLU all max_abs_error: 0.000115178
+[2026-07-01 16:45:47.833] [duration] stem homomorphic ReLU: 276104 ms
+stem multiplexed layout: avgpool k=1 -> k=2
+[2026-07-01 16:45:47.833] stem multiplexed avgpool k=1 -> k=2 encrypted evaluation
+[2026-07-01 16:45:47.833] [cipher-state] stem ReLU multiplexed k=1 input: shape(h=112, w=112, c=64, k=1), page_size=12544, pages_per_cipher=2, ciphertexts=32, active_slots_per_cipher<= 25088, chain_index(first/min/max)=6/6/6, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-07-01 16:45:47.833] [cipher-state] multiplexed avgpool input: shape(h=112, w=112, c=64, k=1), page_size=12544, pages_per_cipher=2, ciphertexts=32, active_slots_per_cipher<= 25088, chain_index(first/min/max)=6/6/6, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-07-01 16:45:47.833] multiplexed avgpool encrypted pack parallel threads: 8
