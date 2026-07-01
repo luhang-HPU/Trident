@@ -10,6 +10,8 @@
 #include "progress_log.h"
 #include "tensor_cipher_group.h"
 
+#include "poseidon/advance/homomorphic_dft.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -455,10 +457,10 @@ MultiplexedCipherGroup pack_channel_group_as_multiplexed_k1(
             encrypted_zero.scale() = masked.scale();
             runtime.evaluator->add_dynamic(masked, encrypted_zero, masked, runtime.encoder);
             Ciphertext shifted;
-            runtime.evaluator->rotate(
+            rotate_with_power_of_two_keys(
                 masked, shifted,
-                -static_cast<int>(static_cast<size_t>(page) * input.spatial_count),
-                runtime.galois_keys);
+                -static_cast<long long>(static_cast<size_t>(page) * input.spatial_count),
+                runtime);
             Ciphertext target_page = multiply_binary_mask_no_rescale(
                 shifted, page_masks.at(static_cast<size_t>(page)), runtime);
             runtime.evaluator->add_dynamic(packed, target_page, packed, runtime.encoder);
@@ -1122,45 +1124,75 @@ MultiplexedCipherGroup multiplexed_channel_batch_norm(
     return output;
 }
 
-MultiplexedCipherGroup multiplexed_channel_relu_refresh(
-    const MultiplexedCipherGroup &input, int logp, PoseidonRuntime &runtime)
+PoseidonBootstrapContext make_resnet18_bootstrap_context(PoseidonRuntime &runtime)
 {
-    log_multiplexed_group_cipher_state("multiplexed_relu_refresh input", input, runtime);
+    PoseidonBootstrapContext bootstrap_ctx;
+    bootstrap_ctx.context = &runtime.context;
+    bootstrap_ctx.evaluator = runtime.evaluator.get();
+    bootstrap_ctx.encoder = &runtime.encoder;
+    bootstrap_ctx.relin_keys = &runtime.relin_keys;
+    bootstrap_ctx.galois_keys = &runtime.galois_keys;
+    bootstrap_ctx.bootstrap_poly = runtime.bootstrap_poly.get();
+    return bootstrap_ctx;
+}
+
+MultiplexedCipherGroup multiplexed_channel_bootstrap(
+    const MultiplexedCipherGroup &input, long logn, PoseidonRuntime &runtime,
+    const string &label)
+{
+    log_multiplexed_group_cipher_state(label + " bootstrap input", input, runtime);
     MultiplexedCipherGroup output = input;
     output.packs.resize(input.packs.size());
-    resnet18_progress_log() << "multiplexed ReLU refresh parallel threads: "
-                            << resnet18_parallel_thread_count(input.packs.size()) << endl;
-    resnet18_parallel_for(input.packs.size(), [&](size_t pack_index) {
-        Plaintext plain;
-        runtime.decryptor.decrypt(input.packs.at(pack_index), plain);
-        vector<complex<double>> decoded;
-        runtime.encoder.decode(plain, decoded);
-
-        vector<complex<double>> slots(input.slot_count, {0.0, 0.0});
-        for (int channel = 0; channel < input.c; ++channel)
-        {
-            if (multiplexed_cipher_index_for_channel(input, channel) != pack_index)
-            {
-                continue;
-            }
-            for (int row = 0; row < input.h; ++row)
-            {
-                for (int col = 0; col < input.w; ++col)
-                {
-                    const size_t slot = multiplexed_slot_index(input, channel, row, col);
-                    slots[slot] = {max(0.0, decoded.at(slot).real()), 0.0};
-                }
-            }
-        }
-
-        Plaintext refreshed_plain;
-        runtime.encoder.encode(slots, pow(2.0, logp), refreshed_plain);
-        runtime.encryptor.encrypt(refreshed_plain, output.packs.at(pack_index));
-    });
-    resnet18_progress_log() << "multiplexed ReLU refresh ciphertext progress: "
-                            << output.packs.size() << "/" << output.packs.size() << endl;
-    log_multiplexed_group_cipher_state("multiplexed_relu_refresh output", output, runtime);
+    PoseidonBootstrapContext bootstrap_ctx = make_resnet18_bootstrap_context(runtime);
+    for (size_t pack_index = 0; pack_index < input.packs.size(); ++pack_index)
+    {
+        TensorCipher tensor_in(static_cast<int>(logn), input.k, input.h, input.w, input.c,
+                               1, input.pages_per_cipher, input.packs.at(pack_index));
+        TensorCipher tensor_out;
+        bootstrap_tensor(tensor_in, tensor_out, bootstrap_ctx, runtime.encoder);
+        output.packs.at(pack_index) = tensor_out.cipher();
+        resnet18_progress_log() << label << " bootstrap ciphertext progress: "
+                                << (pack_index + 1) << "/" << input.packs.size() << endl;
+    }
+    log_multiplexed_group_cipher_state(label + " bootstrap output", output, runtime);
     return output;
+}
+
+MultiplexedCipherGroup multiplexed_channel_homomorphic_relu(
+    const MultiplexedCipherGroup &input, long logn, const ReluConfig &relu_config,
+    PoseidonRuntime &runtime, const string &label)
+{
+    log_multiplexed_group_cipher_state(label + " homomorphic ReLU input", input, runtime);
+    MultiplexedCipherGroup output = input;
+    output.packs.resize(input.packs.size());
+    for (size_t pack_index = 0; pack_index < input.packs.size(); ++pack_index)
+    {
+        TensorCipher tensor_in(static_cast<int>(logn), input.k, input.h, input.w, input.c,
+                               1, input.pages_per_cipher, input.packs.at(pack_index));
+        TensorCipher tensor_out;
+        relu(tensor_in, tensor_out, relu_config.comp_no, relu_config.deg,
+             relu_config.alpha, relu_config.tree, relu_config.scaled_val,
+             runtime.encryptor, *runtime.evaluator, runtime.encoder, runtime.relin_keys,
+             runtime.scale);
+        output.packs.at(pack_index) = tensor_out.cipher();
+        resnet18_progress_log() << label << " homomorphic ReLU ciphertext progress: "
+                                << (pack_index + 1) << "/" << input.packs.size() << endl;
+    }
+    log_multiplexed_group_cipher_state(label + " homomorphic ReLU output", output, runtime);
+    return output;
+}
+
+MultiplexedCipherGroup multiplexed_channel_bootstrap_then_relu(
+    const MultiplexedCipherGroup &input, long logn, const ReluConfig &relu_config,
+    PoseidonRuntime &runtime, const string &label, bool bootstrap_before_relu)
+{
+    MultiplexedCipherGroup relu_input = input;
+    if (bootstrap_before_relu)
+    {
+        relu_input = multiplexed_channel_bootstrap(input, logn, runtime, label);
+    }
+    return multiplexed_channel_homomorphic_relu(relu_input, logn, relu_config, runtime,
+                                                label);
 }
 
 MultiplexedCipherGroup multiplexed_channel_add(const MultiplexedCipherGroup &lhs,
@@ -2458,14 +2490,11 @@ PackedChannelCipherGroup make_packed_shape_for_key_plan(
     return group;
 }
 
-void insert_rotation_steps(set<int> &target, const vector<int> &steps)
+void insert_rotation_steps_allow_zero(set<int> &target, const vector<int> &steps)
 {
     for (int step : steps)
     {
-        if (step != 0)
-        {
-            target.insert(step);
-        }
+        target.insert(step);
     }
 }
 
@@ -2479,29 +2508,85 @@ vector<int> collect_resnet18_multiplexed_rotation_steps(size_t slot_count)
     return steps;
 }
 
+void insert_dft_rotation_steps(HomomorphicDFTMatrixLiteral &literal, set<int> &target)
+{
+    const int slots = 1 << literal.get_log_slots();
+    vector<int> dft_steps;
+    auto matrices = literal.gen_matrices();
+    for (auto &matrix : matrices)
+    {
+        const int n1 = find_best_bsgs_ratio(matrix, slots, literal.get_log_bsgs_ratio());
+        add_matrix_rot_to_list(matrix, dft_steps, n1, slots, false);
+    }
+    insert_rotation_steps_allow_zero(target, dft_steps);
+}
+
+vector<int> collect_resnet18_bootstrap_rotation_steps(PoseidonRuntime &runtime)
+{
+    set<int> unique_steps;
+    unique_steps.insert(0); // CKKS conjugation key, used by bootstrap real projection.
+
+    const auto params_literal = runtime.context.parameters_literal();
+    const uint32_t logn = params_literal->log_n();
+    const uint32_t log_slots = params_literal->log_slots();
+    const uint32_t top_level = static_cast<uint32_t>(params_literal->q().size() - 1);
+
+    HomomorphicDFTMatrixLiteral coeff_to_slot_literal(
+        encode, logn, log_slots, top_level, vector<uint32_t>(3, 1), true, 1.0, false, 1);
+    insert_dft_rotation_steps(coeff_to_slot_literal, unique_steps);
+
+    HomomorphicDFTMatrixLiteral slot_to_coeff_literal(
+        decode, logn, log_slots, top_level, vector<uint32_t>(3, 1), true, 1.0, false, 1);
+    insert_dft_rotation_steps(slot_to_coeff_literal, unique_steps);
+
+    return vector<int>(unique_steps.begin(), unique_steps.end());
+}
+
 void prepare_resnet18_rotation_keys(PoseidonRuntime &runtime, ofstream &output)
 {
     const auto key_time_start = chrono::steady_clock::now();
-    vector<int> steps = collect_resnet18_multiplexed_rotation_steps(runtime.slot_count);
-    output << "prepare rotation keys: power-of-two decomposition enabled, key_count="
-           << steps.size() << '\n';
-    output << "prepare rotation keys: steps";
+
+    set<int> all_steps;
+    const vector<int> network_steps =
+        collect_resnet18_multiplexed_rotation_steps(runtime.slot_count);
+    insert_rotation_steps_allow_zero(all_steps, network_steps);
+
+    vector<int> bootstrap_steps;
+    if (kEnableHomomorphicRelu && kBootstrapBeforeReluExceptFirst)
+    {
+        bootstrap_steps = collect_resnet18_bootstrap_rotation_steps(runtime);
+        insert_rotation_steps_allow_zero(all_steps, bootstrap_steps);
+    }
+
+    vector<int> steps(all_steps.begin(), all_steps.end());
+    output << "prepare evaluation keys: network_rotation_key_count="
+           << network_steps.size()
+           << ", bootstrap_rotation_key_count=" << bootstrap_steps.size()
+           << ", merged_galois_key_count=" << steps.size() << '\n';
+    output << "prepare galois keys: steps";
     for (int step : steps)
     {
         output << ' ' << step;
     }
     output << '\n';
     resnet18_progress_log()
-        << "prepare rotation keys power-of-two key count: " << steps.size() << endl;
+        << "prepare evaluation keys merged galois key count: " << steps.size() << endl;
 
     KeyGenerator keygen(runtime.context, runtime.secret_key);
+    keygen.create_relin_keys(runtime.relin_keys);
+    if (kEnableHomomorphicRelu && kBootstrapBeforeReluExceptFirst)
+    {
+        runtime.bootstrap_poly = std::make_unique<EvalModPoly>(
+            runtime.context, CosDiscrete, static_cast<std::uint64_t>(1) << 51,
+            1, 16, 3, 16, 0, 30);
+    }
     keygen.create_galois_keys(steps, runtime.galois_keys);
 
     const auto elapsed = chrono::duration_cast<chrono::milliseconds>(
                              chrono::steady_clock::now() - key_time_start)
                              .count();
-    output << "prepare rotation keys time: " << elapsed << " ms\n";
-    resnet18_progress_log() << "[duration] prepare rotation keys: " << elapsed
+    output << "prepare evaluation keys time: " << elapsed << " ms\n";
+    resnet18_progress_log() << "[duration] prepare evaluation keys: " << elapsed
                             << " ms" << endl;
 }
 
@@ -2740,20 +2825,19 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             output << "stem BN all max_abs_error: " << stem_bn_all_max_abs_error << '\n';
             resnet18_progress_log() << "stem BN all max_abs_error: " << stem_bn_all_max_abs_error << endl;
 
-            output << "stem multiplexed k=1: plaintext ReLU refresh evaluation\n";
+            output << "stem multiplexed k=1: homomorphic ReLU evaluation (first ReLU, no bootstrap)\n";
             resnet18_progress_log()
-                << "stem multiplexed k=1 plaintext ReLU refresh evaluation" << endl;
+                << "stem multiplexed k=1 homomorphic ReLU evaluation (first ReLU, no bootstrap)" << endl;
             const auto stem_relu_time_start = chrono::steady_clock::now();
             MultiplexedCipherGroup stem_relu_multiplex_k1_group =
-                multiplexed_channel_relu_refresh(stem_bn_multiplex_k1_group,
-                                                 plan.log_scale, runtime);
+                multiplexed_channel_bootstrap_then_relu(stem_bn_multiplex_k1_group, plan.logN, relu_config, runtime, "stem ReLU", false);
             stem_relu_refresh_all_max_abs_error = multiplexed_group_max_abs_error(
                 stem_relu_multiplex_k1_group, plain_conv1_relu, runtime);
-            output << "stem ReLU refresh all max_abs_error: "
+            output << "stem homomorphic ReLU all max_abs_error: "
                    << stem_relu_refresh_all_max_abs_error << '\n';
-            resnet18_progress_log() << "stem ReLU refresh all max_abs_error: "
+            resnet18_progress_log() << "stem homomorphic ReLU all max_abs_error: "
                  << stem_relu_refresh_all_max_abs_error << endl;
-            resnet18_progress_log() << "[duration] stem ReLU refresh: "
+            resnet18_progress_log() << "[duration] stem homomorphic ReLU: "
                  << chrono::duration_cast<chrono::milliseconds>(
                         chrono::steady_clock::now() - stem_relu_time_start)
                         .count()
@@ -2850,23 +2934,22 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 << "layer1 block0 bn1 multiplexed all max_abs_error: "
                 << layer1_block0_bn1_multiplex_all_max_abs_error << endl;
 
-            output << "layer1 block0 relu1 multiplexed k=2: plaintext ReLU refresh evaluation\n";
+            output << "layer1 block0 relu1 multiplexed k=2: bootstrap + homomorphic ReLU evaluation\n";
             resnet18_progress_log()
-                << "layer1 block0 relu1 multiplexed k=2 plaintext ReLU refresh evaluation"
+                << "layer1 block0 relu1 multiplexed k=2 bootstrap + homomorphic ReLU evaluation"
                 << endl;
             PlainTensor plain_layer1_block0_relu1_multiplex =
                 plain_relu_reference(plain_layer1_block0_bn1_multiplex);
             MultiplexedCipherGroup layer1_block0_relu1_multiplex_group =
-                multiplexed_channel_relu_refresh(layer1_block0_bn1_multiplex_group,
-                                                 plan.log_scale, runtime);
+                multiplexed_channel_bootstrap_then_relu(layer1_block0_bn1_multiplex_group, plan.logN, relu_config, runtime, "layer1 block0 relu1", kBootstrapBeforeReluExceptFirst);
             layer1_block0_relu1_multiplex_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer1_block0_relu1_multiplex_group,
                                                 plain_layer1_block0_relu1_multiplex,
                                                 runtime);
-            output << "layer1 block0 relu1 multiplexed refresh all max_abs_error: "
+            output << "layer1 block0 relu1 multiplexed homomorphic ReLU all max_abs_error: "
                    << layer1_block0_relu1_multiplex_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
-                << "layer1 block0 relu1 multiplexed refresh all max_abs_error: "
+                << "layer1 block0 relu1 multiplexed homomorphic ReLU all max_abs_error: "
                 << layer1_block0_relu1_multiplex_refresh_all_max_abs_error << endl;
 
             output << "layer1 block0 conv2 multiplexed k=2: encrypted dense conv evaluation\n";
@@ -2939,23 +3022,22 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 << "layer1 block0 add multiplexed all max_abs_error: "
                 << layer1_block0_add_multiplex_all_max_abs_error << endl;
 
-            output << "layer1 block0 output relu multiplexed k=2: plaintext ReLU refresh evaluation\n";
+            output << "layer1 block0 output relu multiplexed k=2: bootstrap + homomorphic ReLU evaluation\n";
             resnet18_progress_log()
-                << "layer1 block0 output relu multiplexed k=2 plaintext ReLU refresh evaluation"
+                << "layer1 block0 output relu multiplexed k=2 bootstrap + homomorphic ReLU evaluation"
                 << endl;
             PlainTensor plain_layer1_block0_output_multiplex =
                 plain_relu_reference(plain_layer1_block0_add_multiplex);
             MultiplexedCipherGroup layer1_block0_output_multiplex_group =
-                multiplexed_channel_relu_refresh(layer1_block0_add_multiplex_group,
-                                                 plan.log_scale, runtime);
+                multiplexed_channel_bootstrap_then_relu(layer1_block0_add_multiplex_group, plan.logN, relu_config, runtime, "layer1 block0 output relu", kBootstrapBeforeReluExceptFirst);
             layer1_block0_output_multiplex_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer1_block0_output_multiplex_group,
                                                 plain_layer1_block0_output_multiplex,
                                                 runtime);
-            output << "layer1 block0 output relu multiplexed refresh all max_abs_error: "
+            output << "layer1 block0 output relu multiplexed homomorphic ReLU all max_abs_error: "
                    << layer1_block0_output_multiplex_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
-                << "layer1 block0 output relu multiplexed refresh all max_abs_error: "
+                << "layer1 block0 output relu multiplexed homomorphic ReLU all max_abs_error: "
                 << layer1_block0_output_multiplex_refresh_all_max_abs_error << endl;
 
             stem_avgpool_all_max_abs_error = stem_multiplex_avgpool_all_max_abs_error;
@@ -3025,22 +3107,21 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 << "layer1 block1 bn1 multiplexed all max_abs_error: "
                 << layer1_block1_bn1_all_max_abs_error << endl;
 
-            output << "layer1 block1 relu1 multiplexed k=2: plaintext ReLU refresh evaluation\n";
+            output << "layer1 block1 relu1 multiplexed k=2: bootstrap + homomorphic ReLU evaluation\n";
             resnet18_progress_log()
-                << "layer1 block1 relu1 multiplexed k=2 plaintext ReLU refresh evaluation"
+                << "layer1 block1 relu1 multiplexed k=2 bootstrap + homomorphic ReLU evaluation"
                 << endl;
             PlainTensor plain_layer1_block1_relu1 =
                 plain_relu_reference(plain_layer1_block1_bn1);
             MultiplexedCipherGroup layer1_block1_relu1_multiplex_group =
-                multiplexed_channel_relu_refresh(layer1_block1_bn1_multiplex_group,
-                                                 plan.log_scale, runtime);
+                multiplexed_channel_bootstrap_then_relu(layer1_block1_bn1_multiplex_group, plan.logN, relu_config, runtime, "layer1 block1 relu1", kBootstrapBeforeReluExceptFirst);
             layer1_block1_relu1_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer1_block1_relu1_multiplex_group,
                                                 plain_layer1_block1_relu1, runtime);
-            output << "layer1 block1 relu1 multiplexed refresh all max_abs_error: "
+            output << "layer1 block1 relu1 multiplexed homomorphic ReLU all max_abs_error: "
                    << layer1_block1_relu1_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
-                << "layer1 block1 relu1 multiplexed refresh all max_abs_error: "
+                << "layer1 block1 relu1 multiplexed homomorphic ReLU all max_abs_error: "
                 << layer1_block1_relu1_refresh_all_max_abs_error << endl;
 
             output << "layer1 block1 conv2 multiplexed k=2: encrypted dense conv evaluation\n";
@@ -3107,22 +3188,21 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 << "layer1 block1 add multiplexed all max_abs_error: "
                 << layer1_block1_add_all_max_abs_error << endl;
 
-            output << "layer1 block1 output relu multiplexed k=2: plaintext ReLU refresh evaluation\n";
+            output << "layer1 block1 output relu multiplexed k=2: bootstrap + homomorphic ReLU evaluation\n";
             resnet18_progress_log()
-                << "layer1 block1 output relu multiplexed k=2 plaintext ReLU refresh evaluation"
+                << "layer1 block1 output relu multiplexed k=2 bootstrap + homomorphic ReLU evaluation"
                 << endl;
             PlainTensor plain_layer1_block1_output =
                 plain_relu_reference(plain_layer1_block1_add);
             MultiplexedCipherGroup layer1_block1_output_multiplex_group =
-                multiplexed_channel_relu_refresh(layer1_block1_add_multiplex_group,
-                                                 plan.log_scale, runtime);
+                multiplexed_channel_bootstrap_then_relu(layer1_block1_add_multiplex_group, plan.logN, relu_config, runtime, "layer1 block1 output relu", kBootstrapBeforeReluExceptFirst);
             layer1_block1_output_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer1_block1_output_multiplex_group,
                                                 plain_layer1_block1_output, runtime);
-            output << "layer1 block1 output relu multiplexed refresh all max_abs_error: "
+            output << "layer1 block1 output relu multiplexed homomorphic ReLU all max_abs_error: "
                    << layer1_block1_output_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
-                << "layer1 block1 output relu multiplexed refresh all max_abs_error: "
+                << "layer1 block1 output relu multiplexed homomorphic ReLU all max_abs_error: "
                 << layer1_block1_output_refresh_all_max_abs_error << endl;
 
             output << "layer2 block0 conv1 multiplexed k=2->k=4 stride-2 evaluation\n";
@@ -3173,22 +3253,21 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             resnet18_progress_log() << "layer2 block0 bn1 multiplexed max_abs_error: "
                                     << layer2_block0_bn1_sparse_max_abs_error << endl;
 
-            output << "layer2 block0 relu1 multiplexed k=4: plaintext ReLU refresh evaluation\n";
+            output << "layer2 block0 relu1 multiplexed k=4: bootstrap + homomorphic ReLU evaluation\n";
             resnet18_progress_log()
-                << "layer2 block0 relu1 multiplexed k=4 plaintext ReLU refresh evaluation"
+                << "layer2 block0 relu1 multiplexed k=4 bootstrap + homomorphic ReLU evaluation"
                 << endl;
             PlainTensor plain_layer2_block0_relu1 =
                 plain_relu_reference(plain_layer2_block0_bn1);
             MultiplexedCipherGroup layer2_block0_relu1_multiplex_group =
-                multiplexed_channel_relu_refresh(layer2_block0_bn1_multiplex_group,
-                                                 plan.log_scale, runtime);
+                multiplexed_channel_bootstrap_then_relu(layer2_block0_bn1_multiplex_group, plan.logN, relu_config, runtime, "layer2 block0 relu1", kBootstrapBeforeReluExceptFirst);
             layer2_block0_relu1_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(
                 layer2_block0_relu1_multiplex_group, plain_layer2_block0_relu1, runtime);
-            output << "layer2 block0 relu1 multiplexed refresh all max_abs_error: "
+            output << "layer2 block0 relu1 multiplexed homomorphic ReLU all max_abs_error: "
                    << layer2_block0_relu1_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
-                << "layer2 block0 relu1 multiplexed refresh all max_abs_error: "
+                << "layer2 block0 relu1 multiplexed homomorphic ReLU all max_abs_error: "
                                     << layer2_block0_relu1_refresh_all_max_abs_error << endl;
 
             output << "layer2 block0 conv2 multiplexed k=4 evaluation\n";
@@ -3289,22 +3368,21 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             resnet18_progress_log() << "layer2 block0 add multiplexed all max_abs_error: "
                  << layer2_block0_add_all_max_abs_error << endl;
 
-            output << "layer2 block0 output ReLU multiplexed k=4: plaintext ReLU refresh evaluation\n";
+            output << "layer2 block0 output ReLU multiplexed k=4: bootstrap + homomorphic ReLU evaluation\n";
             resnet18_progress_log()
-                << "layer2 block0 output ReLU multiplexed k=4 plaintext ReLU refresh evaluation"
+                << "layer2 block0 output ReLU multiplexed k=4 bootstrap + homomorphic ReLU evaluation"
                 << endl;
             PlainTensor plain_layer2_block0_output =
                 plain_relu_reference(plain_layer2_block0_add);
             MultiplexedCipherGroup layer2_block0_output_multiplex_group =
-                multiplexed_channel_relu_refresh(layer2_block0_add_multiplex_group,
-                                                 plan.log_scale, runtime);
+                multiplexed_channel_bootstrap_then_relu(layer2_block0_add_multiplex_group, plan.logN, relu_config, runtime, "layer2 block0 output relu", kBootstrapBeforeReluExceptFirst);
             layer2_block0_output_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer2_block0_output_multiplex_group,
                                                 plain_layer2_block0_output, runtime);
-            output << "layer2 block0 output multiplexed refresh all max_abs_error: "
+            output << "layer2 block0 output multiplexed homomorphic ReLU all max_abs_error: "
                    << layer2_block0_output_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
-                << "layer2 block0 output multiplexed refresh all max_abs_error: "
+                << "layer2 block0 output multiplexed homomorphic ReLU all max_abs_error: "
                  << layer2_block0_output_refresh_all_max_abs_error << endl;
 
             output << "layer2 block1 conv1 multiplexed k=4 evaluation\n";
@@ -3353,22 +3431,21 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             resnet18_progress_log() << "layer2 block1 bn1 multiplexed all max_abs_error: "
                  << layer2_block1_bn1_all_max_abs_error << endl;
 
-            output << "layer2 block1 relu1 multiplexed k=4: plaintext ReLU refresh evaluation\n";
+            output << "layer2 block1 relu1 multiplexed k=4: bootstrap + homomorphic ReLU evaluation\n";
             resnet18_progress_log()
-                << "layer2 block1 relu1 multiplexed k=4 plaintext ReLU refresh evaluation"
+                << "layer2 block1 relu1 multiplexed k=4 bootstrap + homomorphic ReLU evaluation"
                 << endl;
             PlainTensor plain_layer2_block1_relu1 =
                 plain_relu_reference(plain_layer2_block1_bn1);
             MultiplexedCipherGroup layer2_block1_relu1_multiplex_group =
-                multiplexed_channel_relu_refresh(layer2_block1_bn1_multiplex_group,
-                                                 plan.log_scale, runtime);
+                multiplexed_channel_bootstrap_then_relu(layer2_block1_bn1_multiplex_group, plan.logN, relu_config, runtime, "layer2 block1 relu1", kBootstrapBeforeReluExceptFirst);
             layer2_block1_relu1_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer2_block1_relu1_multiplex_group,
                                                 plain_layer2_block1_relu1, runtime);
-            output << "layer2 block1 relu1 multiplexed refresh all max_abs_error: "
+            output << "layer2 block1 relu1 multiplexed homomorphic ReLU all max_abs_error: "
                    << layer2_block1_relu1_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
-                << "layer2 block1 relu1 multiplexed refresh all max_abs_error: "
+                << "layer2 block1 relu1 multiplexed homomorphic ReLU all max_abs_error: "
                  << layer2_block1_relu1_refresh_all_max_abs_error << endl;
 
             output << "layer2 block1 conv2 multiplexed k=4 evaluation\n";
@@ -3432,22 +3509,21 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             resnet18_progress_log() << "layer2 block1 add multiplexed all max_abs_error: "
                  << layer2_block1_add_all_max_abs_error << endl;
 
-            output << "layer2 block1 output ReLU multiplexed k=4: plaintext ReLU refresh evaluation\n";
+            output << "layer2 block1 output ReLU multiplexed k=4: bootstrap + homomorphic ReLU evaluation\n";
             resnet18_progress_log()
-                << "layer2 block1 output ReLU multiplexed k=4 plaintext ReLU refresh evaluation"
+                << "layer2 block1 output ReLU multiplexed k=4 bootstrap + homomorphic ReLU evaluation"
                 << endl;
             PlainTensor plain_layer2_block1_output =
                 plain_relu_reference(plain_layer2_block1_add);
             MultiplexedCipherGroup layer2_block1_output_multiplex_group =
-                multiplexed_channel_relu_refresh(layer2_block1_add_multiplex_group,
-                                                 plan.log_scale, runtime);
+                multiplexed_channel_bootstrap_then_relu(layer2_block1_add_multiplex_group, plan.logN, relu_config, runtime, "layer2 block1 output relu", kBootstrapBeforeReluExceptFirst);
             layer2_block1_output_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer2_block1_output_multiplex_group,
                                                 plain_layer2_block1_output, runtime);
-            output << "layer2 block1 output multiplexed refresh all max_abs_error: "
+            output << "layer2 block1 output multiplexed homomorphic ReLU all max_abs_error: "
                    << layer2_block1_output_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
-                << "layer2 block1 output multiplexed refresh all max_abs_error: "
+                << "layer2 block1 output multiplexed homomorphic ReLU all max_abs_error: "
                  << layer2_block1_output_refresh_all_max_abs_error << endl;
 
             output << "layer3 block0 conv1 multiplexed k=4->k=8 stride-2 evaluation\n";
@@ -3498,21 +3574,20 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             resnet18_progress_log() << "layer3 block0 bn1 multiplexed max_abs_error: "
                                     << layer3_block0_bn1_sparse_max_abs_error << endl;
 
-            output << "layer3 block0 relu1 multiplexed k=8: plaintext ReLU refresh evaluation\n";
+            output << "layer3 block0 relu1 multiplexed k=8: bootstrap + homomorphic ReLU evaluation\n";
             resnet18_progress_log()
-                << "layer3 block0 relu1 multiplexed k=8 plaintext ReLU refresh evaluation"
+                << "layer3 block0 relu1 multiplexed k=8 bootstrap + homomorphic ReLU evaluation"
                 << endl;
             PlainTensor plain_layer3_block0_relu1 =
                 plain_relu_reference(plain_layer3_block0_bn1);
             MultiplexedCipherGroup layer3_block0_relu1_multiplex_group =
-                multiplexed_channel_relu_refresh(layer3_block0_bn1_multiplex_group,
-                                                 plan.log_scale, runtime);
+                multiplexed_channel_bootstrap_then_relu(layer3_block0_bn1_multiplex_group, plan.logN, relu_config, runtime, "layer3 block0 relu1", kBootstrapBeforeReluExceptFirst);
             layer3_block0_relu1_refresh_all_max_abs_error = multiplexed_group_max_abs_error(
                 layer3_block0_relu1_multiplex_group, plain_layer3_block0_relu1, runtime);
-            output << "layer3 block0 relu1 multiplexed refresh all max_abs_error: "
+            output << "layer3 block0 relu1 multiplexed homomorphic ReLU all max_abs_error: "
                    << layer3_block0_relu1_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
-                << "layer3 block0 relu1 multiplexed refresh all max_abs_error: "
+                << "layer3 block0 relu1 multiplexed homomorphic ReLU all max_abs_error: "
                                     << layer3_block0_relu1_refresh_all_max_abs_error << endl;
 
             output << "layer3 block0 conv2 multiplexed k=8 evaluation\n";
@@ -3613,22 +3688,21 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             resnet18_progress_log() << "layer3 block0 add multiplexed all max_abs_error: "
                  << layer3_block0_add_all_max_abs_error << endl;
 
-            output << "layer3 block0 output ReLU multiplexed k=8: plaintext ReLU refresh evaluation\n";
+            output << "layer3 block0 output ReLU multiplexed k=8: bootstrap + homomorphic ReLU evaluation\n";
             resnet18_progress_log()
-                << "layer3 block0 output ReLU multiplexed k=8 plaintext ReLU refresh evaluation"
+                << "layer3 block0 output ReLU multiplexed k=8 bootstrap + homomorphic ReLU evaluation"
                 << endl;
             PlainTensor plain_layer3_block0_output =
                 plain_relu_reference(plain_layer3_block0_add);
             MultiplexedCipherGroup layer3_block0_output_multiplex_group =
-                multiplexed_channel_relu_refresh(layer3_block0_add_multiplex_group,
-                                                 plan.log_scale, runtime);
+                multiplexed_channel_bootstrap_then_relu(layer3_block0_add_multiplex_group, plan.logN, relu_config, runtime, "layer3 block0 output relu", kBootstrapBeforeReluExceptFirst);
             layer3_block0_output_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer3_block0_output_multiplex_group,
                                                 plain_layer3_block0_output, runtime);
-            output << "layer3 block0 output multiplexed refresh all max_abs_error: "
+            output << "layer3 block0 output multiplexed homomorphic ReLU all max_abs_error: "
                    << layer3_block0_output_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
-                << "layer3 block0 output multiplexed refresh all max_abs_error: "
+                << "layer3 block0 output multiplexed homomorphic ReLU all max_abs_error: "
                  << layer3_block0_output_refresh_all_max_abs_error << endl;
 
             output << "layer3 block1 conv1 multiplexed k=8 evaluation\n";
@@ -3677,22 +3751,21 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             resnet18_progress_log() << "layer3 block1 bn1 multiplexed all max_abs_error: "
                  << layer3_block1_bn1_all_max_abs_error << endl;
 
-            output << "layer3 block1 relu1 multiplexed k=8: plaintext ReLU refresh evaluation\n";
+            output << "layer3 block1 relu1 multiplexed k=8: bootstrap + homomorphic ReLU evaluation\n";
             resnet18_progress_log()
-                << "layer3 block1 relu1 multiplexed k=8 plaintext ReLU refresh evaluation"
+                << "layer3 block1 relu1 multiplexed k=8 bootstrap + homomorphic ReLU evaluation"
                 << endl;
             PlainTensor plain_layer3_block1_relu1 =
                 plain_relu_reference(plain_layer3_block1_bn1);
             MultiplexedCipherGroup layer3_block1_relu1_multiplex_group =
-                multiplexed_channel_relu_refresh(layer3_block1_bn1_multiplex_group,
-                                                 plan.log_scale, runtime);
+                multiplexed_channel_bootstrap_then_relu(layer3_block1_bn1_multiplex_group, plan.logN, relu_config, runtime, "layer3 block1 relu1", kBootstrapBeforeReluExceptFirst);
             layer3_block1_relu1_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer3_block1_relu1_multiplex_group,
                                                 plain_layer3_block1_relu1, runtime);
-            output << "layer3 block1 relu1 multiplexed refresh all max_abs_error: "
+            output << "layer3 block1 relu1 multiplexed homomorphic ReLU all max_abs_error: "
                    << layer3_block1_relu1_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
-                << "layer3 block1 relu1 multiplexed refresh all max_abs_error: "
+                << "layer3 block1 relu1 multiplexed homomorphic ReLU all max_abs_error: "
                  << layer3_block1_relu1_refresh_all_max_abs_error << endl;
 
             output << "layer3 block1 conv2 multiplexed k=8 evaluation\n";
@@ -3756,22 +3829,21 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             resnet18_progress_log() << "layer3 block1 add multiplexed all max_abs_error: "
                  << layer3_block1_add_all_max_abs_error << endl;
 
-            output << "layer3 block1 output ReLU multiplexed k=8: plaintext ReLU refresh evaluation\n";
+            output << "layer3 block1 output ReLU multiplexed k=8: bootstrap + homomorphic ReLU evaluation\n";
             resnet18_progress_log()
-                << "layer3 block1 output ReLU multiplexed k=8 plaintext ReLU refresh evaluation"
+                << "layer3 block1 output ReLU multiplexed k=8 bootstrap + homomorphic ReLU evaluation"
                 << endl;
             PlainTensor plain_layer3_block1_output =
                 plain_relu_reference(plain_layer3_block1_add);
             MultiplexedCipherGroup layer3_block1_output_multiplex_group =
-                multiplexed_channel_relu_refresh(layer3_block1_add_multiplex_group,
-                                                 plan.log_scale, runtime);
+                multiplexed_channel_bootstrap_then_relu(layer3_block1_add_multiplex_group, plan.logN, relu_config, runtime, "layer3 block1 output relu", kBootstrapBeforeReluExceptFirst);
             layer3_block1_output_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer3_block1_output_multiplex_group,
                                                 plain_layer3_block1_output, runtime);
-            output << "layer3 block1 output multiplexed refresh all max_abs_error: "
+            output << "layer3 block1 output multiplexed homomorphic ReLU all max_abs_error: "
                    << layer3_block1_output_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
-                << "layer3 block1 output multiplexed refresh all max_abs_error: "
+                << "layer3 block1 output multiplexed homomorphic ReLU all max_abs_error: "
                  << layer3_block1_output_refresh_all_max_abs_error << endl;
 
             output << "layer4 block0 conv1 multiplexed k=8->k=16 stride-2 evaluation\n";
@@ -3814,21 +3886,20 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             resnet18_progress_log() << "layer4 block0 bn1 multiplexed max_abs_error: "
                                     << layer4_block0_bn1_sparse_max_abs_error << endl;
 
-            output << "layer4 block0 relu1 multiplexed k=16: plaintext ReLU refresh evaluation\n";
+            output << "layer4 block0 relu1 multiplexed k=16: bootstrap + homomorphic ReLU evaluation\n";
             resnet18_progress_log()
-                << "layer4 block0 relu1 multiplexed k=16 plaintext ReLU refresh evaluation"
+                << "layer4 block0 relu1 multiplexed k=16 bootstrap + homomorphic ReLU evaluation"
                 << endl;
             PlainTensor plain_layer4_block0_relu1 =
                 plain_relu_reference(plain_layer4_block0_bn1);
             MultiplexedCipherGroup layer4_block0_relu1_multiplex_group =
-                multiplexed_channel_relu_refresh(layer4_block0_bn1_multiplex_group,
-                                                 plan.log_scale, runtime);
+                multiplexed_channel_bootstrap_then_relu(layer4_block0_bn1_multiplex_group, plan.logN, relu_config, runtime, "layer4 block0 relu1", kBootstrapBeforeReluExceptFirst);
             layer4_block0_relu1_refresh_all_max_abs_error = multiplexed_group_max_abs_error(
                 layer4_block0_relu1_multiplex_group, plain_layer4_block0_relu1, runtime);
-            output << "layer4 block0 relu1 multiplexed refresh all max_abs_error: "
+            output << "layer4 block0 relu1 multiplexed homomorphic ReLU all max_abs_error: "
                    << layer4_block0_relu1_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
-                << "layer4 block0 relu1 multiplexed refresh all max_abs_error: "
+                << "layer4 block0 relu1 multiplexed homomorphic ReLU all max_abs_error: "
                                     << layer4_block0_relu1_refresh_all_max_abs_error << endl;
 
             output << "layer4 block0 conv2 multiplexed k=16 evaluation\n";
@@ -3921,22 +3992,21 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             resnet18_progress_log() << "layer4 block0 add multiplexed all max_abs_error: "
                  << layer4_block0_add_all_max_abs_error << endl;
 
-            output << "layer4 block0 output ReLU multiplexed k=16: plaintext ReLU refresh evaluation\n";
+            output << "layer4 block0 output ReLU multiplexed k=16: bootstrap + homomorphic ReLU evaluation\n";
             resnet18_progress_log()
-                << "layer4 block0 output ReLU multiplexed k=16 plaintext ReLU refresh evaluation"
+                << "layer4 block0 output ReLU multiplexed k=16 bootstrap + homomorphic ReLU evaluation"
                 << endl;
             PlainTensor plain_layer4_block0_output =
                 plain_relu_reference(plain_layer4_block0_add);
             MultiplexedCipherGroup layer4_block0_output_multiplex_group =
-                multiplexed_channel_relu_refresh(layer4_block0_add_multiplex_group,
-                                                 plan.log_scale, runtime);
+                multiplexed_channel_bootstrap_then_relu(layer4_block0_add_multiplex_group, plan.logN, relu_config, runtime, "layer4 block0 output relu", kBootstrapBeforeReluExceptFirst);
             layer4_block0_output_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer4_block0_output_multiplex_group,
                                                 plain_layer4_block0_output, runtime);
-            output << "layer4 block0 output multiplexed refresh all max_abs_error: "
+            output << "layer4 block0 output multiplexed homomorphic ReLU all max_abs_error: "
                    << layer4_block0_output_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
-                << "layer4 block0 output multiplexed refresh all max_abs_error: "
+                << "layer4 block0 output multiplexed homomorphic ReLU all max_abs_error: "
                  << layer4_block0_output_refresh_all_max_abs_error << endl;
 
             output << "layer4 block1 conv1 multiplexed k=16 evaluation\n";
@@ -3977,22 +4047,21 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             resnet18_progress_log() << "layer4 block1 bn1 multiplexed all max_abs_error: "
                  << layer4_block1_bn1_all_max_abs_error << endl;
 
-            output << "layer4 block1 relu1 multiplexed k=16: plaintext ReLU refresh evaluation\n";
+            output << "layer4 block1 relu1 multiplexed k=16: bootstrap + homomorphic ReLU evaluation\n";
             resnet18_progress_log()
-                << "layer4 block1 relu1 multiplexed k=16 plaintext ReLU refresh evaluation"
+                << "layer4 block1 relu1 multiplexed k=16 bootstrap + homomorphic ReLU evaluation"
                 << endl;
             PlainTensor plain_layer4_block1_relu1 =
                 plain_relu_reference(plain_layer4_block1_bn1);
             MultiplexedCipherGroup layer4_block1_relu1_multiplex_group =
-                multiplexed_channel_relu_refresh(layer4_block1_bn1_multiplex_group,
-                                                 plan.log_scale, runtime);
+                multiplexed_channel_bootstrap_then_relu(layer4_block1_bn1_multiplex_group, plan.logN, relu_config, runtime, "layer4 block1 relu1", kBootstrapBeforeReluExceptFirst);
             layer4_block1_relu1_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer4_block1_relu1_multiplex_group,
                                                 plain_layer4_block1_relu1, runtime);
-            output << "layer4 block1 relu1 multiplexed refresh all max_abs_error: "
+            output << "layer4 block1 relu1 multiplexed homomorphic ReLU all max_abs_error: "
                    << layer4_block1_relu1_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
-                << "layer4 block1 relu1 multiplexed refresh all max_abs_error: "
+                << "layer4 block1 relu1 multiplexed homomorphic ReLU all max_abs_error: "
                  << layer4_block1_relu1_refresh_all_max_abs_error << endl;
 
             output << "layer4 block1 conv2 multiplexed k=16 evaluation\n";
@@ -4048,22 +4117,21 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             resnet18_progress_log() << "layer4 block1 add multiplexed all max_abs_error: "
                  << layer4_block1_add_all_max_abs_error << endl;
 
-            output << "layer4 block1 output ReLU multiplexed k=16: plaintext ReLU refresh evaluation\n";
+            output << "layer4 block1 output ReLU multiplexed k=16: bootstrap + homomorphic ReLU evaluation\n";
             resnet18_progress_log()
-                << "layer4 block1 output ReLU multiplexed k=16 plaintext ReLU refresh evaluation"
+                << "layer4 block1 output ReLU multiplexed k=16 bootstrap + homomorphic ReLU evaluation"
                 << endl;
             PlainTensor plain_layer4_block1_output =
                 plain_relu_reference(plain_layer4_block1_add);
             MultiplexedCipherGroup layer4_block1_output_multiplex_group =
-                multiplexed_channel_relu_refresh(layer4_block1_add_multiplex_group,
-                                                 plan.log_scale, runtime);
+                multiplexed_channel_bootstrap_then_relu(layer4_block1_add_multiplex_group, plan.logN, relu_config, runtime, "layer4 block1 output relu", kBootstrapBeforeReluExceptFirst);
             layer4_block1_output_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer4_block1_output_multiplex_group,
                                                 plain_layer4_block1_output, runtime);
-            output << "layer4 block1 output multiplexed refresh all max_abs_error: "
+            output << "layer4 block1 output multiplexed homomorphic ReLU all max_abs_error: "
                    << layer4_block1_output_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
-                << "layer4 block1 output multiplexed refresh all max_abs_error: "
+                << "layer4 block1 output multiplexed homomorphic ReLU all max_abs_error: "
                  << layer4_block1_output_refresh_all_max_abs_error << endl;
 
             output << "head avgpool encrypted multiplexed: using precomputed rotation keys\n";

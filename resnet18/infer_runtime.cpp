@@ -24,7 +24,7 @@ PoseidonRuntime make_poseidon_runtime(const PoseidonInferPlan &plan, bool genera
     ParametersLiteral ckks_param_literal{
         CKKS, static_cast<std::uint32_t>(plan.logN), static_cast<std::uint32_t>(plan.logN - 1),
         static_cast<std::uint32_t>(plan.log_scale), 5, 1, 0, {}, {}};
-    ckks_param_literal.set_log_modulus(plan.logq_chain, {51});
+    ckks_param_literal.set_log_modulus(plan.logq_chain, logp_chain());
 
     PoseidonFactory::get_instance()->set_device_type(DEVICE_SOFTWARE);
     auto context = PoseidonFactory::get_instance()->create_poseidon_context(ckks_param_literal);

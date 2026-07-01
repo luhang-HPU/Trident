@@ -30,9 +30,16 @@ fs::path result_dir()
 std::vector<std::uint32_t> logq_chain()
 {
     return {
-        // 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46,
-        46, 46, 46, 46, 46, 46, 46, 46, 46, 46,
+        46, 46, 46, 46, 46, 46, 46, 46, 46,
+        46, 46, 46, 46, 46, 46, 46, 46, 46,
+        51, 51, 51, 51, 51, 51, 51, 51, 51, 51,
+        51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51,
     };
+}
+
+std::vector<std::uint32_t> logp_chain()
+{
+    return {51};
 }
 
 PoseidonInferPlan default_poseidon_plan()

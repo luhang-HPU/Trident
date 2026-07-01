@@ -17,6 +17,8 @@ constexpr int kResNet18FinalChannels = 512;
 constexpr const char *kResNet18ParameterDir = "resnet18_imagenet";
 constexpr const char *kResNet18ResultPrefix = "resnet18_imagenet";
 constexpr double kBatchNormEpsilon = 1.0e-5;
+constexpr bool kEnableHomomorphicRelu = true;
+constexpr bool kBootstrapBeforeReluExceptFirst = true;
 
 struct ReluConfig
 {
@@ -47,5 +49,6 @@ std::filesystem::path relu_param_root();
 std::filesystem::path result_dir();
 
 std::vector<std::uint32_t> logq_chain();
+std::vector<std::uint32_t> logp_chain();
 PoseidonInferPlan default_poseidon_plan();
 ReluConfig default_relu_config(const PoseidonInferPlan &plan);
