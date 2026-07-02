@@ -16,6 +16,7 @@ constexpr int kImageNetClassCount = 1000;
 constexpr int kResNet18FinalChannels = 512;
 constexpr const char *kResNet18ParameterDir = "resnet18_imagenet";
 constexpr const char *kResNet18ResultPrefix = "resnet18_imagenet";
+constexpr double kResNet18Boundary = 10.0;
 constexpr double kBatchNormEpsilon = 1.0e-5;
 constexpr bool kEnableHomomorphicRelu = true;
 constexpr bool kBootstrapBeforeReluExceptFirst = true;
@@ -32,7 +33,7 @@ struct ReluConfig
 
 struct PoseidonInferPlan
 {
-    double boundary = 40.0;
+    double boundary = kResNet18Boundary;
     long logN = 16;
     long log_slots = 15;
     long init_p = 8;

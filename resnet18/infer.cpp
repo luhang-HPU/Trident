@@ -2973,7 +2973,7 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
         PlainTensor plain_conv1_bn =
             plain_batch_norm(plain_conv1, weights.bn_bias.at(0), weights.bn_running_mean.at(0),
                              weights.bn_running_var.at(0), weights.bn_weight.at(0),
-                             kBatchNormEpsilon, 40.0);
+                             kBatchNormEpsilon, kResNet18Boundary);
         PlainTensor plain_conv1_relu = plain_relu_reference(plain_conv1_bn);
         PlainTensor plain_conv1_pool = plain_average_pool2d(plain_conv1_relu, 3, 2, 1);
 
@@ -3112,7 +3112,7 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 multiplexed_channel_batch_norm(
                     stem_conv1_multiplex_k1_group, weights.bn_bias.at(0),
                     weights.bn_running_mean.at(0), weights.bn_running_var.at(0),
-                    weights.bn_weight.at(0), kBatchNormEpsilon, 40.0, runtime);
+                    weights.bn_weight.at(0), kBatchNormEpsilon, kResNet18Boundary, runtime);
             stem_bn_all_max_abs_error = multiplexed_group_max_abs_error(
                 stem_bn_multiplex_k1_group, plain_conv1_bn, runtime, &output,
                 "stem BN");
@@ -3215,12 +3215,12 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             PlainTensor plain_layer1_block0_bn1_multiplex = plain_batch_norm(
                 plain_layer1_block0_conv1_multiplex, weights.bn_bias.at(1),
                 weights.bn_running_mean.at(1), weights.bn_running_var.at(1),
-                weights.bn_weight.at(1), kBatchNormEpsilon, 40.0);
+                weights.bn_weight.at(1), kBatchNormEpsilon, kResNet18Boundary);
             MultiplexedCipherGroup layer1_block0_bn1_multiplex_group =
                 multiplexed_channel_batch_norm(
                     layer1_block0_conv1_multiplex_group, weights.bn_bias.at(1),
                     weights.bn_running_mean.at(1), weights.bn_running_var.at(1),
-                    weights.bn_weight.at(1), kBatchNormEpsilon, 40.0, runtime);
+                    weights.bn_weight.at(1), kBatchNormEpsilon, kResNet18Boundary, runtime);
             layer1_block0_bn1_multiplex_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer1_block0_bn1_multiplex_group,
                                                 plain_layer1_block0_bn1_multiplex,
@@ -3288,12 +3288,12 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             PlainTensor plain_layer1_block0_bn2_multiplex = plain_batch_norm(
                 plain_layer1_block0_conv2_multiplex, weights.bn_bias.at(2),
                 weights.bn_running_mean.at(2), weights.bn_running_var.at(2),
-                weights.bn_weight.at(2), kBatchNormEpsilon, 40.0);
+                weights.bn_weight.at(2), kBatchNormEpsilon, kResNet18Boundary);
             MultiplexedCipherGroup layer1_block0_bn2_multiplex_group =
                 multiplexed_channel_batch_norm(
                     layer1_block0_conv2_multiplex_group, weights.bn_bias.at(2),
                     weights.bn_running_mean.at(2), weights.bn_running_var.at(2),
-                    weights.bn_weight.at(2), kBatchNormEpsilon, 40.0, runtime);
+                    weights.bn_weight.at(2), kBatchNormEpsilon, kResNet18Boundary, runtime);
             layer1_block0_bn2_multiplex_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer1_block0_bn2_multiplex_group,
                                                 plain_layer1_block0_bn2_multiplex,
@@ -3397,12 +3397,12 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 multiplexed_channel_batch_norm(
                     layer1_block1_conv1_multiplex_group, weights.bn_bias.at(3),
                     weights.bn_running_mean.at(3), weights.bn_running_var.at(3),
-                    weights.bn_weight.at(3), kBatchNormEpsilon, 40.0, runtime);
+                    weights.bn_weight.at(3), kBatchNormEpsilon, kResNet18Boundary, runtime);
             PlainTensor plain_layer1_block1_bn1 =
                 plain_batch_norm(plain_layer1_block1_conv1, weights.bn_bias.at(3),
                                  weights.bn_running_mean.at(3),
                                  weights.bn_running_var.at(3), weights.bn_weight.at(3),
-                                 kBatchNormEpsilon, 40.0);
+                                 kBatchNormEpsilon, kResNet18Boundary);
             layer1_block1_bn1_all_max_abs_error = multiplexed_group_max_abs_error(
                 layer1_block1_bn1_multiplex_group, plain_layer1_block1_bn1,
                 runtime, &output, "layer1 block1 bn1");
@@ -3465,12 +3465,12 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 multiplexed_channel_batch_norm(
                     layer1_block1_conv2_multiplex_group, weights.bn_bias.at(4),
                     weights.bn_running_mean.at(4), weights.bn_running_var.at(4),
-                    weights.bn_weight.at(4), kBatchNormEpsilon, 40.0, runtime);
+                    weights.bn_weight.at(4), kBatchNormEpsilon, kResNet18Boundary, runtime);
             PlainTensor plain_layer1_block1_bn2 =
                 plain_batch_norm(plain_layer1_block1_conv2, weights.bn_bias.at(4),
                                  weights.bn_running_mean.at(4),
                                  weights.bn_running_var.at(4), weights.bn_weight.at(4),
-                                 kBatchNormEpsilon, 40.0);
+                                 kBatchNormEpsilon, kResNet18Boundary);
             layer1_block1_bn2_all_max_abs_error = multiplexed_group_max_abs_error(
                 layer1_block1_bn2_multiplex_group, plain_layer1_block1_bn2,
                 runtime, &output, "layer1 block1 bn2");
@@ -3551,12 +3551,12 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 multiplexed_channel_batch_norm(
                     layer2_block0_conv1_multiplex_group, weights.bn_bias.at(5),
                     weights.bn_running_mean.at(5), weights.bn_running_var.at(5),
-                    weights.bn_weight.at(5), kBatchNormEpsilon, 40.0, runtime);
+                    weights.bn_weight.at(5), kBatchNormEpsilon, kResNet18Boundary, runtime);
             PlainTensor plain_layer2_block0_bn1 =
                 plain_batch_norm(plain_layer2_block0_conv1, weights.bn_bias.at(5),
                                  weights.bn_running_mean.at(5),
                                  weights.bn_running_var.at(5), weights.bn_weight.at(5),
-                                 kBatchNormEpsilon, 40.0);
+                                 kBatchNormEpsilon, kResNet18Boundary);
             layer2_block0_bn1_sparse_max_abs_error = multiplexed_group_max_abs_error(
                 layer2_block0_bn1_multiplex_group, plain_layer2_block0_bn1,
                 runtime, &output, "layer2 block0 bn1");
@@ -3617,12 +3617,12 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 multiplexed_channel_batch_norm(
                     layer2_block0_conv2_multiplex_group, weights.bn_bias.at(6),
                     weights.bn_running_mean.at(6), weights.bn_running_var.at(6),
-                    weights.bn_weight.at(6), kBatchNormEpsilon, 40.0, runtime);
+                    weights.bn_weight.at(6), kBatchNormEpsilon, kResNet18Boundary, runtime);
             PlainTensor plain_layer2_block0_bn2 =
                 plain_batch_norm(plain_layer2_block0_conv2, weights.bn_bias.at(6),
                                  weights.bn_running_mean.at(6),
                                  weights.bn_running_var.at(6), weights.bn_weight.at(6),
-                                 kBatchNormEpsilon, 40.0);
+                                 kBatchNormEpsilon, kResNet18Boundary);
             layer2_block0_bn2_all_max_abs_error = multiplexed_group_max_abs_error(
                 layer2_block0_bn2_multiplex_group, plain_layer2_block0_bn2,
                 runtime, &output, "layer2 block0 bn2");
@@ -3652,14 +3652,14 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                                  weights.downsample_bn_running_mean.at(0),
                                  weights.downsample_bn_running_var.at(0),
                                  weights.downsample_bn_weight.at(0), kBatchNormEpsilon,
-                                 40.0);
+                                 kResNet18Boundary);
             MultiplexedCipherGroup layer2_block0_shortcut_multiplex_group =
                 multiplexed_channel_batch_norm(
                     layer2_block0_shortcut_conv_multiplex_group,
                     weights.downsample_bn_bias.at(0),
                     weights.downsample_bn_running_mean.at(0),
                     weights.downsample_bn_running_var.at(0),
-                    weights.downsample_bn_weight.at(0), kBatchNormEpsilon, 40.0, runtime);
+                    weights.downsample_bn_weight.at(0), kBatchNormEpsilon, kResNet18Boundary, runtime);
             layer2_block0_shortcut_all_max_abs_error = multiplexed_group_max_abs_error(
                 layer2_block0_shortcut_multiplex_group, plain_layer2_block0_shortcut,
                 runtime, &output, "layer2 block0 shortcut");
@@ -3737,12 +3737,12 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 multiplexed_channel_batch_norm(
                     layer2_block1_conv1_multiplex_group, weights.bn_bias.at(7),
                     weights.bn_running_mean.at(7), weights.bn_running_var.at(7),
-                    weights.bn_weight.at(7), kBatchNormEpsilon, 40.0, runtime);
+                    weights.bn_weight.at(7), kBatchNormEpsilon, kResNet18Boundary, runtime);
             PlainTensor plain_layer2_block1_bn1 =
                 plain_batch_norm(plain_layer2_block1_conv1, weights.bn_bias.at(7),
                                  weights.bn_running_mean.at(7),
                                  weights.bn_running_var.at(7), weights.bn_weight.at(7),
-                                 kBatchNormEpsilon, 40.0);
+                                 kBatchNormEpsilon, kResNet18Boundary);
             layer2_block1_bn1_all_max_abs_error = multiplexed_group_max_abs_error(
                 layer2_block1_bn1_multiplex_group, plain_layer2_block1_bn1,
                 runtime, &output, "layer2 block1 bn1");
@@ -3803,12 +3803,12 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 multiplexed_channel_batch_norm(
                     layer2_block1_conv2_multiplex_group, weights.bn_bias.at(8),
                     weights.bn_running_mean.at(8), weights.bn_running_var.at(8),
-                    weights.bn_weight.at(8), kBatchNormEpsilon, 40.0, runtime);
+                    weights.bn_weight.at(8), kBatchNormEpsilon, kResNet18Boundary, runtime);
             PlainTensor plain_layer2_block1_bn2 =
                 plain_batch_norm(plain_layer2_block1_conv2, weights.bn_bias.at(8),
                                  weights.bn_running_mean.at(8),
                                  weights.bn_running_var.at(8), weights.bn_weight.at(8),
-                                 kBatchNormEpsilon, 40.0);
+                                 kBatchNormEpsilon, kResNet18Boundary);
             layer2_block1_bn2_all_max_abs_error = multiplexed_group_max_abs_error(
                 layer2_block1_bn2_multiplex_group, plain_layer2_block1_bn2,
                 runtime, &output, "layer2 block1 bn2");
@@ -3887,12 +3887,12 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 multiplexed_channel_batch_norm(
                     layer3_block0_conv1_multiplex_group, weights.bn_bias.at(9),
                     weights.bn_running_mean.at(9), weights.bn_running_var.at(9),
-                    weights.bn_weight.at(9), kBatchNormEpsilon, 40.0, runtime);
+                    weights.bn_weight.at(9), kBatchNormEpsilon, kResNet18Boundary, runtime);
             PlainTensor plain_layer3_block0_bn1 =
                 plain_batch_norm(plain_layer3_block0_conv1, weights.bn_bias.at(9),
                                  weights.bn_running_mean.at(9),
                                  weights.bn_running_var.at(9), weights.bn_weight.at(9),
-                                 kBatchNormEpsilon, 40.0);
+                                 kBatchNormEpsilon, kResNet18Boundary);
             layer3_block0_bn1_sparse_max_abs_error = multiplexed_group_max_abs_error(
                 layer3_block0_bn1_multiplex_group, plain_layer3_block0_bn1,
                 runtime, &output, "layer3 block0 bn1");
@@ -3952,12 +3952,12 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 multiplexed_channel_batch_norm(
                     layer3_block0_conv2_multiplex_group, weights.bn_bias.at(10),
                     weights.bn_running_mean.at(10), weights.bn_running_var.at(10),
-                    weights.bn_weight.at(10), kBatchNormEpsilon, 40.0, runtime);
+                    weights.bn_weight.at(10), kBatchNormEpsilon, kResNet18Boundary, runtime);
             PlainTensor plain_layer3_block0_bn2 =
                 plain_batch_norm(plain_layer3_block0_conv2, weights.bn_bias.at(10),
                                  weights.bn_running_mean.at(10),
                                  weights.bn_running_var.at(10), weights.bn_weight.at(10),
-                                 kBatchNormEpsilon, 40.0);
+                                 kBatchNormEpsilon, kResNet18Boundary);
             layer3_block0_bn2_all_max_abs_error = multiplexed_group_max_abs_error(
                 layer3_block0_bn2_multiplex_group, plain_layer3_block0_bn2,
                 runtime, &output, "layer3 block0 bn2");
@@ -3987,14 +3987,14 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                                  weights.downsample_bn_running_mean.at(1),
                                  weights.downsample_bn_running_var.at(1),
                                  weights.downsample_bn_weight.at(1), kBatchNormEpsilon,
-                                 40.0);
+                                 kResNet18Boundary);
             MultiplexedCipherGroup layer3_block0_shortcut_multiplex_group =
                 multiplexed_channel_batch_norm(
                     layer3_block0_shortcut_conv_multiplex_group,
                     weights.downsample_bn_bias.at(1),
                     weights.downsample_bn_running_mean.at(1),
                     weights.downsample_bn_running_var.at(1),
-                    weights.downsample_bn_weight.at(1), kBatchNormEpsilon, 40.0, runtime);
+                    weights.downsample_bn_weight.at(1), kBatchNormEpsilon, kResNet18Boundary, runtime);
             layer3_block0_shortcut_all_max_abs_error = multiplexed_group_max_abs_error(
                 layer3_block0_shortcut_multiplex_group, plain_layer3_block0_shortcut,
                 runtime, &output, "layer3 block0 shortcut");
@@ -4072,12 +4072,12 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 multiplexed_channel_batch_norm(
                     layer3_block1_conv1_multiplex_group, weights.bn_bias.at(11),
                     weights.bn_running_mean.at(11), weights.bn_running_var.at(11),
-                    weights.bn_weight.at(11), kBatchNormEpsilon, 40.0, runtime);
+                    weights.bn_weight.at(11), kBatchNormEpsilon, kResNet18Boundary, runtime);
             PlainTensor plain_layer3_block1_bn1 =
                 plain_batch_norm(plain_layer3_block1_conv1, weights.bn_bias.at(11),
                                  weights.bn_running_mean.at(11),
                                  weights.bn_running_var.at(11), weights.bn_weight.at(11),
-                                 kBatchNormEpsilon, 40.0);
+                                 kBatchNormEpsilon, kResNet18Boundary);
             layer3_block1_bn1_all_max_abs_error = multiplexed_group_max_abs_error(
                 layer3_block1_bn1_multiplex_group, plain_layer3_block1_bn1,
                 runtime, &output, "layer3 block1 bn1");
@@ -4138,12 +4138,12 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 multiplexed_channel_batch_norm(
                     layer3_block1_conv2_multiplex_group, weights.bn_bias.at(12),
                     weights.bn_running_mean.at(12), weights.bn_running_var.at(12),
-                    weights.bn_weight.at(12), kBatchNormEpsilon, 40.0, runtime);
+                    weights.bn_weight.at(12), kBatchNormEpsilon, kResNet18Boundary, runtime);
             PlainTensor plain_layer3_block1_bn2 =
                 plain_batch_norm(plain_layer3_block1_conv2, weights.bn_bias.at(12),
                                  weights.bn_running_mean.at(12),
                                  weights.bn_running_var.at(12), weights.bn_weight.at(12),
-                                 kBatchNormEpsilon, 40.0);
+                                 kBatchNormEpsilon, kResNet18Boundary);
             layer3_block1_bn2_all_max_abs_error = multiplexed_group_max_abs_error(
                 layer3_block1_bn2_multiplex_group, plain_layer3_block1_bn2,
                 runtime, &output, "layer3 block1 bn2");
@@ -4214,12 +4214,12 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 multiplexed_channel_batch_norm(
                     layer4_block0_conv1_multiplex_group, weights.bn_bias.at(13),
                     weights.bn_running_mean.at(13), weights.bn_running_var.at(13),
-                    weights.bn_weight.at(13), kBatchNormEpsilon, 40.0, runtime);
+                    weights.bn_weight.at(13), kBatchNormEpsilon, kResNet18Boundary, runtime);
             PlainTensor plain_layer4_block0_bn1 =
                 plain_batch_norm(plain_layer4_block0_conv1, weights.bn_bias.at(13),
                                  weights.bn_running_mean.at(13),
                                  weights.bn_running_var.at(13), weights.bn_weight.at(13),
-                                 kBatchNormEpsilon, 40.0);
+                                 kBatchNormEpsilon, kResNet18Boundary);
             layer4_block0_bn1_sparse_max_abs_error = multiplexed_group_max_abs_error(
                 layer4_block0_bn1_multiplex_group, plain_layer4_block0_bn1,
                 runtime, &output, "layer4 block0 bn1");
@@ -4271,12 +4271,12 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 multiplexed_channel_batch_norm(
                     layer4_block0_conv2_multiplex_group, weights.bn_bias.at(14),
                     weights.bn_running_mean.at(14), weights.bn_running_var.at(14),
-                    weights.bn_weight.at(14), kBatchNormEpsilon, 40.0, runtime);
+                    weights.bn_weight.at(14), kBatchNormEpsilon, kResNet18Boundary, runtime);
             PlainTensor plain_layer4_block0_bn2 =
                 plain_batch_norm(plain_layer4_block0_conv2, weights.bn_bias.at(14),
                                  weights.bn_running_mean.at(14),
                                  weights.bn_running_var.at(14), weights.bn_weight.at(14),
-                                 kBatchNormEpsilon, 40.0);
+                                 kBatchNormEpsilon, kResNet18Boundary);
             layer4_block0_bn2_all_max_abs_error = multiplexed_group_max_abs_error(
                 layer4_block0_bn2_multiplex_group, plain_layer4_block0_bn2,
                 runtime, &output, "layer4 block0 bn2");
@@ -4306,14 +4306,14 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                                  weights.downsample_bn_running_mean.at(2),
                                  weights.downsample_bn_running_var.at(2),
                                  weights.downsample_bn_weight.at(2), kBatchNormEpsilon,
-                                 40.0);
+                                 kResNet18Boundary);
             MultiplexedCipherGroup layer4_block0_shortcut_multiplex_group =
                 multiplexed_channel_batch_norm(
                     layer4_block0_shortcut_conv_multiplex_group,
                     weights.downsample_bn_bias.at(2),
                     weights.downsample_bn_running_mean.at(2),
                     weights.downsample_bn_running_var.at(2),
-                    weights.downsample_bn_weight.at(2), kBatchNormEpsilon, 40.0, runtime);
+                    weights.downsample_bn_weight.at(2), kBatchNormEpsilon, kResNet18Boundary, runtime);
             layer4_block0_shortcut_all_max_abs_error = multiplexed_group_max_abs_error(
                 layer4_block0_shortcut_multiplex_group, plain_layer4_block0_shortcut,
                 runtime, &output, "layer4 block0 shortcut");
@@ -4383,12 +4383,12 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 multiplexed_channel_batch_norm(
                     layer4_block1_conv1_multiplex_group, weights.bn_bias.at(15),
                     weights.bn_running_mean.at(15), weights.bn_running_var.at(15),
-                    weights.bn_weight.at(15), kBatchNormEpsilon, 40.0, runtime);
+                    weights.bn_weight.at(15), kBatchNormEpsilon, kResNet18Boundary, runtime);
             PlainTensor plain_layer4_block1_bn1 =
                 plain_batch_norm(plain_layer4_block1_conv1, weights.bn_bias.at(15),
                                  weights.bn_running_mean.at(15),
                                  weights.bn_running_var.at(15), weights.bn_weight.at(15),
-                                 kBatchNormEpsilon, 40.0);
+                                 kBatchNormEpsilon, kResNet18Boundary);
             layer4_block1_bn1_all_max_abs_error = multiplexed_group_max_abs_error(
                 layer4_block1_bn1_multiplex_group, plain_layer4_block1_bn1,
                 runtime, &output, "layer4 block1 bn1");
@@ -4441,12 +4441,12 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 multiplexed_channel_batch_norm(
                     layer4_block1_conv2_multiplex_group, weights.bn_bias.at(16),
                     weights.bn_running_mean.at(16), weights.bn_running_var.at(16),
-                    weights.bn_weight.at(16), kBatchNormEpsilon, 40.0, runtime);
+                    weights.bn_weight.at(16), kBatchNormEpsilon, kResNet18Boundary, runtime);
             PlainTensor plain_layer4_block1_bn2 =
                 plain_batch_norm(plain_layer4_block1_conv2, weights.bn_bias.at(16),
                                  weights.bn_running_mean.at(16),
                                  weights.bn_running_var.at(16), weights.bn_weight.at(16),
-                                 kBatchNormEpsilon, 40.0);
+                                 kBatchNormEpsilon, kResNet18Boundary);
             layer4_block1_bn2_all_max_abs_error = multiplexed_group_max_abs_error(
                 layer4_block1_bn2_multiplex_group, plain_layer4_block1_bn2,
                 runtime, &output, "layer4 block1 bn2");
@@ -4500,10 +4500,10 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             output << "head avgpool encrypted multiplexed: rotate/mask/add evaluation\n";
             resnet18_progress_log() << "head avgpool encrypted multiplexed evaluation"
                                     << endl;
-            PlainTensor plain_head_pooled = plain_average_pool(plain_layer4_block1_output, 40.0);
+            PlainTensor plain_head_pooled = plain_average_pool(plain_layer4_block1_output, kResNet18Boundary);
             TensorCipher encrypted_head_pooled = encrypted_multiplexed_head_average_pool(
                 layer4_block1_output_multiplex_group, static_cast<int>(plan.logN),
-                plan.log_scale, 40.0, runtime);
+                plan.log_scale, kResNet18Boundary, runtime);
             vector<double> encrypted_pooled_values =
                 decode_real_slots(encrypted_head_pooled, runtime, kResNet18FinalChannels);
             dump_plain_cipher_preview(

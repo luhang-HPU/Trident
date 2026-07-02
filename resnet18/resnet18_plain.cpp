@@ -125,7 +125,7 @@ PlainTensor apply_conv_bn(const PlainTensor &input, int out_channels, int stride
         plain_convolution(input, out_channels, stride, fh, fw, conv_weight, bn_running_var,
                           bn_weight, kBatchNormEpsilon);
     return plain_batch_norm(conv, bn_bias, bn_running_mean, bn_running_var, bn_weight,
-                            kBatchNormEpsilon, 40.0);
+                            kBatchNormEpsilon, kResNet18Boundary);
 }
 
 void run_stem(PlainInferenceState &state, const ModelWeights &weights, ostream &log,
@@ -207,7 +207,7 @@ vector<double> run_plain_resnet18_for_image(size_t image_id, const ModelWeights 
 {
     PlainInferenceState state;
     state.tensor = PlainTensor(kImageNetInputHeight, kImageNetInputWidth, kImageNetInputChannels,
-                               read_plain_image_values(image_id, 40.0));
+                               read_plain_image_values(image_id, kResNet18Boundary));
     log_plain_tensor("plain input", state.tensor, log);
 
     run_stem(state, weights, log, stem_pool_mode);
@@ -223,7 +223,7 @@ vector<double> run_plain_resnet18_for_image(size_t image_id, const ModelWeights 
         }
     }
 
-    PlainTensor pooled = plain_average_pool(state.tensor, 40.0);
+    PlainTensor pooled = plain_average_pool(state.tensor, kResNet18Boundary);
     log_plain_tensor("plain average pool output", pooled, log);
     return plain_fully_connected(pooled, weights.linear_weight, weights.linear_bias,
                                  kImageNetClassCount, kResNet18FinalChannels);
