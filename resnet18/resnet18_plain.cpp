@@ -23,9 +23,16 @@ namespace fs = std::filesystem;
 namespace
 {
 
+enum class StemPoolMode
+{
+    AvgPool,
+    MaxPool,
+};
+
 [[noreturn]] void usage_and_exit(const char *argv0)
 {
-    cerr << "Usage: " << argv0 << " START_IMAGE_ID END_IMAGE_ID" << endl;
+    cerr << "Usage: " << argv0 << " START_IMAGE_ID END_IMAGE_ID [avgpool|maxpool]"
+         << endl;
     exit(1);
 }
 
@@ -46,6 +53,25 @@ size_t parse_image_id(const char *value, const char *name)
     {
         throw invalid_argument(string("invalid ") + name + ": " + value);
     }
+}
+
+StemPoolMode parse_stem_pool_mode(const char *value)
+{
+    const string text(value);
+    if (text == "avgpool")
+    {
+        return StemPoolMode::AvgPool;
+    }
+    if (text == "maxpool")
+    {
+        return StemPoolMode::MaxPool;
+    }
+    throw invalid_argument("invalid stem pool mode: " + text);
+}
+
+const char *stem_pool_mode_name(StemPoolMode mode)
+{
+    return mode == StemPoolMode::MaxPool ? "maxpool" : "avgpool";
 }
 
 string make_run_timestamp()
@@ -102,7 +128,8 @@ PlainTensor apply_conv_bn(const PlainTensor &input, int out_channels, int stride
                             kBatchNormEpsilon, 40.0);
 }
 
-void run_stem(PlainInferenceState &state, const ModelWeights &weights, ostream &log)
+void run_stem(PlainInferenceState &state, const ModelWeights &weights, ostream &log,
+              StemPoolMode stem_pool_mode)
 {
     log << "\n========== Stem ==========\n";
     PlainTensor stem = apply_conv_bn(state.tensor, 64, 2, 7, 7,
@@ -115,7 +142,15 @@ void run_stem(PlainInferenceState &state, const ModelWeights &weights, ostream &
     ++state.bn_idx;
 
     stem = plain_relu_reference(stem);
-    stem = plain_average_pool2d(stem, 3, 2, 1);
+    if (stem_pool_mode == StemPoolMode::MaxPool)
+    {
+        stem = plain_max_pool2d(stem, 3, 2, 1);
+    }
+    else
+    {
+        stem = plain_average_pool2d(stem, 3, 2, 1);
+    }
+    log << "stem pool mode: " << stem_pool_mode_name(stem_pool_mode) << '\n';
     log_plain_tensor("plain stem output", stem, log);
     state.tensor = std::move(stem);
 }
@@ -168,14 +203,14 @@ void run_block(PlainInferenceState &state, const ModelWeights &weights, int stag
 }
 
 vector<double> run_plain_resnet18_for_image(size_t image_id, const ModelWeights &weights,
-                                            ostream &log)
+                                            ostream &log, StemPoolMode stem_pool_mode)
 {
     PlainInferenceState state;
     state.tensor = PlainTensor(kImageNetInputHeight, kImageNetInputWidth, kImageNetInputChannels,
                                read_plain_image_values(image_id, 40.0));
     log_plain_tensor("plain input", state.tensor, log);
 
-    run_stem(state, weights, log);
+    run_stem(state, weights, log, stem_pool_mode);
 
     const int stage_channels[] = {64, 128, 256, 512};
     const int first_strides[] = {1, 2, 2, 2};
@@ -188,13 +223,14 @@ vector<double> run_plain_resnet18_for_image(size_t image_id, const ModelWeights 
         }
     }
 
-    PlainTensor pooled = plain_average_pool(state.tensor, 1.0);
+    PlainTensor pooled = plain_average_pool(state.tensor, 40.0);
     log_plain_tensor("plain average pool output", pooled, log);
     return plain_fully_connected(pooled, weights.linear_weight, weights.linear_bias,
                                  kImageNetClassCount, kResNet18FinalChannels);
 }
 
-void run_plain_resnet18(size_t start_image_id, size_t end_image_id)
+void run_plain_resnet18(size_t start_image_id, size_t end_image_id,
+                        StemPoolMode stem_pool_mode)
 {
     fs::create_directories(result_dir());
     const string run_timestamp = make_run_timestamp();
@@ -208,6 +244,7 @@ void run_plain_resnet18(size_t start_image_id, size_t end_image_id)
     }
 
     cout << "Loading ResNet18 ImageNet parameters" << endl;
+    cout << "stem pool mode: " << stem_pool_mode_name(stem_pool_mode) << endl;
     ModelWeights weights = load_resnet18_parameters();
 
     size_t correct = 0;
@@ -226,8 +263,10 @@ void run_plain_resnet18(size_t start_image_id, size_t end_image_id)
 
         image_log << "image_id: " << image_id << '\n';
         image_log << "log_file: " << image_log_path << '\n';
+        image_log << "stem_pool_mode: " << stem_pool_mode_name(stem_pool_mode) << '\n';
         const int image_label = read_image_label(image_id);
-        vector<double> logits = run_plain_resnet18_for_image(image_id, weights, image_log);
+        vector<double> logits =
+            run_plain_resnet18_for_image(image_id, weights, image_log, stem_pool_mode);
         const int predicted_label = argmax_index(logits);
         if (predicted_label == image_label)
         {
@@ -266,7 +305,7 @@ void run_plain_resnet18(size_t start_image_id, size_t end_image_id)
 
 int main(int argc, char **argv)
 {
-    if (argc != 3)
+    if (argc != 3 && argc != 4)
     {
         usage_and_exit(argv[0]);
     }
@@ -279,8 +318,10 @@ int main(int argc, char **argv)
         {
             throw invalid_argument("start_image_id must be <= end_image_id");
         }
+        const StemPoolMode stem_pool_mode =
+            argc == 4 ? parse_stem_pool_mode(argv[3]) : StemPoolMode::AvgPool;
 
-        run_plain_resnet18(start_image_id, end_image_id);
+        run_plain_resnet18(start_image_id, end_image_id, stem_pool_mode);
         return 0;
     }
     catch (const exception &ex)

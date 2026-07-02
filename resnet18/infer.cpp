@@ -4500,10 +4500,10 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             output << "head avgpool encrypted multiplexed: rotate/mask/add evaluation\n";
             resnet18_progress_log() << "head avgpool encrypted multiplexed evaluation"
                                     << endl;
-            PlainTensor plain_head_pooled = plain_average_pool(plain_layer4_block1_output, 1.0);
+            PlainTensor plain_head_pooled = plain_average_pool(plain_layer4_block1_output, 40.0);
             TensorCipher encrypted_head_pooled = encrypted_multiplexed_head_average_pool(
                 layer4_block1_output_multiplex_group, static_cast<int>(plan.logN),
-                plan.log_scale, 1.0, runtime);
+                plan.log_scale, 40.0, runtime);
             vector<double> encrypted_pooled_values =
                 decode_real_slots(encrypted_head_pooled, runtime, kResNet18FinalChannels);
             dump_plain_cipher_preview(
