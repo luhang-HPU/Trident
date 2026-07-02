@@ -57,6 +57,65 @@ string make_run_timestamp()
     return stamp.str();
 }
 
+void write_value_list_preview(ostream &out, const vector<double> &values,
+                              size_t limit = 128)
+{
+    const size_t count = min(limit, values.size());
+    for (size_t i = 0; i < count; ++i)
+    {
+        if (i != 0)
+        {
+            out << ' ';
+        }
+        out << values.at(i);
+    }
+}
+
+void write_complex_real_preview(ostream &out,
+                                const vector<complex<double>> &values,
+                                size_t limit = 128)
+{
+    const size_t count = min(limit, values.size());
+    for (size_t i = 0; i < count; ++i)
+    {
+        if (i != 0)
+        {
+            out << ' ';
+        }
+        out << values.at(i).real();
+    }
+}
+
+void write_complex_imag_preview(ostream &out,
+                                const vector<complex<double>> &values,
+                                size_t limit = 128)
+{
+    const size_t count = min(limit, values.size());
+    for (size_t i = 0; i < count; ++i)
+    {
+        if (i != 0)
+        {
+            out << ' ';
+        }
+        out << values.at(i).imag();
+    }
+}
+
+void dump_plain_cipher_preview(const string &label, const vector<double> &plain,
+                               const vector<complex<double>> &cipher, ostream &out,
+                               size_t limit = 128)
+{
+    out << "[value-dump] " << label << " plain_first" << limit << '=';
+    write_value_list_preview(out, plain, limit);
+    out << '\n';
+    out << "[value-dump] " << label << " cipher_real_first" << limit << '=';
+    write_complex_real_preview(out, cipher, limit);
+    out << '\n';
+    out << "[value-dump] " << label << " cipher_imag_first" << limit << '=';
+    write_complex_imag_preview(out, cipher, limit);
+    out << '\n';
+}
+
 void log_plain_logits(const vector<double> &logits, ofstream &output)
 {
     output << "plain logits:";
@@ -574,14 +633,102 @@ vector<double> decrypt_multiplexed_group(const MultiplexedCipherGroup &group,
     return values;
 }
 
+vector<complex<double>> decrypt_tensor_cipher_group_complex(
+    const TensorCipherGroup &group, PoseidonRuntime &runtime)
+{
+    vector<complex<double>> values(group.value_count(), complex<double>(0.0, 0.0));
+    vector<vector<complex<double>>> decoded(group.chunk_count());
+    for (size_t chunk_index = 0; chunk_index < group.chunk_count(); ++chunk_index)
+    {
+        Plaintext plain;
+        runtime.decryptor.decrypt(group.chunks().at(chunk_index), plain);
+        runtime.encoder.decode(plain, decoded.at(chunk_index));
+    }
+    for (size_t value_index = 0; value_index < group.value_count(); ++value_index)
+    {
+        const size_t chunk_index = group.chunk_index_for_value(value_index);
+        const size_t slot_index = group.slot_index_for_value(value_index);
+        values.at(value_index) = decoded.at(chunk_index).at(slot_index);
+    }
+    return values;
+}
+
+vector<complex<double>> decrypt_multiplexed_group_complex(
+    const MultiplexedCipherGroup &group, PoseidonRuntime &runtime)
+{
+    vector<complex<double>> values(static_cast<size_t>(group.c) *
+                                       static_cast<size_t>(group.h * group.w),
+                                   complex<double>(0.0, 0.0));
+    vector<vector<complex<double>>> decoded(group.packs.size());
+    for (size_t pack_index = 0; pack_index < group.packs.size(); ++pack_index)
+    {
+        Plaintext plain;
+        runtime.decryptor.decrypt(group.packs.at(pack_index), plain);
+        runtime.encoder.decode(plain, decoded.at(pack_index));
+    }
+
+    const size_t spatial_count = static_cast<size_t>(group.h * group.w);
+    for (int channel = 0; channel < group.c; ++channel)
+    {
+        const size_t pack_index = multiplexed_cipher_index_for_channel(group, channel);
+        for (int row = 0; row < group.h; ++row)
+        {
+            for (int col = 0; col < group.w; ++col)
+            {
+                const size_t slot = multiplexed_slot_index(group, channel, row, col);
+                values[static_cast<size_t>(channel) * spatial_count +
+                       static_cast<size_t>(row * group.w + col)] =
+                    decoded.at(pack_index).at(slot);
+            }
+        }
+    }
+    return values;
+}
+
+vector<complex<double>> decrypt_channel_cipher_group_complex(
+    const ChannelCipherGroup &group, PoseidonRuntime &runtime)
+{
+    vector<complex<double>> values(static_cast<size_t>(group.c) *
+                                       static_cast<size_t>(group.h * group.w),
+                                   complex<double>(0.0, 0.0));
+    const size_t spatial_count = static_cast<size_t>(group.h * group.w);
+    for (int channel = 0; channel < group.c; ++channel)
+    {
+        Plaintext plain;
+        runtime.decryptor.decrypt(group.channels.at(static_cast<size_t>(channel)),
+                                  plain);
+        vector<complex<double>> decoded;
+        runtime.encoder.decode(plain, decoded);
+        for (size_t i = 0; i < spatial_count; ++i)
+        {
+            values[static_cast<size_t>(channel) * spatial_count + i] =
+                decoded.at(i);
+        }
+    }
+    return values;
+}
+
 double multiplexed_group_max_abs_error(const MultiplexedCipherGroup &group,
                                        const PlainTensor &plain,
-                                       PoseidonRuntime &runtime)
+                                       PoseidonRuntime &runtime,
+                                       ostream *dump_output = nullptr,
+                                       const string &dump_label = "")
 {
-    vector<double> decrypted = decrypt_multiplexed_group(group, runtime);
+    vector<complex<double>> decrypted_complex =
+        decrypt_multiplexed_group_complex(group, runtime);
+    vector<double> decrypted(decrypted_complex.size(), 0.0);
+    for (size_t i = 0; i < decrypted_complex.size(); ++i)
+    {
+        decrypted.at(i) = decrypted_complex.at(i).real();
+    }
     if (decrypted.size() != plain.values.size())
     {
         throw invalid_argument("multiplexed group/plain tensor size mismatch");
+    }
+    if (dump_output != nullptr)
+    {
+        dump_plain_cipher_preview(dump_label, plain.values, decrypted_complex,
+                                  *dump_output);
     }
     double max_abs_error = 0.0;
     for (size_t i = 0; i < decrypted.size(); ++i)
@@ -2550,6 +2697,25 @@ vector<double> decode_real_slots(const TensorCipher &tensor, PoseidonRuntime &ru
     return values;
 }
 
+vector<complex<double>> decode_complex_slots(const TensorCipher &tensor,
+                                             PoseidonRuntime &runtime,
+                                             size_t count)
+{
+    Plaintext plain;
+    runtime.decryptor.decrypt(tensor.cipher(), plain);
+
+    vector<complex<double>> decoded;
+    runtime.encoder.decode(plain, decoded);
+
+    const size_t copy_count = min(count, decoded.size());
+    vector<complex<double>> values(copy_count, complex<double>(0.0, 0.0));
+    for (size_t i = 0; i < copy_count; ++i)
+    {
+        values[i] = decoded[i];
+    }
+    return values;
+}
+
 int argmax_index(const vector<double> &values)
 {
     if (values.empty())
@@ -2774,6 +2940,9 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
         {
             max_abs_error = max(max_abs_error, abs(image_values[i] - decrypted_input[i]));
         }
+        dump_plain_cipher_preview(
+            "input", image_values,
+            decrypt_tensor_cipher_group_complex(input_group, runtime), output);
         output << "input decrypt max_abs_error: " << max_abs_error << '\n';
 
         ModelWeights weights = load_resnet18_parameters();
@@ -2893,6 +3062,9 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             vector<double> decrypted_stem_conv1 = decrypt_channel_cipher_group(stem_conv1_group,
                                                                                runtime);
             stem_conv1_all_max_abs_error = 0.0;
+            dump_plain_cipher_preview(
+                "stem conv1 all", plain_conv1.values,
+                decrypt_channel_cipher_group_complex(stem_conv1_group, runtime), output);
             for (size_t i = 0; i < decrypted_stem_conv1.size(); ++i)
             {
                 stem_conv1_all_max_abs_error =
@@ -2910,7 +3082,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                                                stem_conv1_multiplex_k1_group, runtime);
             double stem_conv1_multiplex_pack_max_abs_error =
                 multiplexed_group_max_abs_error(stem_conv1_multiplex_k1_group,
-                                                plain_conv1, runtime);
+                                                plain_conv1, runtime, &output,
+                                                "stem conv1 multiplexed pack");
             output << "stem conv1 multiplexed pack max_abs_error: "
                    << stem_conv1_multiplex_pack_max_abs_error << '\n';
             resnet18_progress_log()
@@ -2941,7 +3114,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                     weights.bn_running_mean.at(0), weights.bn_running_var.at(0),
                     weights.bn_weight.at(0), kBatchNormEpsilon, 40.0, runtime);
             stem_bn_all_max_abs_error = multiplexed_group_max_abs_error(
-                stem_bn_multiplex_k1_group, plain_conv1_bn, runtime);
+                stem_bn_multiplex_k1_group, plain_conv1_bn, runtime, &output,
+                "stem BN");
             output << "stem BN all max_abs_error: " << stem_bn_all_max_abs_error << '\n';
             resnet18_progress_log() << "stem BN all max_abs_error: " << stem_bn_all_max_abs_error << endl;
 
@@ -2952,7 +3126,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             MultiplexedCipherGroup stem_relu_multiplex_k1_group =
                 multiplexed_channel_bootstrap_then_relu(stem_bn_multiplex_k1_group, plan.logN, relu_config, runtime, "stem ReLU", false);
             stem_relu_refresh_all_max_abs_error = multiplexed_group_max_abs_error(
-                stem_relu_multiplex_k1_group, plain_conv1_relu, runtime);
+                stem_relu_multiplex_k1_group, plain_conv1_relu, runtime, &output,
+                "stem ReLU");
             output << "stem homomorphic ReLU all max_abs_error: "
                    << stem_relu_refresh_all_max_abs_error << '\n';
             resnet18_progress_log() << "stem homomorphic ReLU all max_abs_error: "
@@ -2975,7 +3150,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                                                    runtime);
             stem_multiplex_avgpool_all_max_abs_error =
                 multiplexed_group_max_abs_error(stem_avgpool_multiplex_k2_group,
-                                                plain_conv1_pool, runtime);
+                                                plain_conv1_pool, runtime, &output,
+                                                "stem avgpool");
             output << "stem multiplexed avgpool k=2 ciphertexts: "
                    << stem_avgpool_multiplex_k2_group.packs.size()
                    << ", page_size=" << stem_avgpool_multiplex_k2_group.page_size
@@ -3011,7 +3187,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             layer1_block0_conv1_multiplex_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer1_block0_conv1_multiplex_group,
                                                 plain_layer1_block0_conv1_multiplex,
-                                                runtime);
+                                                runtime, &output,
+                                                "layer1 block0 conv1");
             output << "layer1 block0 conv1 multiplexed k=2 ciphertexts: "
                    << layer1_block0_conv1_multiplex_group.packs.size()
                    << ", page_size=" << layer1_block0_conv1_multiplex_group.page_size
@@ -3047,7 +3224,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             layer1_block0_bn1_multiplex_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer1_block0_bn1_multiplex_group,
                                                 plain_layer1_block0_bn1_multiplex,
-                                                runtime);
+                                                runtime, &output,
+                                                "layer1 block0 bn1");
             output << "layer1 block0 bn1 multiplexed all max_abs_error: "
                    << layer1_block0_bn1_multiplex_all_max_abs_error << '\n';
             resnet18_progress_log()
@@ -3065,7 +3243,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             layer1_block0_relu1_multiplex_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer1_block0_relu1_multiplex_group,
                                                 plain_layer1_block0_relu1_multiplex,
-                                                runtime);
+                                                runtime, &output,
+                                                "layer1 block0 relu1");
             output << "layer1 block0 relu1 multiplexed homomorphic ReLU all max_abs_error: "
                    << layer1_block0_relu1_multiplex_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
@@ -3089,7 +3268,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             layer1_block0_conv2_multiplex_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer1_block0_conv2_multiplex_group,
                                                 plain_layer1_block0_conv2_multiplex,
-                                                runtime);
+                                                runtime, &output,
+                                                "layer1 block0 conv2");
             output << "layer1 block0 conv2 multiplexed all max_abs_error: "
                    << layer1_block0_conv2_multiplex_all_max_abs_error << '\n';
             resnet18_progress_log()
@@ -3117,7 +3297,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             layer1_block0_bn2_multiplex_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer1_block0_bn2_multiplex_group,
                                                 plain_layer1_block0_bn2_multiplex,
-                                                runtime);
+                                                runtime, &output,
+                                                "layer1 block0 bn2");
             output << "layer1 block0 bn2 multiplexed all max_abs_error: "
                    << layer1_block0_bn2_multiplex_all_max_abs_error << '\n';
             resnet18_progress_log()
@@ -3135,7 +3316,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             layer1_block0_add_multiplex_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer1_block0_add_multiplex_group,
                                                 plain_layer1_block0_add_multiplex,
-                                                runtime);
+                                                runtime, &output,
+                                                "layer1 block0 add");
             output << "layer1 block0 add multiplexed all max_abs_error: "
                    << layer1_block0_add_multiplex_all_max_abs_error << '\n';
             resnet18_progress_log()
@@ -3153,7 +3335,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             layer1_block0_output_multiplex_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer1_block0_output_multiplex_group,
                                                 plain_layer1_block0_output_multiplex,
-                                                runtime);
+                                                runtime, &output,
+                                                "layer1 block0 output relu");
             output << "layer1 block0 output relu multiplexed homomorphic ReLU all max_abs_error: "
                    << layer1_block0_output_multiplex_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
@@ -3193,7 +3376,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                     weights.conv_weight.at(3), weights.bn_running_var.at(3),
                     weights.bn_weight.at(3), kBatchNormEpsilon, runtime);
             layer1_block1_conv1_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer1_block1_conv1_multiplex_group, plain_layer1_block1_conv1, runtime);
+                layer1_block1_conv1_multiplex_group, plain_layer1_block1_conv1,
+                runtime, &output, "layer1 block1 conv1");
             output << "layer1 block1 conv1 multiplexed all max_abs_error: "
                    << layer1_block1_conv1_all_max_abs_error << '\n';
             resnet18_progress_log()
@@ -3220,7 +3404,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                                  weights.bn_running_var.at(3), weights.bn_weight.at(3),
                                  kBatchNormEpsilon, 40.0);
             layer1_block1_bn1_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer1_block1_bn1_multiplex_group, plain_layer1_block1_bn1, runtime);
+                layer1_block1_bn1_multiplex_group, plain_layer1_block1_bn1,
+                runtime, &output, "layer1 block1 bn1");
             output << "layer1 block1 bn1 multiplexed all max_abs_error: "
                    << layer1_block1_bn1_all_max_abs_error << '\n';
             resnet18_progress_log()
@@ -3237,7 +3422,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 multiplexed_channel_bootstrap_then_relu(layer1_block1_bn1_multiplex_group, plan.logN, relu_config, runtime, "layer1 block1 relu1", kBootstrapBeforeReluExceptFirst);
             layer1_block1_relu1_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer1_block1_relu1_multiplex_group,
-                                                plain_layer1_block1_relu1, runtime);
+                                                plain_layer1_block1_relu1, runtime,
+                                                &output, "layer1 block1 relu1");
             output << "layer1 block1 relu1 multiplexed homomorphic ReLU all max_abs_error: "
                    << layer1_block1_relu1_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
@@ -3258,7 +3444,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 plain_layer1_block1_relu1, 64, 1, 3, 3, weights.conv_weight.at(4),
                 weights.bn_running_var.at(4), weights.bn_weight.at(4), kBatchNormEpsilon);
             layer1_block1_conv2_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer1_block1_conv2_multiplex_group, plain_layer1_block1_conv2, runtime);
+                layer1_block1_conv2_multiplex_group, plain_layer1_block1_conv2,
+                runtime, &output, "layer1 block1 conv2");
             output << "layer1 block1 conv2 multiplexed all max_abs_error: "
                    << layer1_block1_conv2_all_max_abs_error << '\n';
             resnet18_progress_log()
@@ -3285,7 +3472,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                                  weights.bn_running_var.at(4), weights.bn_weight.at(4),
                                  kBatchNormEpsilon, 40.0);
             layer1_block1_bn2_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer1_block1_bn2_multiplex_group, plain_layer1_block1_bn2, runtime);
+                layer1_block1_bn2_multiplex_group, plain_layer1_block1_bn2,
+                runtime, &output, "layer1 block1 bn2");
             output << "layer1 block1 bn2 multiplexed all max_abs_error: "
                    << layer1_block1_bn2_all_max_abs_error << '\n';
             resnet18_progress_log()
@@ -3301,7 +3489,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             PlainTensor plain_layer1_block1_add =
                 plain_add(plain_layer1_block1_bn2, plain_layer1_block0_output);
             layer1_block1_add_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer1_block1_add_multiplex_group, plain_layer1_block1_add, runtime);
+                layer1_block1_add_multiplex_group, plain_layer1_block1_add,
+                runtime, &output, "layer1 block1 add");
             output << "layer1 block1 add multiplexed all max_abs_error: "
                    << layer1_block1_add_all_max_abs_error << '\n';
             resnet18_progress_log()
@@ -3318,7 +3507,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 multiplexed_channel_bootstrap_then_relu(layer1_block1_add_multiplex_group, plan.logN, relu_config, runtime, "layer1 block1 output relu", kBootstrapBeforeReluExceptFirst);
             layer1_block1_output_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer1_block1_output_multiplex_group,
-                                                plain_layer1_block1_output, runtime);
+                                                plain_layer1_block1_output, runtime,
+                                                &output, "layer1 block1 output relu");
             output << "layer1 block1 output relu multiplexed homomorphic ReLU all max_abs_error: "
                    << layer1_block1_output_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
@@ -3340,7 +3530,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                     weights.conv_weight.at(5), weights.bn_running_var.at(5),
                     weights.bn_weight.at(5), kBatchNormEpsilon, runtime);
             layer2_block0_conv1_sparse_max_abs_error = multiplexed_group_max_abs_error(
-                layer2_block0_conv1_multiplex_group, plain_layer2_block0_conv1, runtime);
+                layer2_block0_conv1_multiplex_group, plain_layer2_block0_conv1,
+                runtime, &output, "layer2 block0 conv1");
             output << "layer2 block0 conv1 multiplexed max_abs_error: "
                    << layer2_block0_conv1_sparse_max_abs_error << '\n';
             resnet18_progress_log()
@@ -3367,7 +3558,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                                  weights.bn_running_var.at(5), weights.bn_weight.at(5),
                                  kBatchNormEpsilon, 40.0);
             layer2_block0_bn1_sparse_max_abs_error = multiplexed_group_max_abs_error(
-                layer2_block0_bn1_multiplex_group, plain_layer2_block0_bn1, runtime);
+                layer2_block0_bn1_multiplex_group, plain_layer2_block0_bn1,
+                runtime, &output, "layer2 block0 bn1");
             output << "layer2 block0 bn1 multiplexed max_abs_error: "
                    << layer2_block0_bn1_sparse_max_abs_error << '\n';
             resnet18_progress_log() << "layer2 block0 bn1 multiplexed max_abs_error: "
@@ -3383,7 +3575,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 multiplexed_channel_bootstrap_then_relu(layer2_block0_bn1_multiplex_group, plan.logN, relu_config, runtime, "layer2 block0 relu1", kBootstrapBeforeReluExceptFirst);
             layer2_block0_relu1_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(
-                layer2_block0_relu1_multiplex_group, plain_layer2_block0_relu1, runtime);
+                layer2_block0_relu1_multiplex_group, plain_layer2_block0_relu1,
+                runtime, &output, "layer2 block0 relu1");
             output << "layer2 block0 relu1 multiplexed homomorphic ReLU all max_abs_error: "
                    << layer2_block0_relu1_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
@@ -3404,7 +3597,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 plain_layer2_block0_relu1, 128, 1, 3, 3, weights.conv_weight.at(6),
                 weights.bn_running_var.at(6), weights.bn_weight.at(6), kBatchNormEpsilon);
             layer2_block0_conv2_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer2_block0_conv2_multiplex_group, plain_layer2_block0_conv2, runtime);
+                layer2_block0_conv2_multiplex_group, plain_layer2_block0_conv2,
+                runtime, &output, "layer2 block0 conv2");
             output << "layer2 block0 conv2 multiplexed all max_abs_error: "
                    << layer2_block0_conv2_all_max_abs_error << '\n';
             resnet18_progress_log() << "layer2 block0 conv2 multiplexed all max_abs_error: "
@@ -3430,7 +3624,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                                  weights.bn_running_var.at(6), weights.bn_weight.at(6),
                                  kBatchNormEpsilon, 40.0);
             layer2_block0_bn2_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer2_block0_bn2_multiplex_group, plain_layer2_block0_bn2, runtime);
+                layer2_block0_bn2_multiplex_group, plain_layer2_block0_bn2,
+                runtime, &output, "layer2 block0 bn2");
             output << "layer2 block0 bn2 multiplexed all max_abs_error: "
                    << layer2_block0_bn2_all_max_abs_error << '\n';
             resnet18_progress_log() << "layer2 block0 bn2 multiplexed all max_abs_error: "
@@ -3466,7 +3661,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                     weights.downsample_bn_running_var.at(0),
                     weights.downsample_bn_weight.at(0), kBatchNormEpsilon, 40.0, runtime);
             layer2_block0_shortcut_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer2_block0_shortcut_multiplex_group, plain_layer2_block0_shortcut, runtime);
+                layer2_block0_shortcut_multiplex_group, plain_layer2_block0_shortcut,
+                runtime, &output, "layer2 block0 shortcut");
             output << "layer2 block0 shortcut multiplexed all max_abs_error: "
                    << layer2_block0_shortcut_all_max_abs_error << '\n';
             resnet18_progress_log()
@@ -3482,7 +3678,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             PlainTensor plain_layer2_block0_add =
                 plain_add(plain_layer2_block0_bn2, plain_layer2_block0_shortcut);
             layer2_block0_add_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer2_block0_add_multiplex_group, plain_layer2_block0_add, runtime);
+                layer2_block0_add_multiplex_group, plain_layer2_block0_add,
+                runtime, &output, "layer2 block0 add");
             output << "layer2 block0 add multiplexed all max_abs_error: "
                    << layer2_block0_add_all_max_abs_error << '\n';
             resnet18_progress_log() << "layer2 block0 add multiplexed all max_abs_error: "
@@ -3498,7 +3695,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 multiplexed_channel_bootstrap_then_relu(layer2_block0_add_multiplex_group, plan.logN, relu_config, runtime, "layer2 block0 output relu", kBootstrapBeforeReluExceptFirst);
             layer2_block0_output_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer2_block0_output_multiplex_group,
-                                                plain_layer2_block0_output, runtime);
+                                                plain_layer2_block0_output, runtime,
+                                                &output, "layer2 block0 output relu");
             output << "layer2 block0 output multiplexed homomorphic ReLU all max_abs_error: "
                    << layer2_block0_output_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
@@ -3519,7 +3717,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 plain_layer2_block0_output, 128, 1, 3, 3, weights.conv_weight.at(7),
                 weights.bn_running_var.at(7), weights.bn_weight.at(7), kBatchNormEpsilon);
             layer2_block1_conv1_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer2_block1_conv1_multiplex_group, plain_layer2_block1_conv1, runtime);
+                layer2_block1_conv1_multiplex_group, plain_layer2_block1_conv1,
+                runtime, &output, "layer2 block1 conv1");
             output << "layer2 block1 conv1 multiplexed all max_abs_error: "
                    << layer2_block1_conv1_all_max_abs_error << '\n';
             resnet18_progress_log() << "layer2 block1 conv1 multiplexed all max_abs_error: "
@@ -3545,7 +3744,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                                  weights.bn_running_var.at(7), weights.bn_weight.at(7),
                                  kBatchNormEpsilon, 40.0);
             layer2_block1_bn1_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer2_block1_bn1_multiplex_group, plain_layer2_block1_bn1, runtime);
+                layer2_block1_bn1_multiplex_group, plain_layer2_block1_bn1,
+                runtime, &output, "layer2 block1 bn1");
             output << "layer2 block1 bn1 multiplexed all max_abs_error: "
                    << layer2_block1_bn1_all_max_abs_error << '\n';
             resnet18_progress_log() << "layer2 block1 bn1 multiplexed all max_abs_error: "
@@ -3561,7 +3761,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 multiplexed_channel_bootstrap_then_relu(layer2_block1_bn1_multiplex_group, plan.logN, relu_config, runtime, "layer2 block1 relu1", kBootstrapBeforeReluExceptFirst);
             layer2_block1_relu1_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer2_block1_relu1_multiplex_group,
-                                                plain_layer2_block1_relu1, runtime);
+                                                plain_layer2_block1_relu1, runtime,
+                                                &output, "layer2 block1 relu1");
             output << "layer2 block1 relu1 multiplexed homomorphic ReLU all max_abs_error: "
                    << layer2_block1_relu1_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
@@ -3582,7 +3783,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 plain_layer2_block1_relu1, 128, 1, 3, 3, weights.conv_weight.at(8),
                 weights.bn_running_var.at(8), weights.bn_weight.at(8), kBatchNormEpsilon);
             layer2_block1_conv2_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer2_block1_conv2_multiplex_group, plain_layer2_block1_conv2, runtime);
+                layer2_block1_conv2_multiplex_group, plain_layer2_block1_conv2,
+                runtime, &output, "layer2 block1 conv2");
             output << "layer2 block1 conv2 multiplexed all max_abs_error: "
                    << layer2_block1_conv2_all_max_abs_error << '\n';
             resnet18_progress_log() << "layer2 block1 conv2 multiplexed all max_abs_error: "
@@ -3608,7 +3810,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                                  weights.bn_running_var.at(8), weights.bn_weight.at(8),
                                  kBatchNormEpsilon, 40.0);
             layer2_block1_bn2_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer2_block1_bn2_multiplex_group, plain_layer2_block1_bn2, runtime);
+                layer2_block1_bn2_multiplex_group, plain_layer2_block1_bn2,
+                runtime, &output, "layer2 block1 bn2");
             output << "layer2 block1 bn2 multiplexed all max_abs_error: "
                    << layer2_block1_bn2_all_max_abs_error << '\n';
             resnet18_progress_log() << "layer2 block1 bn2 multiplexed all max_abs_error: "
@@ -3623,7 +3826,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             PlainTensor plain_layer2_block1_add =
                 plain_add(plain_layer2_block1_bn2, plain_layer2_block0_output);
             layer2_block1_add_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer2_block1_add_multiplex_group, plain_layer2_block1_add, runtime);
+                layer2_block1_add_multiplex_group, plain_layer2_block1_add,
+                runtime, &output, "layer2 block1 add");
             output << "layer2 block1 add multiplexed all max_abs_error: "
                    << layer2_block1_add_all_max_abs_error << '\n';
             resnet18_progress_log() << "layer2 block1 add multiplexed all max_abs_error: "
@@ -3639,7 +3843,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 multiplexed_channel_bootstrap_then_relu(layer2_block1_add_multiplex_group, plan.logN, relu_config, runtime, "layer2 block1 output relu", kBootstrapBeforeReluExceptFirst);
             layer2_block1_output_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer2_block1_output_multiplex_group,
-                                                plain_layer2_block1_output, runtime);
+                                                plain_layer2_block1_output, runtime,
+                                                &output, "layer2 block1 output relu");
             output << "layer2 block1 output multiplexed homomorphic ReLU all max_abs_error: "
                    << layer2_block1_output_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
@@ -3661,7 +3866,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                     weights.conv_weight.at(9), weights.bn_running_var.at(9),
                     weights.bn_weight.at(9), kBatchNormEpsilon, runtime);
             layer3_block0_conv1_sparse_max_abs_error = multiplexed_group_max_abs_error(
-                layer3_block0_conv1_multiplex_group, plain_layer3_block0_conv1, runtime);
+                layer3_block0_conv1_multiplex_group, plain_layer3_block0_conv1,
+                runtime, &output, "layer3 block0 conv1");
             output << "layer3 block0 conv1 multiplexed max_abs_error: "
                    << layer3_block0_conv1_sparse_max_abs_error << '\n';
             resnet18_progress_log()
@@ -3688,7 +3894,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                                  weights.bn_running_var.at(9), weights.bn_weight.at(9),
                                  kBatchNormEpsilon, 40.0);
             layer3_block0_bn1_sparse_max_abs_error = multiplexed_group_max_abs_error(
-                layer3_block0_bn1_multiplex_group, plain_layer3_block0_bn1, runtime);
+                layer3_block0_bn1_multiplex_group, plain_layer3_block0_bn1,
+                runtime, &output, "layer3 block0 bn1");
             output << "layer3 block0 bn1 multiplexed max_abs_error: "
                    << layer3_block0_bn1_sparse_max_abs_error << '\n';
             resnet18_progress_log() << "layer3 block0 bn1 multiplexed max_abs_error: "
@@ -3703,7 +3910,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             MultiplexedCipherGroup layer3_block0_relu1_multiplex_group =
                 multiplexed_channel_bootstrap_then_relu(layer3_block0_bn1_multiplex_group, plan.logN, relu_config, runtime, "layer3 block0 relu1", kBootstrapBeforeReluExceptFirst);
             layer3_block0_relu1_refresh_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer3_block0_relu1_multiplex_group, plain_layer3_block0_relu1, runtime);
+                layer3_block0_relu1_multiplex_group, plain_layer3_block0_relu1,
+                runtime, &output, "layer3 block0 relu1");
             output << "layer3 block0 relu1 multiplexed homomorphic ReLU all max_abs_error: "
                    << layer3_block0_relu1_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
@@ -3724,7 +3932,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 plain_layer3_block0_relu1, 256, 1, 3, 3, weights.conv_weight.at(10),
                 weights.bn_running_var.at(10), weights.bn_weight.at(10), kBatchNormEpsilon);
             layer3_block0_conv2_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer3_block0_conv2_multiplex_group, plain_layer3_block0_conv2, runtime);
+                layer3_block0_conv2_multiplex_group, plain_layer3_block0_conv2,
+                runtime, &output, "layer3 block0 conv2");
             output << "layer3 block0 conv2 multiplexed all max_abs_error: "
                    << layer3_block0_conv2_all_max_abs_error << '\n';
             resnet18_progress_log() << "layer3 block0 conv2 multiplexed all max_abs_error: "
@@ -3750,7 +3959,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                                  weights.bn_running_var.at(10), weights.bn_weight.at(10),
                                  kBatchNormEpsilon, 40.0);
             layer3_block0_bn2_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer3_block0_bn2_multiplex_group, plain_layer3_block0_bn2, runtime);
+                layer3_block0_bn2_multiplex_group, plain_layer3_block0_bn2,
+                runtime, &output, "layer3 block0 bn2");
             output << "layer3 block0 bn2 multiplexed all max_abs_error: "
                    << layer3_block0_bn2_all_max_abs_error << '\n';
             resnet18_progress_log() << "layer3 block0 bn2 multiplexed all max_abs_error: "
@@ -3786,7 +3996,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                     weights.downsample_bn_running_var.at(1),
                     weights.downsample_bn_weight.at(1), kBatchNormEpsilon, 40.0, runtime);
             layer3_block0_shortcut_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer3_block0_shortcut_multiplex_group, plain_layer3_block0_shortcut, runtime);
+                layer3_block0_shortcut_multiplex_group, plain_layer3_block0_shortcut,
+                runtime, &output, "layer3 block0 shortcut");
             output << "layer3 block0 shortcut multiplexed all max_abs_error: "
                    << layer3_block0_shortcut_all_max_abs_error << '\n';
             resnet18_progress_log()
@@ -3802,7 +4013,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             PlainTensor plain_layer3_block0_add =
                 plain_add(plain_layer3_block0_bn2, plain_layer3_block0_shortcut);
             layer3_block0_add_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer3_block0_add_multiplex_group, plain_layer3_block0_add, runtime);
+                layer3_block0_add_multiplex_group, plain_layer3_block0_add,
+                runtime, &output, "layer3 block0 add");
             output << "layer3 block0 add multiplexed all max_abs_error: "
                    << layer3_block0_add_all_max_abs_error << '\n';
             resnet18_progress_log() << "layer3 block0 add multiplexed all max_abs_error: "
@@ -3818,7 +4030,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 multiplexed_channel_bootstrap_then_relu(layer3_block0_add_multiplex_group, plan.logN, relu_config, runtime, "layer3 block0 output relu", kBootstrapBeforeReluExceptFirst);
             layer3_block0_output_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer3_block0_output_multiplex_group,
-                                                plain_layer3_block0_output, runtime);
+                                                plain_layer3_block0_output, runtime,
+                                                &output, "layer3 block0 output relu");
             output << "layer3 block0 output multiplexed homomorphic ReLU all max_abs_error: "
                    << layer3_block0_output_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
@@ -3839,7 +4052,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 plain_layer3_block0_output, 256, 1, 3, 3, weights.conv_weight.at(11),
                 weights.bn_running_var.at(11), weights.bn_weight.at(11), kBatchNormEpsilon);
             layer3_block1_conv1_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer3_block1_conv1_multiplex_group, plain_layer3_block1_conv1, runtime);
+                layer3_block1_conv1_multiplex_group, plain_layer3_block1_conv1,
+                runtime, &output, "layer3 block1 conv1");
             output << "layer3 block1 conv1 multiplexed all max_abs_error: "
                    << layer3_block1_conv1_all_max_abs_error << '\n';
             resnet18_progress_log() << "layer3 block1 conv1 multiplexed all max_abs_error: "
@@ -3865,7 +4079,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                                  weights.bn_running_var.at(11), weights.bn_weight.at(11),
                                  kBatchNormEpsilon, 40.0);
             layer3_block1_bn1_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer3_block1_bn1_multiplex_group, plain_layer3_block1_bn1, runtime);
+                layer3_block1_bn1_multiplex_group, plain_layer3_block1_bn1,
+                runtime, &output, "layer3 block1 bn1");
             output << "layer3 block1 bn1 multiplexed all max_abs_error: "
                    << layer3_block1_bn1_all_max_abs_error << '\n';
             resnet18_progress_log() << "layer3 block1 bn1 multiplexed all max_abs_error: "
@@ -3881,7 +4096,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 multiplexed_channel_bootstrap_then_relu(layer3_block1_bn1_multiplex_group, plan.logN, relu_config, runtime, "layer3 block1 relu1", kBootstrapBeforeReluExceptFirst);
             layer3_block1_relu1_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer3_block1_relu1_multiplex_group,
-                                                plain_layer3_block1_relu1, runtime);
+                                                plain_layer3_block1_relu1, runtime,
+                                                &output, "layer3 block1 relu1");
             output << "layer3 block1 relu1 multiplexed homomorphic ReLU all max_abs_error: "
                    << layer3_block1_relu1_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
@@ -3902,7 +4118,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 plain_layer3_block1_relu1, 256, 1, 3, 3, weights.conv_weight.at(12),
                 weights.bn_running_var.at(12), weights.bn_weight.at(12), kBatchNormEpsilon);
             layer3_block1_conv2_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer3_block1_conv2_multiplex_group, plain_layer3_block1_conv2, runtime);
+                layer3_block1_conv2_multiplex_group, plain_layer3_block1_conv2,
+                runtime, &output, "layer3 block1 conv2");
             output << "layer3 block1 conv2 multiplexed all max_abs_error: "
                    << layer3_block1_conv2_all_max_abs_error << '\n';
             resnet18_progress_log() << "layer3 block1 conv2 multiplexed all max_abs_error: "
@@ -3928,7 +4145,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                                  weights.bn_running_var.at(12), weights.bn_weight.at(12),
                                  kBatchNormEpsilon, 40.0);
             layer3_block1_bn2_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer3_block1_bn2_multiplex_group, plain_layer3_block1_bn2, runtime);
+                layer3_block1_bn2_multiplex_group, plain_layer3_block1_bn2,
+                runtime, &output, "layer3 block1 bn2");
             output << "layer3 block1 bn2 multiplexed all max_abs_error: "
                    << layer3_block1_bn2_all_max_abs_error << '\n';
             resnet18_progress_log() << "layer3 block1 bn2 multiplexed all max_abs_error: "
@@ -3943,7 +4161,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             PlainTensor plain_layer3_block1_add =
                 plain_add(plain_layer3_block1_bn2, plain_layer3_block0_output);
             layer3_block1_add_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer3_block1_add_multiplex_group, plain_layer3_block1_add, runtime);
+                layer3_block1_add_multiplex_group, plain_layer3_block1_add,
+                runtime, &output, "layer3 block1 add");
             output << "layer3 block1 add multiplexed all max_abs_error: "
                    << layer3_block1_add_all_max_abs_error << '\n';
             resnet18_progress_log() << "layer3 block1 add multiplexed all max_abs_error: "
@@ -3959,7 +4178,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 multiplexed_channel_bootstrap_then_relu(layer3_block1_add_multiplex_group, plan.logN, relu_config, runtime, "layer3 block1 output relu", kBootstrapBeforeReluExceptFirst);
             layer3_block1_output_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer3_block1_output_multiplex_group,
-                                                plain_layer3_block1_output, runtime);
+                                                plain_layer3_block1_output, runtime,
+                                                &output, "layer3 block1 output relu");
             output << "layer3 block1 output multiplexed homomorphic ReLU all max_abs_error: "
                    << layer3_block1_output_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
@@ -3979,7 +4199,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                     weights.conv_weight.at(13), weights.bn_running_var.at(13),
                     weights.bn_weight.at(13), kBatchNormEpsilon, runtime);
             layer4_block0_conv1_sparse_max_abs_error = multiplexed_group_max_abs_error(
-                layer4_block0_conv1_multiplex_group, plain_layer4_block0_conv1, runtime);
+                layer4_block0_conv1_multiplex_group, plain_layer4_block0_conv1,
+                runtime, &output, "layer4 block0 conv1");
             output << "layer4 block0 conv1 multiplexed max_abs_error: "
                    << layer4_block0_conv1_sparse_max_abs_error << '\n';
             resnet18_progress_log()
@@ -4000,7 +4221,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                                  weights.bn_running_var.at(13), weights.bn_weight.at(13),
                                  kBatchNormEpsilon, 40.0);
             layer4_block0_bn1_sparse_max_abs_error = multiplexed_group_max_abs_error(
-                layer4_block0_bn1_multiplex_group, plain_layer4_block0_bn1, runtime);
+                layer4_block0_bn1_multiplex_group, plain_layer4_block0_bn1,
+                runtime, &output, "layer4 block0 bn1");
             output << "layer4 block0 bn1 multiplexed max_abs_error: "
                    << layer4_block0_bn1_sparse_max_abs_error << '\n';
             resnet18_progress_log() << "layer4 block0 bn1 multiplexed max_abs_error: "
@@ -4015,7 +4237,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             MultiplexedCipherGroup layer4_block0_relu1_multiplex_group =
                 multiplexed_channel_bootstrap_then_relu(layer4_block0_bn1_multiplex_group, plan.logN, relu_config, runtime, "layer4 block0 relu1", kBootstrapBeforeReluExceptFirst);
             layer4_block0_relu1_refresh_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer4_block0_relu1_multiplex_group, plain_layer4_block0_relu1, runtime);
+                layer4_block0_relu1_multiplex_group, plain_layer4_block0_relu1,
+                runtime, &output, "layer4 block0 relu1");
             output << "layer4 block0 relu1 multiplexed homomorphic ReLU all max_abs_error: "
                    << layer4_block0_relu1_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
@@ -4034,7 +4257,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 plain_layer4_block0_relu1, 512, 1, 3, 3, weights.conv_weight.at(14),
                 weights.bn_running_var.at(14), weights.bn_weight.at(14), kBatchNormEpsilon);
             layer4_block0_conv2_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer4_block0_conv2_multiplex_group, plain_layer4_block0_conv2, runtime);
+                layer4_block0_conv2_multiplex_group, plain_layer4_block0_conv2,
+                runtime, &output, "layer4 block0 conv2");
             output << "layer4 block0 conv2 multiplexed all max_abs_error: "
                    << layer4_block0_conv2_all_max_abs_error << '\n';
             resnet18_progress_log() << "layer4 block0 conv2 multiplexed all max_abs_error: "
@@ -4054,7 +4278,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                                  weights.bn_running_var.at(14), weights.bn_weight.at(14),
                                  kBatchNormEpsilon, 40.0);
             layer4_block0_bn2_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer4_block0_bn2_multiplex_group, plain_layer4_block0_bn2, runtime);
+                layer4_block0_bn2_multiplex_group, plain_layer4_block0_bn2,
+                runtime, &output, "layer4 block0 bn2");
             output << "layer4 block0 bn2 multiplexed all max_abs_error: "
                    << layer4_block0_bn2_all_max_abs_error << '\n';
             resnet18_progress_log() << "layer4 block0 bn2 multiplexed all max_abs_error: "
@@ -4090,7 +4315,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                     weights.downsample_bn_running_var.at(2),
                     weights.downsample_bn_weight.at(2), kBatchNormEpsilon, 40.0, runtime);
             layer4_block0_shortcut_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer4_block0_shortcut_multiplex_group, plain_layer4_block0_shortcut, runtime);
+                layer4_block0_shortcut_multiplex_group, plain_layer4_block0_shortcut,
+                runtime, &output, "layer4 block0 shortcut");
             output << "layer4 block0 shortcut multiplexed all max_abs_error: "
                    << layer4_block0_shortcut_all_max_abs_error << '\n';
             resnet18_progress_log()
@@ -4106,7 +4332,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             PlainTensor plain_layer4_block0_add =
                 plain_add(plain_layer4_block0_bn2, plain_layer4_block0_shortcut);
             layer4_block0_add_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer4_block0_add_multiplex_group, plain_layer4_block0_add, runtime);
+                layer4_block0_add_multiplex_group, plain_layer4_block0_add,
+                runtime, &output, "layer4 block0 add");
             output << "layer4 block0 add multiplexed all max_abs_error: "
                    << layer4_block0_add_all_max_abs_error << '\n';
             resnet18_progress_log() << "layer4 block0 add multiplexed all max_abs_error: "
@@ -4122,7 +4349,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 multiplexed_channel_bootstrap_then_relu(layer4_block0_add_multiplex_group, plan.logN, relu_config, runtime, "layer4 block0 output relu", kBootstrapBeforeReluExceptFirst);
             layer4_block0_output_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer4_block0_output_multiplex_group,
-                                                plain_layer4_block0_output, runtime);
+                                                plain_layer4_block0_output, runtime,
+                                                &output, "layer4 block0 output relu");
             output << "layer4 block0 output multiplexed homomorphic ReLU all max_abs_error: "
                    << layer4_block0_output_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
@@ -4141,7 +4369,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 plain_layer4_block0_output, 512, 1, 3, 3, weights.conv_weight.at(15),
                 weights.bn_running_var.at(15), weights.bn_weight.at(15), kBatchNormEpsilon);
             layer4_block1_conv1_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer4_block1_conv1_multiplex_group, plain_layer4_block1_conv1, runtime);
+                layer4_block1_conv1_multiplex_group, plain_layer4_block1_conv1,
+                runtime, &output, "layer4 block1 conv1");
             output << "layer4 block1 conv1 multiplexed all max_abs_error: "
                    << layer4_block1_conv1_all_max_abs_error << '\n';
             resnet18_progress_log() << "layer4 block1 conv1 multiplexed all max_abs_error: "
@@ -4161,7 +4390,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                                  weights.bn_running_var.at(15), weights.bn_weight.at(15),
                                  kBatchNormEpsilon, 40.0);
             layer4_block1_bn1_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer4_block1_bn1_multiplex_group, plain_layer4_block1_bn1, runtime);
+                layer4_block1_bn1_multiplex_group, plain_layer4_block1_bn1,
+                runtime, &output, "layer4 block1 bn1");
             output << "layer4 block1 bn1 multiplexed all max_abs_error: "
                    << layer4_block1_bn1_all_max_abs_error << '\n';
             resnet18_progress_log() << "layer4 block1 bn1 multiplexed all max_abs_error: "
@@ -4177,7 +4407,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 multiplexed_channel_bootstrap_then_relu(layer4_block1_bn1_multiplex_group, plan.logN, relu_config, runtime, "layer4 block1 relu1", kBootstrapBeforeReluExceptFirst);
             layer4_block1_relu1_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer4_block1_relu1_multiplex_group,
-                                                plain_layer4_block1_relu1, runtime);
+                                                plain_layer4_block1_relu1, runtime,
+                                                &output, "layer4 block1 relu1");
             output << "layer4 block1 relu1 multiplexed homomorphic ReLU all max_abs_error: "
                    << layer4_block1_relu1_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
@@ -4196,7 +4427,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 plain_layer4_block1_relu1, 512, 1, 3, 3, weights.conv_weight.at(16),
                 weights.bn_running_var.at(16), weights.bn_weight.at(16), kBatchNormEpsilon);
             layer4_block1_conv2_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer4_block1_conv2_multiplex_group, plain_layer4_block1_conv2, runtime);
+                layer4_block1_conv2_multiplex_group, plain_layer4_block1_conv2,
+                runtime, &output, "layer4 block1 conv2");
             output << "layer4 block1 conv2 multiplexed all max_abs_error: "
                    << layer4_block1_conv2_all_max_abs_error << '\n';
             resnet18_progress_log() << "layer4 block1 conv2 multiplexed all max_abs_error: "
@@ -4216,7 +4448,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                                  weights.bn_running_var.at(16), weights.bn_weight.at(16),
                                  kBatchNormEpsilon, 40.0);
             layer4_block1_bn2_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer4_block1_bn2_multiplex_group, plain_layer4_block1_bn2, runtime);
+                layer4_block1_bn2_multiplex_group, plain_layer4_block1_bn2,
+                runtime, &output, "layer4 block1 bn2");
             output << "layer4 block1 bn2 multiplexed all max_abs_error: "
                    << layer4_block1_bn2_all_max_abs_error << '\n';
             resnet18_progress_log() << "layer4 block1 bn2 multiplexed all max_abs_error: "
@@ -4231,7 +4464,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             PlainTensor plain_layer4_block1_add =
                 plain_add(plain_layer4_block1_bn2, plain_layer4_block0_output);
             layer4_block1_add_all_max_abs_error = multiplexed_group_max_abs_error(
-                layer4_block1_add_multiplex_group, plain_layer4_block1_add, runtime);
+                layer4_block1_add_multiplex_group, plain_layer4_block1_add,
+                runtime, &output, "layer4 block1 add");
             output << "layer4 block1 add multiplexed all max_abs_error: "
                    << layer4_block1_add_all_max_abs_error << '\n';
             resnet18_progress_log() << "layer4 block1 add multiplexed all max_abs_error: "
@@ -4247,7 +4481,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 multiplexed_channel_bootstrap_then_relu(layer4_block1_add_multiplex_group, plan.logN, relu_config, runtime, "layer4 block1 output relu", kBootstrapBeforeReluExceptFirst);
             layer4_block1_output_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer4_block1_output_multiplex_group,
-                                                plain_layer4_block1_output, runtime);
+                                                plain_layer4_block1_output, runtime,
+                                                &output, "layer4 block1 output relu");
             output << "layer4 block1 output multiplexed homomorphic ReLU all max_abs_error: "
                    << layer4_block1_output_refresh_all_max_abs_error << '\n';
             resnet18_progress_log()
@@ -4265,12 +4500,17 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             output << "head avgpool encrypted multiplexed: rotate/mask/add evaluation\n";
             resnet18_progress_log() << "head avgpool encrypted multiplexed evaluation"
                                     << endl;
-            PlainTensor plain_head_pooled = plain_average_pool(plain_layer4_block1_output, 40.0);
+            PlainTensor plain_head_pooled = plain_average_pool(plain_layer4_block1_output, 1.0);
             TensorCipher encrypted_head_pooled = encrypted_multiplexed_head_average_pool(
                 layer4_block1_output_multiplex_group, static_cast<int>(plan.logN),
-                plan.log_scale, 40.0, runtime);
+                plan.log_scale, 1.0, runtime);
             vector<double> encrypted_pooled_values =
                 decode_real_slots(encrypted_head_pooled, runtime, kResNet18FinalChannels);
+            dump_plain_cipher_preview(
+                "head avgpool", plain_head_pooled.values,
+                decode_complex_slots(encrypted_head_pooled, runtime,
+                                     kResNet18FinalChannels),
+                output);
             head_avgpool_debug_pack_max_abs_error = 0.0;
             for (int channel = 0; channel < kResNet18FinalChannels; ++channel)
             {
@@ -4314,6 +4554,11 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 plain_fully_connected(plain_head_pooled, weights.linear_weight,
                                       weights.linear_bias, kImageNetClassCount,
                                       kResNet18FinalChannels);
+            dump_plain_cipher_preview(
+                "head logits", plain_head_logits,
+                decode_complex_slots(encrypted_head_logits, runtime,
+                                     kImageNetClassCount),
+                output);
             head_logits_max_abs_error = 0.0;
             for (int i = 0; i < kImageNetClassCount; ++i)
             {

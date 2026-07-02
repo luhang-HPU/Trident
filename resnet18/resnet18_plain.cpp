@@ -188,7 +188,7 @@ vector<double> run_plain_resnet18_for_image(size_t image_id, const ModelWeights 
         }
     }
 
-    PlainTensor pooled = plain_average_pool(state.tensor, 40.0);
+    PlainTensor pooled = plain_average_pool(state.tensor, 1.0);
     log_plain_tensor("plain average pool output", pooled, log);
     return plain_fully_connected(pooled, weights.linear_weight, weights.linear_bias,
                                  kImageNetClassCount, kResNet18FinalChannels);
