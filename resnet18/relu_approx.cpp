@@ -7,6 +7,7 @@
 #include <complex>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <ostream>
 #include <stdexcept>
@@ -299,6 +300,86 @@ Ciphertext eval_polynomial_integrate_for_relu_reference(
     return *pt[1];
 }
 
+double eval_chebyshev_decomposed_plain(double input, long degree,
+                                       const vector<double> &decomp_coeff,
+                                       const Tree &tree)
+{
+    if (tree.type != EvalType::OddBaby)
+    {
+        throw invalid_argument("plain relu reference only supports oddbaby tree");
+    }
+
+    const int tree_size = 1 << (tree.depth + 1);
+    vector<long> decomp_deg(static_cast<size_t>(tree_size), -1);
+    vector<long> start_index(static_cast<size_t>(tree_size), -1);
+
+    decomp_deg[1] = degree;
+    long coeff_start = 1;
+    for (int level = 1; level <= tree.depth; ++level)
+    {
+        for (int node = 1 << level; node < (1 << (level + 1)); ++node)
+        {
+            if ((node % 2) == 0)
+            {
+                decomp_deg[node] = tree.tree[node / 2] - 1;
+            }
+            else
+            {
+                decomp_deg[node] = decomp_deg[node / 2] - tree.tree[node / 2];
+            }
+        }
+    }
+    for (int node = 1; node < tree_size; ++node)
+    {
+        if (tree.tree[node] == 0)
+        {
+            start_index[node] = coeff_start;
+            coeff_start += decomp_deg[node] + 1;
+        }
+    }
+
+    vector<double> cheb(static_cast<size_t>(degree + 1), 0.0);
+    cheb[0] = 1.0;
+    if (degree >= 1)
+    {
+        cheb[1] = input;
+    }
+    for (long i = 2; i <= degree; ++i)
+    {
+        cheb[static_cast<size_t>(i)] =
+            2.0 * input * cheb[static_cast<size_t>(i - 1)] -
+            cheb[static_cast<size_t>(i - 2)];
+    }
+
+    function<double(int)> eval_node = [&](int node) -> double {
+        if (node <= 0 || node >= tree_size)
+        {
+            throw invalid_argument("plain relu tree node is out of range");
+        }
+        if (tree.tree[node] == 0)
+        {
+            int coeff_index = static_cast<int>(start_index[node]);
+            double result =
+                cheb[1] * decomp_coeff.at(static_cast<size_t>(coeff_index));
+            coeff_index += 2;
+            for (int cheb_degree = 3; cheb_degree <= decomp_deg[node];
+                 cheb_degree += 2)
+            {
+                result += cheb[static_cast<size_t>(cheb_degree)] *
+                          decomp_coeff.at(static_cast<size_t>(coeff_index));
+                coeff_index += 2;
+            }
+            return result;
+        }
+
+        const int split_degree = tree.tree[node];
+        return cheb[static_cast<size_t>(split_degree)] * eval_node(2 * node + 1) +
+               eval_node(2 * node);
+    };
+
+    return eval_node(1);
+}
+
 } // namespace
 
 Tree::Tree()
@@ -579,6 +660,41 @@ void log_relu_component_coeffs(const vector<vector<double>> &coeffs, ostream &ou
         output << " c" << (i + 1) << '=' << coeffs[i].size();
     }
     output << '\n';
+}
+
+double approximate_step_plain(double input, const vector<int> &deg, long alpha,
+                              const vector<Tree> &tree, double scaled_val)
+{
+    if (deg.size() != tree.size())
+    {
+        throw invalid_argument("plain relu polynomial component count does not match tree config");
+    }
+
+    double result = input;
+    static long cached_alpha = -1;
+    static vector<int> cached_deg;
+    static double cached_scaled_val = 0.0;
+    static vector<vector<double>> cached_coeffs;
+    if (cached_alpha != alpha || cached_deg != deg ||
+        cached_scaled_val != scaled_val || cached_coeffs.empty())
+    {
+        cached_coeffs = load_relu_component_coeffs(alpha, deg, tree, scaled_val);
+        cached_alpha = alpha;
+        cached_deg = deg;
+        cached_scaled_val = scaled_val;
+    }
+    for (size_t i = 0; i < cached_coeffs.size(); ++i)
+    {
+        result = eval_chebyshev_decomposed_plain(
+            result, deg.at(i), cached_coeffs.at(i), tree.at(i));
+    }
+    return result + 0.5;
+}
+
+double approximate_relu_plain(double input, const vector<int> &deg, long alpha,
+                              const vector<Tree> &tree, double scaled_val)
+{
+    return input * approximate_step_plain(input, deg, alpha, tree, scaled_val);
 }
 
 void assign_scale_for_relu_reference(Ciphertext &cipher, double scale)

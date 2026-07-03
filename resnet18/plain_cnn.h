@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+struct ReluConfig;
+
 struct PlainTensor
 {
     int h = 0;
@@ -33,6 +35,9 @@ PlainTensor plain_batch_norm(const PlainTensor &input, const std::vector<double>
                              const std::vector<double> &weight, double epsilon, double B);
 
 PlainTensor plain_relu_reference(const PlainTensor &input);
+
+PlainTensor plain_polynomial_relu_reference(const PlainTensor &input,
+                                            const ReluConfig &relu_config);
 
 PlainTensor plain_add(const PlainTensor &lhs, const PlainTensor &rhs);
 

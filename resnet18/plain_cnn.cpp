@@ -1,6 +1,7 @@
 #include "plain_cnn.h"
 
 #include "infer_config.h"
+#include "relu_approx.h"
 
 #include <algorithm>
 #include <cmath>
@@ -147,6 +148,19 @@ PlainTensor plain_relu_reference(const PlainTensor &input)
     for (size_t idx = 0; idx < input.values.size(); ++idx)
     {
         output.values[idx] = max(0.0, input.values[idx]);
+    }
+    return output;
+}
+
+PlainTensor plain_polynomial_relu_reference(const PlainTensor &input,
+                                            const ReluConfig &relu_config)
+{
+    PlainTensor output = input;
+    for (size_t idx = 0; idx < input.values.size(); ++idx)
+    {
+        output.values[idx] = approximate_relu_plain(
+            input.values[idx], relu_config.deg, relu_config.alpha,
+            relu_config.tree, relu_config.scaled_val);
     }
     return output;
 }

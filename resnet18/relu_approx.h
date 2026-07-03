@@ -41,6 +41,12 @@ std::vector<std::vector<double>> load_relu_component_coeffs(
 void log_relu_component_coeffs(const std::vector<std::vector<double>> &coeffs,
                                std::ostream &output);
 
+double approximate_step_plain(double input, const std::vector<int> &deg, long alpha,
+                              const std::vector<Tree> &tree, double scaled_val);
+
+double approximate_relu_plain(double input, const std::vector<int> &deg, long alpha,
+                              const std::vector<Tree> &tree, double scaled_val);
+
 void assign_scale_for_relu_reference(poseidon::Ciphertext &cipher, double scale);
 
 poseidon::Ciphertext approximate_sign(const poseidon::Ciphertext &input,

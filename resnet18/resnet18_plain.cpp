@@ -128,7 +128,8 @@ PlainTensor apply_conv_bn(const PlainTensor &input, int out_channels, int stride
                             kBatchNormEpsilon, kResNet18Boundary);
 }
 
-void run_stem(PlainInferenceState &state, const ModelWeights &weights, ostream &log,
+void run_stem(PlainInferenceState &state, const ModelWeights &weights,
+              const ReluConfig &relu_config, ostream &log,
               StemPoolMode stem_pool_mode)
 {
     log << "\n========== Stem ==========\n";
@@ -141,7 +142,7 @@ void run_stem(PlainInferenceState &state, const ModelWeights &weights, ostream &
     ++state.conv_idx;
     ++state.bn_idx;
 
-    stem = plain_relu_reference(stem);
+    stem = plain_polynomial_relu_reference(stem, relu_config);
     if (stem_pool_mode == StemPoolMode::MaxPool)
     {
         stem = plain_max_pool2d(stem, 3, 2, 1);
@@ -156,7 +157,8 @@ void run_stem(PlainInferenceState &state, const ModelWeights &weights, ostream &
 }
 
 void run_block(PlainInferenceState &state, const ModelWeights &weights, int stage_index,
-               int block_index, int out_channels, int first_stride, ostream &log)
+               int block_index, int out_channels, int first_stride,
+               const ReluConfig &relu_config, ostream &log)
 {
     const int stride = (block_index == 0) ? first_stride : 1;
     log << "\n========== layer" << (stage_index + 1) << " block " << block_index
@@ -172,7 +174,7 @@ void run_block(PlainInferenceState &state, const ModelWeights &weights, int stag
     ++state.conv_idx;
     ++state.bn_idx;
 
-    branch = plain_relu_reference(branch);
+    branch = plain_polynomial_relu_reference(branch, relu_config);
 
     branch = apply_conv_bn(branch, out_channels, 1, 3, 3, weights.conv_weight.at(state.conv_idx),
                            weights.bn_bias.at(state.bn_idx),
@@ -197,7 +199,7 @@ void run_block(PlainInferenceState &state, const ModelWeights &weights, int stag
     }
 
     PlainTensor output = plain_add(branch, shortcut);
-    output = plain_relu_reference(output);
+    output = plain_polynomial_relu_reference(output, relu_config);
     log_plain_tensor("plain block output", output, log);
     state.tensor = std::move(output);
 }
@@ -206,11 +208,12 @@ vector<double> run_plain_resnet18_for_image(size_t image_id, const ModelWeights 
                                             ostream &log, StemPoolMode stem_pool_mode)
 {
     PlainInferenceState state;
+    const ReluConfig relu_config = default_relu_config(default_poseidon_plan());
     state.tensor = PlainTensor(kImageNetInputHeight, kImageNetInputWidth, kImageNetInputChannels,
                                read_plain_image_values(image_id, kResNet18Boundary));
     log_plain_tensor("plain input", state.tensor, log);
 
-    run_stem(state, weights, log, stem_pool_mode);
+    run_stem(state, weights, relu_config, log, stem_pool_mode);
 
     const int stage_channels[] = {64, 128, 256, 512};
     const int first_strides[] = {1, 2, 2, 2};
@@ -219,7 +222,7 @@ vector<double> run_plain_resnet18_for_image(size_t image_id, const ModelWeights 
         for (int block = 0; block < kResNet18BlocksPerStage; ++block)
         {
             run_block(state, weights, stage, block, stage_channels[stage], first_strides[stage],
-                      log);
+                      relu_config, log);
         }
     }
 
@@ -263,6 +266,7 @@ void run_plain_resnet18(size_t start_image_id, size_t end_image_id,
 
         image_log << "image_id: " << image_id << '\n';
         image_log << "log_file: " << image_log_path << '\n';
+        image_log << "plain_relu_reference: homomorphic_polynomial\n";
         image_log << "stem_pool_mode: " << stem_pool_mode_name(stem_pool_mode) << '\n';
         const int image_label = read_image_label(image_id);
         vector<double> logits =
