@@ -17,7 +17,9 @@
 #include <chrono>
 #include <cmath>
 #include <complex>
+#include <cctype>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -40,6 +42,33 @@ namespace
 {
 
 constexpr bool kRunFullStemCheck = true;
+
+struct MockExecutionOptions
+{
+    bool mock_relu = false;
+    bool mock_bootstrap = false;
+};
+
+bool parse_bool_env(const char *name)
+{
+    const char *raw = std::getenv(name);
+    if (raw == nullptr)
+    {
+        return false;
+    }
+    string value(raw);
+    transform(value.begin(), value.end(), value.begin(),
+              [](unsigned char ch) { return static_cast<char>(tolower(ch)); });
+    return value == "1" || value == "true" || value == "on" || value == "yes";
+}
+
+MockExecutionOptions read_mock_execution_options()
+{
+    MockExecutionOptions options;
+    options.mock_relu = parse_bool_env("RESNET18_MOCK_RELU");
+    options.mock_bootstrap = parse_bool_env("RESNET18_MOCK_BOOTSTRAP");
+    return options;
+}
 
 string make_run_timestamp()
 {
@@ -837,6 +866,49 @@ double multiplexed_group_pair_max_abs_error(
     return max_abs_error;
 }
 
+MultiplexedCipherGroup encrypt_multiplexed_group_values(
+    const MultiplexedCipherGroup &shape, const vector<double> &values,
+    PoseidonRuntime &runtime)
+{
+    const size_t expected_size =
+        static_cast<size_t>(shape.c) * static_cast<size_t>(shape.h * shape.w);
+    if (values.size() != expected_size)
+    {
+        throw invalid_argument("mock multiplexed encrypt value count mismatch");
+    }
+
+    MultiplexedCipherGroup output = shape;
+    output.packs.resize(shape.packs.size());
+    const size_t spatial_count = static_cast<size_t>(shape.h * shape.w);
+    for (size_t pack_index = 0; pack_index < output.packs.size(); ++pack_index)
+    {
+        vector<complex<double>> slots(shape.slot_count, {0.0, 0.0});
+        for (int channel = 0; channel < shape.c; ++channel)
+        {
+            if (multiplexed_cipher_index_for_channel(shape, channel) != pack_index)
+            {
+                continue;
+            }
+            const size_t channel_base = static_cast<size_t>(channel) * spatial_count;
+            for (int row = 0; row < shape.h; ++row)
+            {
+                for (int col = 0; col < shape.w; ++col)
+                {
+                    const size_t value_index =
+                        channel_base + static_cast<size_t>(row * shape.w + col);
+                    slots[multiplexed_slot_index(shape, channel, row, col)] =
+                        {values.at(value_index), 0.0};
+                }
+            }
+        }
+
+        Plaintext plain;
+        runtime.encoder.encode(slots, runtime.scale, plain);
+        runtime.encryptor.encrypt(plain, output.packs.at(pack_index));
+    }
+    return output;
+}
+
 vector<int> multiplexed_average_pool2d_stride2_rotation_steps(
     const MultiplexedCipherGroup &input, int out_h, int out_w, int out_k)
 {
@@ -1436,23 +1508,46 @@ PoseidonBootstrapContext make_resnet18_bootstrap_context(PoseidonRuntime &runtim
 
 MultiplexedCipherGroup multiplexed_channel_bootstrap(
     const MultiplexedCipherGroup &input, long logn, PoseidonRuntime &runtime,
-    const string &label)
+    const string &label, const MockExecutionOptions &mock_options)
 {
     log_multiplexed_group_cipher_state(label + " bootstrap input", input, runtime);
     const vector<complex<double>> bootstrap_input_values =
         decrypt_multiplexed_group_complex(input, runtime);
+    vector<double> bootstrap_input_real(bootstrap_input_values.size(), 0.0);
+    for (size_t i = 0; i < bootstrap_input_values.size(); ++i)
+    {
+        bootstrap_input_real.at(i) = bootstrap_input_values.at(i).real();
+    }
     MultiplexedCipherGroup output = input;
     output.packs.resize(input.packs.size());
-    PoseidonBootstrapContext bootstrap_ctx = make_resnet18_bootstrap_context(runtime);
-    for (size_t pack_index = 0; pack_index < input.packs.size(); ++pack_index)
+    if (mock_options.mock_bootstrap)
     {
-        TensorCipher tensor_in(static_cast<int>(logn), input.k, input.h, input.w, input.c,
-                               1, input.pages_per_cipher, input.packs.at(pack_index));
-        TensorCipher tensor_out;
-        bootstrap_tensor(tensor_in, tensor_out, bootstrap_ctx, runtime.encoder);
-        output.packs.at(pack_index) = tensor_out.cipher();
-        resnet18_progress_log() << label << " bootstrap ciphertext progress: "
-                                << (pack_index + 1) << "/" << input.packs.size() << endl;
+        (void)logn;
+        resnet18_progress_log() << label
+                                << " bootstrap MOCK decrypt-reencrypt evaluation" << endl;
+        output = encrypt_multiplexed_group_values(input, bootstrap_input_real, runtime);
+        const size_t dropped_51 = drop_trailing_51_bit_primes(output.packs, runtime);
+        if (dropped_51 > 0)
+        {
+            resnet18_progress_log() << label
+                                    << " bootstrap MOCK drop trailing 51-bit primes after "
+                                       "reencrypt: "
+                                    << dropped_51 << endl;
+        }
+    }
+    else
+    {
+        PoseidonBootstrapContext bootstrap_ctx = make_resnet18_bootstrap_context(runtime);
+        for (size_t pack_index = 0; pack_index < input.packs.size(); ++pack_index)
+        {
+            TensorCipher tensor_in(static_cast<int>(logn), input.k, input.h, input.w, input.c,
+                                   1, input.pages_per_cipher, input.packs.at(pack_index));
+            TensorCipher tensor_out;
+            bootstrap_tensor(tensor_in, tensor_out, bootstrap_ctx, runtime.encoder);
+            output.packs.at(pack_index) = tensor_out.cipher();
+            resnet18_progress_log() << label << " bootstrap ciphertext progress: "
+                                    << (pack_index + 1) << "/" << input.packs.size() << endl;
+        }
     }
     log_multiplexed_group_cipher_state(label + " bootstrap output", output, runtime);
     const vector<complex<double>> bootstrap_output_values =
@@ -1468,50 +1563,88 @@ MultiplexedCipherGroup multiplexed_channel_bootstrap(
 
 MultiplexedCipherGroup multiplexed_channel_homomorphic_relu(
     const MultiplexedCipherGroup &input, long logn, const ReluConfig &relu_config,
-    PoseidonRuntime &runtime, const string &label)
+    PoseidonRuntime &runtime, const string &label,
+    const MockExecutionOptions &mock_options)
 {
     MultiplexedCipherGroup relu_input = input;
-    const size_t dropped_51 = drop_trailing_51_bit_primes(relu_input.packs, runtime);
-    if (dropped_51 > 0)
+    if (!mock_options.mock_relu)
     {
-        resnet18_progress_log() << label
-                                << " drop trailing 51-bit primes before ReLU: "
-                                << dropped_51 << endl;
+        const size_t dropped_51 = drop_trailing_51_bit_primes(relu_input.packs, runtime);
+        if (dropped_51 > 0)
+        {
+            resnet18_progress_log() << label
+                                    << " drop trailing 51-bit primes before ReLU: "
+                                    << dropped_51 << endl;
+        }
     }
-    log_multiplexed_group_cipher_state(label + " homomorphic ReLU input", relu_input,
-                                       runtime);
+    log_multiplexed_group_cipher_state(
+        label + (mock_options.mock_relu ? " mock ReLU input" : " homomorphic ReLU input"),
+        relu_input, runtime);
     MultiplexedCipherGroup output = relu_input;
     output.packs.resize(relu_input.packs.size());
-    for (size_t pack_index = 0; pack_index < relu_input.packs.size(); ++pack_index)
+    if (mock_options.mock_relu)
     {
-        TensorCipher tensor_in(static_cast<int>(logn), relu_input.k, relu_input.h,
-                               relu_input.w, relu_input.c, 1, relu_input.pages_per_cipher,
-                               relu_input.packs.at(pack_index));
-        TensorCipher tensor_out;
-        relu(tensor_in, tensor_out, relu_config.comp_no, relu_config.deg,
-             relu_config.alpha, relu_config.tree, relu_config.scaled_val,
-             runtime.encryptor, *runtime.evaluator, runtime.encoder, runtime.relin_keys,
-             runtime.scale);
-        output.packs.at(pack_index) = tensor_out.cipher();
-        resnet18_progress_log() << label << " homomorphic ReLU ciphertext progress: "
-                                << (pack_index + 1) << "/" << relu_input.packs.size()
+        (void)logn;
+        vector<complex<double>> relu_input_values =
+            decrypt_multiplexed_group_complex(relu_input, runtime);
+        vector<double> relu_output_values(relu_input_values.size(), 0.0);
+        for (size_t i = 0; i < relu_input_values.size(); ++i)
+        {
+            relu_output_values.at(i) = approximate_relu_plain(
+                relu_input_values.at(i).real(), relu_config.deg, relu_config.alpha,
+                relu_config.tree, relu_config.scaled_val);
+        }
+        resnet18_progress_log() << label
+                                << " ReLU MOCK decrypt-polynomial-reencrypt evaluation"
                                 << endl;
+        output = encrypt_multiplexed_group_values(relu_input, relu_output_values, runtime);
+        const size_t dropped_51 = drop_trailing_51_bit_primes(output.packs, runtime);
+        if (dropped_51 > 0)
+        {
+            resnet18_progress_log() << label
+                                    << " ReLU MOCK drop trailing 51-bit primes after "
+                                       "reencrypt: "
+                                    << dropped_51 << endl;
+        }
     }
-    log_multiplexed_group_cipher_state(label + " homomorphic ReLU output", output, runtime);
+    else
+    {
+        for (size_t pack_index = 0; pack_index < relu_input.packs.size(); ++pack_index)
+        {
+            TensorCipher tensor_in(static_cast<int>(logn), relu_input.k, relu_input.h,
+                                   relu_input.w, relu_input.c, 1,
+                                   relu_input.pages_per_cipher,
+                                   relu_input.packs.at(pack_index));
+            TensorCipher tensor_out;
+            relu(tensor_in, tensor_out, relu_config.comp_no, relu_config.deg,
+                 relu_config.alpha, relu_config.tree, relu_config.scaled_val,
+                 runtime.encryptor, *runtime.evaluator, runtime.encoder, runtime.relin_keys,
+                 runtime.scale);
+            output.packs.at(pack_index) = tensor_out.cipher();
+            resnet18_progress_log() << label << " homomorphic ReLU ciphertext progress: "
+                                    << (pack_index + 1) << "/" << relu_input.packs.size()
+                                    << endl;
+        }
+    }
+    log_multiplexed_group_cipher_state(
+        label + (mock_options.mock_relu ? " mock ReLU output" : " homomorphic ReLU output"),
+        output, runtime);
     return output;
 }
 
 MultiplexedCipherGroup multiplexed_channel_bootstrap_then_relu(
     const MultiplexedCipherGroup &input, long logn, const ReluConfig &relu_config,
-    PoseidonRuntime &runtime, const string &label, bool bootstrap_before_relu)
+    PoseidonRuntime &runtime, const string &label, bool bootstrap_before_relu,
+    const MockExecutionOptions &mock_options)
 {
     MultiplexedCipherGroup relu_input = input;
     if (bootstrap_before_relu)
     {
-        relu_input = multiplexed_channel_bootstrap(input, logn, runtime, label);
+        relu_input = multiplexed_channel_bootstrap(input, logn, runtime, label,
+                                                   mock_options);
     }
     return multiplexed_channel_homomorphic_relu(relu_input, logn, relu_config, runtime,
-                                                label);
+                                                label, mock_options);
 }
 
 MultiplexedCipherGroup multiplexed_channel_add(const MultiplexedCipherGroup &lhs,
@@ -2901,7 +3034,8 @@ vector<int> collect_resnet18_bootstrap_rotation_steps(PoseidonRuntime &runtime)
     return vector<int>(unique_steps.begin(), unique_steps.end());
 }
 
-void prepare_resnet18_rotation_keys(PoseidonRuntime &runtime, ofstream &output)
+void prepare_resnet18_rotation_keys(PoseidonRuntime &runtime, ofstream &output,
+                                    const MockExecutionOptions &mock_options)
 {
     const auto key_time_start = chrono::steady_clock::now();
 
@@ -2911,7 +3045,8 @@ void prepare_resnet18_rotation_keys(PoseidonRuntime &runtime, ofstream &output)
     insert_rotation_steps_allow_zero(all_steps, network_steps);
 
     vector<int> bootstrap_steps;
-    if (kEnableHomomorphicRelu && kBootstrapBeforeReluExceptFirst)
+    if (kEnableHomomorphicRelu && kBootstrapBeforeReluExceptFirst &&
+        !mock_options.mock_bootstrap)
     {
         bootstrap_steps = collect_resnet18_bootstrap_rotation_steps(runtime);
         insert_rotation_steps_allow_zero(all_steps, bootstrap_steps);
@@ -2933,7 +3068,8 @@ void prepare_resnet18_rotation_keys(PoseidonRuntime &runtime, ofstream &output)
 
     KeyGenerator keygen(runtime.context, runtime.secret_key);
     keygen.create_relin_keys(runtime.relin_keys);
-    if (kEnableHomomorphicRelu && kBootstrapBeforeReluExceptFirst)
+    if (kEnableHomomorphicRelu && kBootstrapBeforeReluExceptFirst &&
+        !mock_options.mock_bootstrap)
     {
         runtime.bootstrap_poly = std::make_unique<EvalModPoly>(
             runtime.context, CosDiscrete, static_cast<std::uint64_t>(1) << 51,
@@ -2965,6 +3101,7 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
         static_cast<size_t>(kImageNetInputChannels) * input_chunks_per_channel;
     const string run_timestamp = make_run_timestamp();
     ReluConfig relu_config = default_relu_config(plan);
+    const MockExecutionOptions mock_options = read_mock_execution_options();
 
     fs::create_directories(result_dir());
     const fs::path run_result_path =
@@ -2987,9 +3124,11 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
     out_log << "run_start: start_image_id=" << start_image_id
             << ", end_image_id=" << end_image_id
             << ", plain_relu_reference=homomorphic_polynomial"
+            << ", mock_relu=" << (mock_options.mock_relu ? 1 : 0)
+            << ", mock_bootstrap=" << (mock_options.mock_bootstrap ? 1 : 0)
             << ", run_timestamp=" << run_timestamp
             << ", log_file=" << run_result_path << '\n';
-    prepare_resnet18_rotation_keys(runtime, out_log);
+    prepare_resnet18_rotation_keys(runtime, out_log, mock_options);
 
     const auto all_time_start = chrono::high_resolution_clock::now();
     for (size_t image_id = start_image_id; image_id <= end_image_id; ++image_id)
@@ -3215,7 +3354,7 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                 << "stem multiplexed k=1 homomorphic ReLU evaluation (first ReLU, no bootstrap)" << endl;
             const auto stem_relu_time_start = chrono::steady_clock::now();
             MultiplexedCipherGroup stem_relu_multiplex_k1_group =
-                multiplexed_channel_bootstrap_then_relu(stem_bn_multiplex_k1_group, plan.logN, relu_config, runtime, "stem ReLU", false);
+                multiplexed_channel_bootstrap_then_relu(stem_bn_multiplex_k1_group, plan.logN, relu_config, runtime, "stem ReLU", false, mock_options);
             stem_relu_refresh_all_max_abs_error = multiplexed_group_max_abs_error(
                 stem_relu_multiplex_k1_group, plain_conv1_relu, runtime, &output,
                 "stem ReLU");
@@ -3330,7 +3469,7 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             PlainTensor plain_layer1_block0_relu1_multiplex =
                 plain_polynomial_relu_reference(plain_layer1_block0_bn1_multiplex, relu_config);
             MultiplexedCipherGroup layer1_block0_relu1_multiplex_group =
-                multiplexed_channel_bootstrap_then_relu(layer1_block0_bn1_multiplex_group, plan.logN, relu_config, runtime, "layer1 block0 relu1", kBootstrapBeforeReluExceptFirst);
+                multiplexed_channel_bootstrap_then_relu(layer1_block0_bn1_multiplex_group, plan.logN, relu_config, runtime, "layer1 block0 relu1", kBootstrapBeforeReluExceptFirst, mock_options);
             layer1_block0_relu1_multiplex_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer1_block0_relu1_multiplex_group,
                                                 plain_layer1_block0_relu1_multiplex,
@@ -3422,7 +3561,7 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             PlainTensor plain_layer1_block0_output_multiplex =
                 plain_polynomial_relu_reference(plain_layer1_block0_add_multiplex, relu_config);
             MultiplexedCipherGroup layer1_block0_output_multiplex_group =
-                multiplexed_channel_bootstrap_then_relu(layer1_block0_add_multiplex_group, plan.logN, relu_config, runtime, "layer1 block0 output relu", kBootstrapBeforeReluExceptFirst);
+                multiplexed_channel_bootstrap_then_relu(layer1_block0_add_multiplex_group, plan.logN, relu_config, runtime, "layer1 block0 output relu", kBootstrapBeforeReluExceptFirst, mock_options);
             layer1_block0_output_multiplex_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer1_block0_output_multiplex_group,
                                                 plain_layer1_block0_output_multiplex,
@@ -3510,7 +3649,7 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             PlainTensor plain_layer1_block1_relu1 =
                 plain_polynomial_relu_reference(plain_layer1_block1_bn1, relu_config);
             MultiplexedCipherGroup layer1_block1_relu1_multiplex_group =
-                multiplexed_channel_bootstrap_then_relu(layer1_block1_bn1_multiplex_group, plan.logN, relu_config, runtime, "layer1 block1 relu1", kBootstrapBeforeReluExceptFirst);
+                multiplexed_channel_bootstrap_then_relu(layer1_block1_bn1_multiplex_group, plan.logN, relu_config, runtime, "layer1 block1 relu1", kBootstrapBeforeReluExceptFirst, mock_options);
             layer1_block1_relu1_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer1_block1_relu1_multiplex_group,
                                                 plain_layer1_block1_relu1, runtime,
@@ -3595,7 +3734,7 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             PlainTensor plain_layer1_block1_output =
                 plain_polynomial_relu_reference(plain_layer1_block1_add, relu_config);
             MultiplexedCipherGroup layer1_block1_output_multiplex_group =
-                multiplexed_channel_bootstrap_then_relu(layer1_block1_add_multiplex_group, plan.logN, relu_config, runtime, "layer1 block1 output relu", kBootstrapBeforeReluExceptFirst);
+                multiplexed_channel_bootstrap_then_relu(layer1_block1_add_multiplex_group, plan.logN, relu_config, runtime, "layer1 block1 output relu", kBootstrapBeforeReluExceptFirst, mock_options);
             layer1_block1_output_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer1_block1_output_multiplex_group,
                                                 plain_layer1_block1_output, runtime,
@@ -3663,7 +3802,7 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             PlainTensor plain_layer2_block0_relu1 =
                 plain_polynomial_relu_reference(plain_layer2_block0_bn1, relu_config);
             MultiplexedCipherGroup layer2_block0_relu1_multiplex_group =
-                multiplexed_channel_bootstrap_then_relu(layer2_block0_bn1_multiplex_group, plan.logN, relu_config, runtime, "layer2 block0 relu1", kBootstrapBeforeReluExceptFirst);
+                multiplexed_channel_bootstrap_then_relu(layer2_block0_bn1_multiplex_group, plan.logN, relu_config, runtime, "layer2 block0 relu1", kBootstrapBeforeReluExceptFirst, mock_options);
             layer2_block0_relu1_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(
                 layer2_block0_relu1_multiplex_group, plain_layer2_block0_relu1,
@@ -3783,7 +3922,7 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             PlainTensor plain_layer2_block0_output =
                 plain_polynomial_relu_reference(plain_layer2_block0_add, relu_config);
             MultiplexedCipherGroup layer2_block0_output_multiplex_group =
-                multiplexed_channel_bootstrap_then_relu(layer2_block0_add_multiplex_group, plan.logN, relu_config, runtime, "layer2 block0 output relu", kBootstrapBeforeReluExceptFirst);
+                multiplexed_channel_bootstrap_then_relu(layer2_block0_add_multiplex_group, plan.logN, relu_config, runtime, "layer2 block0 output relu", kBootstrapBeforeReluExceptFirst, mock_options);
             layer2_block0_output_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer2_block0_output_multiplex_group,
                                                 plain_layer2_block0_output, runtime,
@@ -3849,7 +3988,7 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             PlainTensor plain_layer2_block1_relu1 =
                 plain_polynomial_relu_reference(plain_layer2_block1_bn1, relu_config);
             MultiplexedCipherGroup layer2_block1_relu1_multiplex_group =
-                multiplexed_channel_bootstrap_then_relu(layer2_block1_bn1_multiplex_group, plan.logN, relu_config, runtime, "layer2 block1 relu1", kBootstrapBeforeReluExceptFirst);
+                multiplexed_channel_bootstrap_then_relu(layer2_block1_bn1_multiplex_group, plan.logN, relu_config, runtime, "layer2 block1 relu1", kBootstrapBeforeReluExceptFirst, mock_options);
             layer2_block1_relu1_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer2_block1_relu1_multiplex_group,
                                                 plain_layer2_block1_relu1, runtime,
@@ -3931,7 +4070,7 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             PlainTensor plain_layer2_block1_output =
                 plain_polynomial_relu_reference(plain_layer2_block1_add, relu_config);
             MultiplexedCipherGroup layer2_block1_output_multiplex_group =
-                multiplexed_channel_bootstrap_then_relu(layer2_block1_add_multiplex_group, plan.logN, relu_config, runtime, "layer2 block1 output relu", kBootstrapBeforeReluExceptFirst);
+                multiplexed_channel_bootstrap_then_relu(layer2_block1_add_multiplex_group, plan.logN, relu_config, runtime, "layer2 block1 output relu", kBootstrapBeforeReluExceptFirst, mock_options);
             layer2_block1_output_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer2_block1_output_multiplex_group,
                                                 plain_layer2_block1_output, runtime,
@@ -3999,7 +4138,7 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             PlainTensor plain_layer3_block0_relu1 =
                 plain_polynomial_relu_reference(plain_layer3_block0_bn1, relu_config);
             MultiplexedCipherGroup layer3_block0_relu1_multiplex_group =
-                multiplexed_channel_bootstrap_then_relu(layer3_block0_bn1_multiplex_group, plan.logN, relu_config, runtime, "layer3 block0 relu1", kBootstrapBeforeReluExceptFirst);
+                multiplexed_channel_bootstrap_then_relu(layer3_block0_bn1_multiplex_group, plan.logN, relu_config, runtime, "layer3 block0 relu1", kBootstrapBeforeReluExceptFirst, mock_options);
             layer3_block0_relu1_refresh_all_max_abs_error = multiplexed_group_max_abs_error(
                 layer3_block0_relu1_multiplex_group, plain_layer3_block0_relu1,
                 runtime, &output, "layer3 block0 relu1");
@@ -4118,7 +4257,7 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             PlainTensor plain_layer3_block0_output =
                 plain_polynomial_relu_reference(plain_layer3_block0_add, relu_config);
             MultiplexedCipherGroup layer3_block0_output_multiplex_group =
-                multiplexed_channel_bootstrap_then_relu(layer3_block0_add_multiplex_group, plan.logN, relu_config, runtime, "layer3 block0 output relu", kBootstrapBeforeReluExceptFirst);
+                multiplexed_channel_bootstrap_then_relu(layer3_block0_add_multiplex_group, plan.logN, relu_config, runtime, "layer3 block0 output relu", kBootstrapBeforeReluExceptFirst, mock_options);
             layer3_block0_output_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer3_block0_output_multiplex_group,
                                                 plain_layer3_block0_output, runtime,
@@ -4184,7 +4323,7 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             PlainTensor plain_layer3_block1_relu1 =
                 plain_polynomial_relu_reference(plain_layer3_block1_bn1, relu_config);
             MultiplexedCipherGroup layer3_block1_relu1_multiplex_group =
-                multiplexed_channel_bootstrap_then_relu(layer3_block1_bn1_multiplex_group, plan.logN, relu_config, runtime, "layer3 block1 relu1", kBootstrapBeforeReluExceptFirst);
+                multiplexed_channel_bootstrap_then_relu(layer3_block1_bn1_multiplex_group, plan.logN, relu_config, runtime, "layer3 block1 relu1", kBootstrapBeforeReluExceptFirst, mock_options);
             layer3_block1_relu1_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer3_block1_relu1_multiplex_group,
                                                 plain_layer3_block1_relu1, runtime,
@@ -4266,7 +4405,7 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             PlainTensor plain_layer3_block1_output =
                 plain_polynomial_relu_reference(plain_layer3_block1_add, relu_config);
             MultiplexedCipherGroup layer3_block1_output_multiplex_group =
-                multiplexed_channel_bootstrap_then_relu(layer3_block1_add_multiplex_group, plan.logN, relu_config, runtime, "layer3 block1 output relu", kBootstrapBeforeReluExceptFirst);
+                multiplexed_channel_bootstrap_then_relu(layer3_block1_add_multiplex_group, plan.logN, relu_config, runtime, "layer3 block1 output relu", kBootstrapBeforeReluExceptFirst, mock_options);
             layer3_block1_output_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer3_block1_output_multiplex_group,
                                                 plain_layer3_block1_output, runtime,
@@ -4326,7 +4465,7 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             PlainTensor plain_layer4_block0_relu1 =
                 plain_polynomial_relu_reference(plain_layer4_block0_bn1, relu_config);
             MultiplexedCipherGroup layer4_block0_relu1_multiplex_group =
-                multiplexed_channel_bootstrap_then_relu(layer4_block0_bn1_multiplex_group, plan.logN, relu_config, runtime, "layer4 block0 relu1", kBootstrapBeforeReluExceptFirst);
+                multiplexed_channel_bootstrap_then_relu(layer4_block0_bn1_multiplex_group, plan.logN, relu_config, runtime, "layer4 block0 relu1", kBootstrapBeforeReluExceptFirst, mock_options);
             layer4_block0_relu1_refresh_all_max_abs_error = multiplexed_group_max_abs_error(
                 layer4_block0_relu1_multiplex_group, plain_layer4_block0_relu1,
                 runtime, &output, "layer4 block0 relu1");
@@ -4437,7 +4576,7 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             PlainTensor plain_layer4_block0_output =
                 plain_polynomial_relu_reference(plain_layer4_block0_add, relu_config);
             MultiplexedCipherGroup layer4_block0_output_multiplex_group =
-                multiplexed_channel_bootstrap_then_relu(layer4_block0_add_multiplex_group, plan.logN, relu_config, runtime, "layer4 block0 output relu", kBootstrapBeforeReluExceptFirst);
+                multiplexed_channel_bootstrap_then_relu(layer4_block0_add_multiplex_group, plan.logN, relu_config, runtime, "layer4 block0 output relu", kBootstrapBeforeReluExceptFirst, mock_options);
             layer4_block0_output_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer4_block0_output_multiplex_group,
                                                 plain_layer4_block0_output, runtime,
@@ -4495,7 +4634,7 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             PlainTensor plain_layer4_block1_relu1 =
                 plain_polynomial_relu_reference(plain_layer4_block1_bn1, relu_config);
             MultiplexedCipherGroup layer4_block1_relu1_multiplex_group =
-                multiplexed_channel_bootstrap_then_relu(layer4_block1_bn1_multiplex_group, plan.logN, relu_config, runtime, "layer4 block1 relu1", kBootstrapBeforeReluExceptFirst);
+                multiplexed_channel_bootstrap_then_relu(layer4_block1_bn1_multiplex_group, plan.logN, relu_config, runtime, "layer4 block1 relu1", kBootstrapBeforeReluExceptFirst, mock_options);
             layer4_block1_relu1_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer4_block1_relu1_multiplex_group,
                                                 plain_layer4_block1_relu1, runtime,
@@ -4569,7 +4708,7 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             PlainTensor plain_layer4_block1_output =
                 plain_polynomial_relu_reference(plain_layer4_block1_add, relu_config);
             MultiplexedCipherGroup layer4_block1_output_multiplex_group =
-                multiplexed_channel_bootstrap_then_relu(layer4_block1_add_multiplex_group, plan.logN, relu_config, runtime, "layer4 block1 output relu", kBootstrapBeforeReluExceptFirst);
+                multiplexed_channel_bootstrap_then_relu(layer4_block1_add_multiplex_group, plan.logN, relu_config, runtime, "layer4 block1 output relu", kBootstrapBeforeReluExceptFirst, mock_options);
             layer4_block1_output_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer4_block1_output_multiplex_group,
                                                 plain_layer4_block1_output, runtime,
