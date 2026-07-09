@@ -42,7 +42,11 @@ PoseidonRuntime make_poseidon_runtime(const PoseidonInferPlan &plan, bool genera
         keygen.create_relin_keys(relin_keys);
         keygen.create_galois_keys(galois_keys);
         bootstrap_poly = std::make_unique<EvalModPoly>(
-            context, CosDiscrete, static_cast<std::uint64_t>(1) << 51, 1, 16, 3, 16, 0, 30);
+            context, CosDiscrete,
+            static_cast<std::uint64_t>(1) << kResNet18BootstrapScalingLog, 1,
+            kResNet18BootstrapLogMessageRatio, kResNet18BootstrapDoubleAngle,
+            kResNet18BootstrapK, kResNet18BootstrapArcsineDegree,
+            kResNet18BootstrapSineDegree);
     }
 
     return PoseidonRuntime(std::move(context), std::move(evaluator), std::move(public_key),

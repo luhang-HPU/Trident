@@ -3072,8 +3072,11 @@ void prepare_resnet18_rotation_keys(PoseidonRuntime &runtime, ofstream &output,
         !mock_options.mock_bootstrap)
     {
         runtime.bootstrap_poly = std::make_unique<EvalModPoly>(
-            runtime.context, CosDiscrete, static_cast<std::uint64_t>(1) << 51,
-            1, 16, 3, 16, 0, 30);
+            runtime.context, CosDiscrete,
+            static_cast<std::uint64_t>(1) << kResNet18BootstrapScalingLog, 1,
+            kResNet18BootstrapLogMessageRatio, kResNet18BootstrapDoubleAngle,
+            kResNet18BootstrapK, kResNet18BootstrapArcsineDegree,
+            kResNet18BootstrapSineDegree);
     }
     keygen.create_galois_keys(steps, runtime.galois_keys);
 

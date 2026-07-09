@@ -329,9 +329,10 @@ void bootstrap_tensor(const TensorCipher &cnn_in, TensorCipher &cnn_out,
     }
 
     Ciphertext result = cnn_in.cipher();
-    bootstrapper.evaluator->bootstrap(result, result, *bootstrapper.relin_keys,
-                                      *bootstrapper.galois_keys, *bootstrapper.encoder,
-                                      *bootstrapper.bootstrap_poly);
+    bootstrapper.evaluator->bootstrap_high_precision(result, result, *bootstrapper.relin_keys,
+                                                     *bootstrapper.galois_keys,
+                                                     *bootstrapper.encoder,
+                                                     *bootstrapper.bootstrap_poly);
 
     const double target_scale = result.scale();
     Ciphertext conjugated;

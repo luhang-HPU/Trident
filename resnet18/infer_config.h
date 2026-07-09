@@ -20,6 +20,12 @@ constexpr double kResNet18Boundary = 20.0;
 constexpr double kBatchNormEpsilon = 1.0e-5;
 constexpr bool kEnableHomomorphicRelu = true;
 constexpr bool kBootstrapBeforeReluExceptFirst = true;
+constexpr int kResNet18BootstrapLogMessageRatio = 10;
+constexpr int kResNet18BootstrapDoubleAngle = 3;
+constexpr int kResNet18BootstrapK = 25;
+constexpr int kResNet18BootstrapArcsineDegree = 0;
+constexpr int kResNet18BootstrapSineDegree = 59;
+constexpr int kResNet18BootstrapScalingLog = 51;
 
 struct ReluConfig
 {
