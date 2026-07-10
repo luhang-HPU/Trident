@@ -1,0 +1,4 @@
+image_id: 0, image label: 65, plain predicted label: 0, correct: 0, image time : 52579 ms
+
+plain total time : 52580 ms
+plain accuracy : 0/1 = 0

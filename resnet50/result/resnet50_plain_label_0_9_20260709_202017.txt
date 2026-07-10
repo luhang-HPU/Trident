@@ -1,0 +1,13 @@
+image_id: 0, image label: 65, plain predicted label: 65, correct: 1, image time : 40880 ms
+image_id: 1, image label: 970, plain predicted label: 795, correct: 0, image time : 38948 ms
+image_id: 2, image label: 230, plain predicted label: 230, correct: 1, image time : 39585 ms
+image_id: 3, image label: 809, plain predicted label: 809, correct: 1, image time : 41701 ms
+image_id: 4, image label: 516, plain predicted label: 520, correct: 0, image time : 39760 ms
+image_id: 5, image label: 57, plain predicted label: 65, correct: 0, image time : 43484 ms
+image_id: 6, image label: 334, plain predicted label: 334, correct: 1, image time : 43774 ms
+image_id: 7, image label: 415, plain predicted label: 415, correct: 1, image time : 42791 ms
+image_id: 8, image label: 674, plain predicted label: 674, correct: 1, image time : 45540 ms
+image_id: 9, image label: 332, plain predicted label: 332, correct: 1, image time : 43031 ms
+
+plain total time : 419507 ms
+plain accuracy : 7/10 = 0.7
