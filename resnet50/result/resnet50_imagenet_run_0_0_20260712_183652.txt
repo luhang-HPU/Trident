@@ -1,0 +1,876 @@
+ResNet50 ImageNet encrypted inference
+images=0..0, mock_relu=1, mock_bootstrap=1
+
+[image] id=0
+[2026-07-12 18:45:05.471] [start] conv_im2col_all_channels
+[2026-07-12 18:45:05.472] conv im2col encrypted channel parallel threads: 16
+[2026-07-12 18:49:26.582] conv im2col encrypted channel progress: 64/64
+[2026-07-12 18:49:26.582] [cipher-state] conv_im2col_all_channels output: shape(h=112, w=112, c=64, spatial=12544), channels=64, chain_index(first/min/max)=40/40/40, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-07-12 18:49:26.582] [duration] conv_im2col_all_channels: 261110 ms
+[2026-07-12 18:49:26.582] [compare-start] stem.conv1 shape=112x112x64 values=802816
+[2026-07-12 18:49:26.582] [decrypt-start] compare.stem.conv1 shape=112x112x64 channels=64 spatial_per_channel=12544
+[2026-07-12 18:49:26.599] [decrypt-channel-start] compare.stem.conv1 channel=1/64
+[2026-07-12 18:49:26.680] [decrypt-channel-decrypted] compare.stem.conv1 channel=1/64 decrypt_ms=81
+[2026-07-12 18:49:27.803] [decrypt-channel-done] compare.stem.conv1 channel=1/64 decode_copy_ms=1122 total_ms=1203
+[2026-07-12 18:49:27.803] [decrypt-channel-start] compare.stem.conv1 channel=2/64
+[2026-07-12 18:49:27.827] [decrypt-channel-decrypted] compare.stem.conv1 channel=2/64 decrypt_ms=23
+[2026-07-12 18:49:28.817] [decrypt-channel-done] compare.stem.conv1 channel=2/64 decode_copy_ms=990 total_ms=1014
+[2026-07-12 18:49:28.817] [decrypt-channel-start] compare.stem.conv1 channel=3/64
+[2026-07-12 18:49:28.886] [decrypt-channel-decrypted] compare.stem.conv1 channel=3/64 decrypt_ms=68
+[2026-07-12 18:49:29.863] [decrypt-channel-done] compare.stem.conv1 channel=3/64 decode_copy_ms=977 total_ms=1046
+[2026-07-12 18:49:29.863] [decrypt-channel-start] compare.stem.conv1 channel=4/64
+[2026-07-12 18:49:29.886] [decrypt-channel-decrypted] compare.stem.conv1 channel=4/64 decrypt_ms=22
+[2026-07-12 18:49:30.883] [decrypt-channel-done] compare.stem.conv1 channel=4/64 decode_copy_ms=996 total_ms=1019
+[2026-07-12 18:49:30.883] [decrypt-channel-start] compare.stem.conv1 channel=5/64
+[2026-07-12 18:49:30.933] [decrypt-channel-decrypted] compare.stem.conv1 channel=5/64 decrypt_ms=50
+[2026-07-12 18:49:31.913] [decrypt-channel-done] compare.stem.conv1 channel=5/64 decode_copy_ms=979 total_ms=1029
+[2026-07-12 18:49:31.913] [decrypt-channel-start] compare.stem.conv1 channel=6/64
+[2026-07-12 18:49:31.964] [decrypt-channel-decrypted] compare.stem.conv1 channel=6/64 decrypt_ms=51
+[2026-07-12 18:49:32.936] [decrypt-channel-done] compare.stem.conv1 channel=6/64 decode_copy_ms=972 total_ms=1023
+[2026-07-12 18:49:32.937] [decrypt-channel-start] compare.stem.conv1 channel=7/64
+[2026-07-12 18:49:32.959] [decrypt-channel-decrypted] compare.stem.conv1 channel=7/64 decrypt_ms=22
+[2026-07-12 18:49:34.000] [decrypt-channel-done] compare.stem.conv1 channel=7/64 decode_copy_ms=1041 total_ms=1063
+[2026-07-12 18:49:34.000] [decrypt-channel-start] compare.stem.conv1 channel=8/64
+[2026-07-12 18:49:34.023] [decrypt-channel-decrypted] compare.stem.conv1 channel=8/64 decrypt_ms=22
+[2026-07-12 18:49:35.128] [decrypt-channel-done] compare.stem.conv1 channel=8/64 decode_copy_ms=1105 total_ms=1127
+[2026-07-12 18:49:35.128] [decrypt-channel-start] compare.stem.conv1 channel=9/64
+[2026-07-12 18:49:35.172] [decrypt-channel-decrypted] compare.stem.conv1 channel=9/64 decrypt_ms=43
+[2026-07-12 18:49:36.142] [decrypt-channel-done] compare.stem.conv1 channel=9/64 decode_copy_ms=970 total_ms=1013
+[2026-07-12 18:49:36.142] [decrypt-channel-start] compare.stem.conv1 channel=10/64
+[2026-07-12 18:49:36.174] [decrypt-channel-decrypted] compare.stem.conv1 channel=10/64 decrypt_ms=31
+[2026-07-12 18:49:37.168] [decrypt-channel-done] compare.stem.conv1 channel=10/64 decode_copy_ms=993 total_ms=1025
+[2026-07-12 18:49:37.168] [decrypt-channel-start] compare.stem.conv1 channel=11/64
+[2026-07-12 18:49:37.258] [decrypt-channel-decrypted] compare.stem.conv1 channel=11/64 decrypt_ms=90
+[2026-07-12 18:49:38.466] [decrypt-channel-done] compare.stem.conv1 channel=11/64 decode_copy_ms=1207 total_ms=1298
+[2026-07-12 18:49:38.466] [decrypt-channel-start] compare.stem.conv1 channel=12/64
+[2026-07-12 18:49:38.495] [decrypt-channel-decrypted] compare.stem.conv1 channel=12/64 decrypt_ms=28
+[2026-07-12 18:49:39.458] [decrypt-channel-done] compare.stem.conv1 channel=12/64 decode_copy_ms=963 total_ms=992
+[2026-07-12 18:49:39.459] [decrypt-channel-start] compare.stem.conv1 channel=13/64
+[2026-07-12 18:49:39.508] [decrypt-channel-decrypted] compare.stem.conv1 channel=13/64 decrypt_ms=49
+[2026-07-12 18:49:40.577] [decrypt-channel-done] compare.stem.conv1 channel=13/64 decode_copy_ms=1068 total_ms=1118
+[2026-07-12 18:49:40.577] [decrypt-channel-start] compare.stem.conv1 channel=14/64
+[2026-07-12 18:49:40.631] [decrypt-channel-decrypted] compare.stem.conv1 channel=14/64 decrypt_ms=53
+[2026-07-12 18:49:41.586] [decrypt-channel-done] compare.stem.conv1 channel=14/64 decode_copy_ms=955 total_ms=1008
+[2026-07-12 18:49:41.586] [decrypt-channel-start] compare.stem.conv1 channel=15/64
+[2026-07-12 18:49:41.608] [decrypt-channel-decrypted] compare.stem.conv1 channel=15/64 decrypt_ms=22
+[2026-07-12 18:49:42.598] [decrypt-channel-done] compare.stem.conv1 channel=15/64 decode_copy_ms=989 total_ms=1012
+[2026-07-12 18:49:42.598] [decrypt-channel-start] compare.stem.conv1 channel=16/64
+[2026-07-12 18:49:42.632] [decrypt-channel-decrypted] compare.stem.conv1 channel=16/64 decrypt_ms=33
+[2026-07-12 18:49:43.596] [decrypt-channel-done] compare.stem.conv1 channel=16/64 decode_copy_ms=963 total_ms=997
+[2026-07-12 18:49:43.596] [decrypt-channel-start] compare.stem.conv1 channel=17/64
+[2026-07-12 18:49:43.635] [decrypt-channel-decrypted] compare.stem.conv1 channel=17/64 decrypt_ms=38
+[2026-07-12 18:49:44.586] [decrypt-channel-done] compare.stem.conv1 channel=17/64 decode_copy_ms=951 total_ms=989
+[2026-07-12 18:49:44.586] [decrypt-channel-start] compare.stem.conv1 channel=18/64
+[2026-07-12 18:49:44.611] [decrypt-channel-decrypted] compare.stem.conv1 channel=18/64 decrypt_ms=25
+[2026-07-12 18:49:45.667] [decrypt-channel-done] compare.stem.conv1 channel=18/64 decode_copy_ms=1056 total_ms=1081
+[2026-07-12 18:49:45.668] [decrypt-channel-start] compare.stem.conv1 channel=19/64
+[2026-07-12 18:49:45.743] [decrypt-channel-decrypted] compare.stem.conv1 channel=19/64 decrypt_ms=75
+[2026-07-12 18:49:46.818] [decrypt-channel-done] compare.stem.conv1 channel=19/64 decode_copy_ms=1074 total_ms=1150
+[2026-07-12 18:49:46.818] [decrypt-channel-start] compare.stem.conv1 channel=20/64
+[2026-07-12 18:49:46.839] [decrypt-channel-decrypted] compare.stem.conv1 channel=20/64 decrypt_ms=21
+[2026-07-12 18:49:47.928] [decrypt-channel-done] compare.stem.conv1 channel=20/64 decode_copy_ms=1088 total_ms=1109
+[2026-07-12 18:49:47.928] [decrypt-channel-start] compare.stem.conv1 channel=21/64
+[2026-07-12 18:49:47.968] [decrypt-channel-decrypted] compare.stem.conv1 channel=21/64 decrypt_ms=39
+[2026-07-12 18:49:48.942] [decrypt-channel-done] compare.stem.conv1 channel=21/64 decode_copy_ms=974 total_ms=1013
+[2026-07-12 18:49:48.942] [decrypt-channel-start] compare.stem.conv1 channel=22/64
+[2026-07-12 18:49:48.964] [decrypt-channel-decrypted] compare.stem.conv1 channel=22/64 decrypt_ms=22
+[2026-07-12 18:49:49.956] [decrypt-channel-done] compare.stem.conv1 channel=22/64 decode_copy_ms=991 total_ms=1013
+[2026-07-12 18:49:49.956] [decrypt-channel-start] compare.stem.conv1 channel=23/64
+[2026-07-12 18:49:50.006] [decrypt-channel-decrypted] compare.stem.conv1 channel=23/64 decrypt_ms=49
+[2026-07-12 18:49:51.112] [decrypt-channel-done] compare.stem.conv1 channel=23/64 decode_copy_ms=1106 total_ms=1155
+[2026-07-12 18:49:51.112] [decrypt-channel-start] compare.stem.conv1 channel=24/64
+[2026-07-12 18:49:51.147] [decrypt-channel-decrypted] compare.stem.conv1 channel=24/64 decrypt_ms=34
+[2026-07-12 18:49:52.213] [decrypt-channel-done] compare.stem.conv1 channel=24/64 decode_copy_ms=1066 total_ms=1101
+[2026-07-12 18:49:52.214] [decrypt-channel-start] compare.stem.conv1 channel=25/64
+[2026-07-12 18:49:52.281] [decrypt-channel-decrypted] compare.stem.conv1 channel=25/64 decrypt_ms=67
+[2026-07-12 18:49:53.321] [decrypt-channel-done] compare.stem.conv1 channel=25/64 decode_copy_ms=1039 total_ms=1106
+[2026-07-12 18:49:53.321] [decrypt-channel-start] compare.stem.conv1 channel=26/64
+[2026-07-12 18:49:53.388] [decrypt-channel-decrypted] compare.stem.conv1 channel=26/64 decrypt_ms=67
+[2026-07-12 18:49:54.504] [decrypt-channel-done] compare.stem.conv1 channel=26/64 decode_copy_ms=1116 total_ms=1183
+[2026-07-12 18:49:54.504] [decrypt-channel-start] compare.stem.conv1 channel=27/64
+[2026-07-12 18:49:54.528] [decrypt-channel-decrypted] compare.stem.conv1 channel=27/64 decrypt_ms=23
+[2026-07-12 18:49:55.535] [decrypt-channel-done] compare.stem.conv1 channel=27/64 decode_copy_ms=1006 total_ms=1030
+[2026-07-12 18:49:55.535] [decrypt-channel-start] compare.stem.conv1 channel=28/64
+[2026-07-12 18:49:55.597] [decrypt-channel-decrypted] compare.stem.conv1 channel=28/64 decrypt_ms=61
+[2026-07-12 18:49:56.542] [decrypt-channel-done] compare.stem.conv1 channel=28/64 decode_copy_ms=944 total_ms=1006
+[2026-07-12 18:49:56.542] [decrypt-channel-start] compare.stem.conv1 channel=29/64
+[2026-07-12 18:49:56.582] [decrypt-channel-decrypted] compare.stem.conv1 channel=29/64 decrypt_ms=40
+[2026-07-12 18:49:57.651] [decrypt-channel-done] compare.stem.conv1 channel=29/64 decode_copy_ms=1069 total_ms=1109
+[2026-07-12 18:49:57.651] [decrypt-channel-start] compare.stem.conv1 channel=30/64
+[2026-07-12 18:49:57.717] [decrypt-channel-decrypted] compare.stem.conv1 channel=30/64 decrypt_ms=65
+[2026-07-12 18:49:58.712] [decrypt-channel-done] compare.stem.conv1 channel=30/64 decode_copy_ms=995 total_ms=1060
+[2026-07-12 18:49:58.713] [decrypt-channel-start] compare.stem.conv1 channel=31/64
+[2026-07-12 18:49:58.738] [decrypt-channel-decrypted] compare.stem.conv1 channel=31/64 decrypt_ms=25
+[2026-07-12 18:49:59.769] [decrypt-channel-done] compare.stem.conv1 channel=31/64 decode_copy_ms=1031 total_ms=1056
+[2026-07-12 18:49:59.770] [decrypt-channel-start] compare.stem.conv1 channel=32/64
+[2026-07-12 18:49:59.810] [decrypt-channel-decrypted] compare.stem.conv1 channel=32/64 decrypt_ms=40
+[2026-07-12 18:50:00.797] [decrypt-channel-done] compare.stem.conv1 channel=32/64 decode_copy_ms=986 total_ms=1027
+[2026-07-12 18:50:00.797] [decrypt-channel-start] compare.stem.conv1 channel=33/64
+[2026-07-12 18:50:00.846] [decrypt-channel-decrypted] compare.stem.conv1 channel=33/64 decrypt_ms=48
+[2026-07-12 18:50:01.816] [decrypt-channel-done] compare.stem.conv1 channel=33/64 decode_copy_ms=970 total_ms=1019
+[2026-07-12 18:50:01.816] [decrypt-channel-start] compare.stem.conv1 channel=34/64
+[2026-07-12 18:50:01.841] [decrypt-channel-decrypted] compare.stem.conv1 channel=34/64 decrypt_ms=24
+[2026-07-12 18:50:02.859] [decrypt-channel-done] compare.stem.conv1 channel=34/64 decode_copy_ms=1018 total_ms=1043
+[2026-07-12 18:50:02.860] [decrypt-channel-start] compare.stem.conv1 channel=35/64
+[2026-07-12 18:50:02.943] [decrypt-channel-decrypted] compare.stem.conv1 channel=35/64 decrypt_ms=83
+[2026-07-12 18:50:03.971] [decrypt-channel-done] compare.stem.conv1 channel=35/64 decode_copy_ms=1028 total_ms=1111
+[2026-07-12 18:50:03.972] [decrypt-channel-start] compare.stem.conv1 channel=36/64
+[2026-07-12 18:50:04.015] [decrypt-channel-decrypted] compare.stem.conv1 channel=36/64 decrypt_ms=43
+[2026-07-12 18:50:04.966] [decrypt-channel-done] compare.stem.conv1 channel=36/64 decode_copy_ms=950 total_ms=994
+[2026-07-12 18:50:04.966] [decrypt-channel-start] compare.stem.conv1 channel=37/64
+[2026-07-12 18:50:05.031] [decrypt-channel-decrypted] compare.stem.conv1 channel=37/64 decrypt_ms=64
+[2026-07-12 18:50:05.968] [decrypt-channel-done] compare.stem.conv1 channel=37/64 decode_copy_ms=937 total_ms=1002
+[2026-07-12 18:50:05.969] [decrypt-channel-start] compare.stem.conv1 channel=38/64
+[2026-07-12 18:50:06.035] [decrypt-channel-decrypted] compare.stem.conv1 channel=38/64 decrypt_ms=66
+[2026-07-12 18:50:07.028] [decrypt-channel-done] compare.stem.conv1 channel=38/64 decode_copy_ms=993 total_ms=1059
+[2026-07-12 18:50:07.028] [decrypt-channel-start] compare.stem.conv1 channel=39/64
+[2026-07-12 18:50:07.077] [decrypt-channel-decrypted] compare.stem.conv1 channel=39/64 decrypt_ms=49
+[2026-07-12 18:50:08.026] [decrypt-channel-done] compare.stem.conv1 channel=39/64 decode_copy_ms=948 total_ms=998
+[2026-07-12 18:50:08.027] [decrypt-channel-start] compare.stem.conv1 channel=40/64
+[2026-07-12 18:50:08.050] [decrypt-channel-decrypted] compare.stem.conv1 channel=40/64 decrypt_ms=23
+[2026-07-12 18:50:09.023] [decrypt-channel-done] compare.stem.conv1 channel=40/64 decode_copy_ms=972 total_ms=995
+[2026-07-12 18:50:09.023] [decrypt-channel-start] compare.stem.conv1 channel=41/64
+[2026-07-12 18:50:09.088] [decrypt-channel-decrypted] compare.stem.conv1 channel=41/64 decrypt_ms=64
+[2026-07-12 18:50:10.108] [decrypt-channel-done] compare.stem.conv1 channel=41/64 decode_copy_ms=1020 total_ms=1085
+[2026-07-12 18:50:10.108] [decrypt-channel-start] compare.stem.conv1 channel=42/64
+[2026-07-12 18:50:10.158] [decrypt-channel-decrypted] compare.stem.conv1 channel=42/64 decrypt_ms=49
+[2026-07-12 18:50:11.162] [decrypt-channel-done] compare.stem.conv1 channel=42/64 decode_copy_ms=1004 total_ms=1053
+[2026-07-12 18:50:11.162] [decrypt-channel-start] compare.stem.conv1 channel=43/64
+[2026-07-12 18:50:11.185] [decrypt-channel-decrypted] compare.stem.conv1 channel=43/64 decrypt_ms=22
+[2026-07-12 18:50:12.128] [decrypt-channel-done] compare.stem.conv1 channel=43/64 decode_copy_ms=942 total_ms=965
+[2026-07-12 18:50:12.128] [decrypt-channel-start] compare.stem.conv1 channel=44/64
+[2026-07-12 18:50:12.193] [decrypt-channel-decrypted] compare.stem.conv1 channel=44/64 decrypt_ms=65
+[2026-07-12 18:50:13.133] [decrypt-channel-done] compare.stem.conv1 channel=44/64 decode_copy_ms=939 total_ms=1004
+[2026-07-12 18:50:13.133] [decrypt-channel-start] compare.stem.conv1 channel=45/64
+[2026-07-12 18:50:13.186] [decrypt-channel-decrypted] compare.stem.conv1 channel=45/64 decrypt_ms=52
+[2026-07-12 18:50:14.136] [decrypt-channel-done] compare.stem.conv1 channel=45/64 decode_copy_ms=950 total_ms=1003
+[2026-07-12 18:50:14.137] [decrypt-channel-start] compare.stem.conv1 channel=46/64
+[2026-07-12 18:50:14.158] [decrypt-channel-decrypted] compare.stem.conv1 channel=46/64 decrypt_ms=21
+[2026-07-12 18:50:15.067] [decrypt-channel-done] compare.stem.conv1 channel=46/64 decode_copy_ms=908 total_ms=930
+[2026-07-12 18:50:15.067] [decrypt-channel-start] compare.stem.conv1 channel=47/64
+[2026-07-12 18:50:15.120] [decrypt-channel-decrypted] compare.stem.conv1 channel=47/64 decrypt_ms=53
+[2026-07-12 18:50:16.101] [decrypt-channel-done] compare.stem.conv1 channel=47/64 decode_copy_ms=980 total_ms=1033
+[2026-07-12 18:50:16.101] [decrypt-channel-start] compare.stem.conv1 channel=48/64
+[2026-07-12 18:50:16.143] [decrypt-channel-decrypted] compare.stem.conv1 channel=48/64 decrypt_ms=41
+[2026-07-12 18:50:17.127] [decrypt-channel-done] compare.stem.conv1 channel=48/64 decode_copy_ms=983 total_ms=1025
+[2026-07-12 18:50:17.127] [decrypt-channel-start] compare.stem.conv1 channel=49/64
+[2026-07-12 18:50:17.183] [decrypt-channel-decrypted] compare.stem.conv1 channel=49/64 decrypt_ms=55
+[2026-07-12 18:50:18.214] [decrypt-channel-done] compare.stem.conv1 channel=49/64 decode_copy_ms=1031 total_ms=1087
+[2026-07-12 18:50:18.215] [decrypt-channel-start] compare.stem.conv1 channel=50/64
+[2026-07-12 18:50:18.247] [decrypt-channel-decrypted] compare.stem.conv1 channel=50/64 decrypt_ms=32
+[2026-07-12 18:50:19.239] [decrypt-channel-done] compare.stem.conv1 channel=50/64 decode_copy_ms=991 total_ms=1024
+[2026-07-12 18:50:19.239] [decrypt-channel-start] compare.stem.conv1 channel=51/64
+[2026-07-12 18:50:19.274] [decrypt-channel-decrypted] compare.stem.conv1 channel=51/64 decrypt_ms=34
+[2026-07-12 18:50:20.280] [decrypt-channel-done] compare.stem.conv1 channel=51/64 decode_copy_ms=1006 total_ms=1040
+[2026-07-12 18:50:20.280] [decrypt-channel-start] compare.stem.conv1 channel=52/64
+[2026-07-12 18:50:20.317] [decrypt-channel-decrypted] compare.stem.conv1 channel=52/64 decrypt_ms=36
+[2026-07-12 18:50:21.321] [decrypt-channel-done] compare.stem.conv1 channel=52/64 decode_copy_ms=1004 total_ms=1040
+[2026-07-12 18:50:21.321] [decrypt-channel-start] compare.stem.conv1 channel=53/64
+[2026-07-12 18:50:21.356] [decrypt-channel-decrypted] compare.stem.conv1 channel=53/64 decrypt_ms=34
+[2026-07-12 18:50:22.280] [decrypt-channel-done] compare.stem.conv1 channel=53/64 decode_copy_ms=924 total_ms=958
+[2026-07-12 18:50:22.280] [decrypt-channel-start] compare.stem.conv1 channel=54/64
+[2026-07-12 18:50:22.325] [decrypt-channel-decrypted] compare.stem.conv1 channel=54/64 decrypt_ms=44
+[2026-07-12 18:50:23.314] [decrypt-channel-done] compare.stem.conv1 channel=54/64 decode_copy_ms=988 total_ms=1033
+[2026-07-12 18:50:23.314] [decrypt-channel-start] compare.stem.conv1 channel=55/64
+[2026-07-12 18:50:23.358] [decrypt-channel-decrypted] compare.stem.conv1 channel=55/64 decrypt_ms=44
+[2026-07-12 18:50:24.389] [decrypt-channel-done] compare.stem.conv1 channel=55/64 decode_copy_ms=1030 total_ms=1074
+[2026-07-12 18:50:24.389] [decrypt-channel-start] compare.stem.conv1 channel=56/64
+[2026-07-12 18:50:24.410] [decrypt-channel-decrypted] compare.stem.conv1 channel=56/64 decrypt_ms=21
+[2026-07-12 18:50:25.383] [decrypt-channel-done] compare.stem.conv1 channel=56/64 decode_copy_ms=972 total_ms=993
+[2026-07-12 18:50:25.383] [decrypt-channel-start] compare.stem.conv1 channel=57/64
+[2026-07-12 18:50:25.428] [decrypt-channel-decrypted] compare.stem.conv1 channel=57/64 decrypt_ms=45
+[2026-07-12 18:50:26.397] [decrypt-channel-done] compare.stem.conv1 channel=57/64 decode_copy_ms=968 total_ms=1014
+[2026-07-12 18:50:26.397] [decrypt-channel-start] compare.stem.conv1 channel=58/64
+[2026-07-12 18:50:26.445] [decrypt-channel-decrypted] compare.stem.conv1 channel=58/64 decrypt_ms=47
+[2026-07-12 18:50:27.460] [decrypt-channel-done] compare.stem.conv1 channel=58/64 decode_copy_ms=1014 total_ms=1062
+[2026-07-12 18:50:27.460] [decrypt-channel-start] compare.stem.conv1 channel=59/64
+[2026-07-12 18:50:27.510] [decrypt-channel-decrypted] compare.stem.conv1 channel=59/64 decrypt_ms=50
+[2026-07-12 18:50:28.501] [decrypt-channel-done] compare.stem.conv1 channel=59/64 decode_copy_ms=990 total_ms=1040
+[2026-07-12 18:50:28.501] [decrypt-channel-start] compare.stem.conv1 channel=60/64
+[2026-07-12 18:50:28.546] [decrypt-channel-decrypted] compare.stem.conv1 channel=60/64 decrypt_ms=45
+[2026-07-12 18:50:29.527] [decrypt-channel-done] compare.stem.conv1 channel=60/64 decode_copy_ms=980 total_ms=1025
+[2026-07-12 18:50:29.527] [decrypt-channel-start] compare.stem.conv1 channel=61/64
+[2026-07-12 18:50:29.578] [decrypt-channel-decrypted] compare.stem.conv1 channel=61/64 decrypt_ms=50
+[2026-07-12 18:50:30.574] [decrypt-channel-done] compare.stem.conv1 channel=61/64 decode_copy_ms=996 total_ms=1046
+[2026-07-12 18:50:30.574] [decrypt-channel-start] compare.stem.conv1 channel=62/64
+[2026-07-12 18:50:30.596] [decrypt-channel-decrypted] compare.stem.conv1 channel=62/64 decrypt_ms=21
+[2026-07-12 18:50:31.593] [decrypt-channel-done] compare.stem.conv1 channel=62/64 decode_copy_ms=997 total_ms=1019
+[2026-07-12 18:50:31.593] [decrypt-channel-start] compare.stem.conv1 channel=63/64
+[2026-07-12 18:50:31.616] [decrypt-channel-decrypted] compare.stem.conv1 channel=63/64 decrypt_ms=22
+[2026-07-12 18:50:32.609] [decrypt-channel-done] compare.stem.conv1 channel=63/64 decode_copy_ms=993 total_ms=1015
+[2026-07-12 18:50:32.609] [decrypt-channel-start] compare.stem.conv1 channel=64/64
+[2026-07-12 18:50:32.672] [decrypt-channel-decrypted] compare.stem.conv1 channel=64/64 decrypt_ms=62
+[2026-07-12 18:50:33.655] [decrypt-channel-done] compare.stem.conv1 channel=64/64 decode_copy_ms=983 total_ms=1045
+[2026-07-12 18:50:33.655] [decrypt-done] compare.stem.conv1 channels=64 total_ms=67073
+[compare] stem.conv1 shape=112x112x64 values=802816 max_abs_error=1.1527e-07 mean_abs_error=4.98861e-09 max_cipher_imag=1.21128e-07 max_plain_abs=0.120199 max_cipher_abs=0.120199
+[value-dump] stem.conv1 plain_first16=0.0218236 0.000387144 0.0010839 0.00973738 0.00495294 0.00892687 -0.00237798 -0.0265193 -0.00166771 -0.00483552 0.000356353 0.00833085 -0.00865331 -0.00245444 0.00237102 0.000140197
+[value-dump] stem.conv1 cipher_real_first16=0.0218236 0.000387145 0.00108391 0.00973737 0.00495295 0.00892689 -0.00237798 -0.0265193 -0.00166771 -0.00483552 0.000356356 0.00833085 -0.00865331 -0.00245443 0.00237105 0.000140171
+[value-dump] stem.conv1 cipher_imag_first16=3.70785e-09 -9.66483e-10 -1.50297e-09 2.83012e-08 3.33377e-09 2.39977e-08 3.40214e-10 1.60896e-08 -1.59308e-09 7.6561e-09 -4.86296e-10 5.81541e-10 2.48282e-09 5.66028e-10 -2.1702e-08 1.17399e-09
+[2026-07-12 18:50:33.661] [compare-done] stem.conv1 total_ms=67078
+[2026-07-12 18:50:33.663] [start] batch_norm
+[2026-07-12 18:50:33.663] [cipher-state] batch_norm input: shape(h=112, w=112, c=64, spatial=12544), channels=64, chain_index(first/min/max)=40/40/40, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-07-12 18:50:33.663] batch norm channel parallel threads: 16
+[2026-07-12 18:50:34.213] [cipher-state] batch_norm output: shape(h=112, w=112, c=64, spatial=12544), channels=64, chain_index(first/min/max)=40/40/40, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-07-12 18:50:34.213] [duration] batch_norm: 549 ms
+[2026-07-12 18:50:34.213] [compare-start] stem.bn1 shape=112x112x64 values=802816
+[2026-07-12 18:50:34.213] [decrypt-start] compare.stem.bn1 shape=112x112x64 channels=64 spatial_per_channel=12544
+[2026-07-12 18:50:34.222] [decrypt-channel-start] compare.stem.bn1 channel=1/64
+[2026-07-12 18:50:34.244] [decrypt-channel-decrypted] compare.stem.bn1 channel=1/64 decrypt_ms=21
+[2026-07-12 18:50:35.118] [decrypt-channel-done] compare.stem.bn1 channel=1/64 decode_copy_ms=873 total_ms=895
+[2026-07-12 18:50:35.118] [decrypt-channel-start] compare.stem.bn1 channel=2/64
+[2026-07-12 18:50:35.138] [decrypt-channel-decrypted] compare.stem.bn1 channel=2/64 decrypt_ms=20
+[2026-07-12 18:50:36.044] [decrypt-channel-done] compare.stem.bn1 channel=2/64 decode_copy_ms=905 total_ms=925
+[2026-07-12 18:50:36.044] [decrypt-channel-start] compare.stem.bn1 channel=3/64
+[2026-07-12 18:50:36.065] [decrypt-channel-decrypted] compare.stem.bn1 channel=3/64 decrypt_ms=20
+[2026-07-12 18:50:37.041] [decrypt-channel-done] compare.stem.bn1 channel=3/64 decode_copy_ms=975 total_ms=996
+[2026-07-12 18:50:37.041] [decrypt-channel-start] compare.stem.bn1 channel=4/64
+[2026-07-12 18:50:37.061] [decrypt-channel-decrypted] compare.stem.bn1 channel=4/64 decrypt_ms=20
+[2026-07-12 18:50:38.022] [decrypt-channel-done] compare.stem.bn1 channel=4/64 decode_copy_ms=961 total_ms=981
+[2026-07-12 18:50:38.022] [decrypt-channel-start] compare.stem.bn1 channel=5/64
+[2026-07-12 18:50:38.052] [decrypt-channel-decrypted] compare.stem.bn1 channel=5/64 decrypt_ms=29
+[2026-07-12 18:50:39.134] [decrypt-channel-done] compare.stem.bn1 channel=5/64 decode_copy_ms=1081 total_ms=1111
+[2026-07-12 18:50:39.134] [decrypt-channel-start] compare.stem.bn1 channel=6/64
+[2026-07-12 18:50:39.156] [decrypt-channel-decrypted] compare.stem.bn1 channel=6/64 decrypt_ms=21
+[2026-07-12 18:50:40.164] [decrypt-channel-done] compare.stem.bn1 channel=6/64 decode_copy_ms=1007 total_ms=1029
+[2026-07-12 18:50:40.164] [decrypt-channel-start] compare.stem.bn1 channel=7/64
+[2026-07-12 18:50:40.197] [decrypt-channel-decrypted] compare.stem.bn1 channel=7/64 decrypt_ms=33
+[2026-07-12 18:50:41.182] [decrypt-channel-done] compare.stem.bn1 channel=7/64 decode_copy_ms=984 total_ms=1018
+[2026-07-12 18:50:41.182] [decrypt-channel-start] compare.stem.bn1 channel=8/64
+[2026-07-12 18:50:41.205] [decrypt-channel-decrypted] compare.stem.bn1 channel=8/64 decrypt_ms=23
+[2026-07-12 18:50:42.240] [decrypt-channel-done] compare.stem.bn1 channel=8/64 decode_copy_ms=1034 total_ms=1058
+[2026-07-12 18:50:42.240] [decrypt-channel-start] compare.stem.bn1 channel=9/64
+[2026-07-12 18:50:42.263] [decrypt-channel-decrypted] compare.stem.bn1 channel=9/64 decrypt_ms=23
+[2026-07-12 18:50:43.215] [decrypt-channel-done] compare.stem.bn1 channel=9/64 decode_copy_ms=951 total_ms=974
+[2026-07-12 18:50:43.215] [decrypt-channel-start] compare.stem.bn1 channel=10/64
+[2026-07-12 18:50:43.235] [decrypt-channel-decrypted] compare.stem.bn1 channel=10/64 decrypt_ms=20
+[2026-07-12 18:50:44.186] [decrypt-channel-done] compare.stem.bn1 channel=10/64 decode_copy_ms=950 total_ms=970
+[2026-07-12 18:50:44.186] [decrypt-channel-start] compare.stem.bn1 channel=11/64
+[2026-07-12 18:50:44.207] [decrypt-channel-decrypted] compare.stem.bn1 channel=11/64 decrypt_ms=21
+[2026-07-12 18:50:45.203] [decrypt-channel-done] compare.stem.bn1 channel=11/64 decode_copy_ms=995 total_ms=1017
+[2026-07-12 18:50:45.203] [decrypt-channel-start] compare.stem.bn1 channel=12/64
+[2026-07-12 18:50:45.229] [decrypt-channel-decrypted] compare.stem.bn1 channel=12/64 decrypt_ms=26
+[2026-07-12 18:50:46.224] [decrypt-channel-done] compare.stem.bn1 channel=12/64 decode_copy_ms=994 total_ms=1021
+[2026-07-12 18:50:46.224] [decrypt-channel-start] compare.stem.bn1 channel=13/64
+[2026-07-12 18:50:46.245] [decrypt-channel-decrypted] compare.stem.bn1 channel=13/64 decrypt_ms=20
+[2026-07-12 18:50:47.167] [decrypt-channel-done] compare.stem.bn1 channel=13/64 decode_copy_ms=921 total_ms=942
+[2026-07-12 18:50:47.167] [decrypt-channel-start] compare.stem.bn1 channel=14/64
+[2026-07-12 18:50:47.188] [decrypt-channel-decrypted] compare.stem.bn1 channel=14/64 decrypt_ms=21
+[2026-07-12 18:50:48.169] [decrypt-channel-done] compare.stem.bn1 channel=14/64 decode_copy_ms=980 total_ms=1001
+[2026-07-12 18:50:48.169] [decrypt-channel-start] compare.stem.bn1 channel=15/64
+[2026-07-12 18:50:48.190] [decrypt-channel-decrypted] compare.stem.bn1 channel=15/64 decrypt_ms=21
+[2026-07-12 18:50:49.146] [decrypt-channel-done] compare.stem.bn1 channel=15/64 decode_copy_ms=955 total_ms=977
+[2026-07-12 18:50:49.146] [decrypt-channel-start] compare.stem.bn1 channel=16/64
+[2026-07-12 18:50:49.169] [decrypt-channel-decrypted] compare.stem.bn1 channel=16/64 decrypt_ms=22
+[2026-07-12 18:50:50.083] [decrypt-channel-done] compare.stem.bn1 channel=16/64 decode_copy_ms=914 total_ms=936
+[2026-07-12 18:50:50.083] [decrypt-channel-start] compare.stem.bn1 channel=17/64
+[2026-07-12 18:50:50.104] [decrypt-channel-decrypted] compare.stem.bn1 channel=17/64 decrypt_ms=21
+[2026-07-12 18:50:51.071] [decrypt-channel-done] compare.stem.bn1 channel=17/64 decode_copy_ms=966 total_ms=987
+[2026-07-12 18:50:51.071] [decrypt-channel-start] compare.stem.bn1 channel=18/64
+[2026-07-12 18:50:51.093] [decrypt-channel-decrypted] compare.stem.bn1 channel=18/64 decrypt_ms=22
+[2026-07-12 18:50:52.060] [decrypt-channel-done] compare.stem.bn1 channel=18/64 decode_copy_ms=966 total_ms=988
+[2026-07-12 18:50:52.060] [decrypt-channel-start] compare.stem.bn1 channel=19/64
+[2026-07-12 18:50:52.095] [decrypt-channel-decrypted] compare.stem.bn1 channel=19/64 decrypt_ms=35
+[2026-07-12 18:50:53.229] [decrypt-channel-done] compare.stem.bn1 channel=19/64 decode_copy_ms=1133 total_ms=1168
+[2026-07-12 18:50:53.229] [decrypt-channel-start] compare.stem.bn1 channel=20/64
+[2026-07-12 18:50:53.267] [decrypt-channel-decrypted] compare.stem.bn1 channel=20/64 decrypt_ms=38
+[2026-07-12 18:50:54.219] [decrypt-channel-done] compare.stem.bn1 channel=20/64 decode_copy_ms=951 total_ms=990
+[2026-07-12 18:50:54.219] [decrypt-channel-start] compare.stem.bn1 channel=21/64
+[2026-07-12 18:50:54.241] [decrypt-channel-decrypted] compare.stem.bn1 channel=21/64 decrypt_ms=21
+[2026-07-12 18:50:55.328] [decrypt-channel-done] compare.stem.bn1 channel=21/64 decode_copy_ms=1086 total_ms=1108
+[2026-07-12 18:50:55.328] [decrypt-channel-start] compare.stem.bn1 channel=22/64
+[2026-07-12 18:50:55.366] [decrypt-channel-decrypted] compare.stem.bn1 channel=22/64 decrypt_ms=38
+[2026-07-12 18:50:56.341] [decrypt-channel-done] compare.stem.bn1 channel=22/64 decode_copy_ms=974 total_ms=1012
+[2026-07-12 18:50:56.341] [decrypt-channel-start] compare.stem.bn1 channel=23/64
+[2026-07-12 18:50:56.363] [decrypt-channel-decrypted] compare.stem.bn1 channel=23/64 decrypt_ms=21
+[2026-07-12 18:50:57.373] [decrypt-channel-done] compare.stem.bn1 channel=23/64 decode_copy_ms=1010 total_ms=1032
+[2026-07-12 18:50:57.373] [decrypt-channel-start] compare.stem.bn1 channel=24/64
+[2026-07-12 18:50:57.410] [decrypt-channel-decrypted] compare.stem.bn1 channel=24/64 decrypt_ms=36
+[2026-07-12 18:50:58.399] [decrypt-channel-done] compare.stem.bn1 channel=24/64 decode_copy_ms=988 total_ms=1025
+[2026-07-12 18:50:58.399] [decrypt-channel-start] compare.stem.bn1 channel=25/64
+[2026-07-12 18:50:58.422] [decrypt-channel-decrypted] compare.stem.bn1 channel=25/64 decrypt_ms=23
+[2026-07-12 18:50:59.553] [decrypt-channel-done] compare.stem.bn1 channel=25/64 decode_copy_ms=1130 total_ms=1154
+[2026-07-12 18:50:59.553] [decrypt-channel-start] compare.stem.bn1 channel=26/64
+[2026-07-12 18:50:59.576] [decrypt-channel-decrypted] compare.stem.bn1 channel=26/64 decrypt_ms=22
+[2026-07-12 18:51:00.602] [decrypt-channel-done] compare.stem.bn1 channel=26/64 decode_copy_ms=1026 total_ms=1048
+[2026-07-12 18:51:00.602] [decrypt-channel-start] compare.stem.bn1 channel=27/64
+[2026-07-12 18:51:00.624] [decrypt-channel-decrypted] compare.stem.bn1 channel=27/64 decrypt_ms=22
+[2026-07-12 18:51:01.592] [decrypt-channel-done] compare.stem.bn1 channel=27/64 decode_copy_ms=968 total_ms=990
+[2026-07-12 18:51:01.592] [decrypt-channel-start] compare.stem.bn1 channel=28/64
+[2026-07-12 18:51:01.618] [decrypt-channel-decrypted] compare.stem.bn1 channel=28/64 decrypt_ms=25
+[2026-07-12 18:51:02.662] [decrypt-channel-done] compare.stem.bn1 channel=28/64 decode_copy_ms=1043 total_ms=1069
+[2026-07-12 18:51:02.662] [decrypt-channel-start] compare.stem.bn1 channel=29/64
+[2026-07-12 18:51:02.700] [decrypt-channel-decrypted] compare.stem.bn1 channel=29/64 decrypt_ms=38
+[2026-07-12 18:51:03.732] [decrypt-channel-done] compare.stem.bn1 channel=29/64 decode_copy_ms=1031 total_ms=1069
+[2026-07-12 18:51:03.732] [decrypt-channel-start] compare.stem.bn1 channel=30/64
+[2026-07-12 18:51:03.755] [decrypt-channel-decrypted] compare.stem.bn1 channel=30/64 decrypt_ms=23
+[2026-07-12 18:51:04.800] [decrypt-channel-done] compare.stem.bn1 channel=30/64 decode_copy_ms=1045 total_ms=1068
+[2026-07-12 18:51:04.800] [decrypt-channel-start] compare.stem.bn1 channel=31/64
+[2026-07-12 18:51:04.822] [decrypt-channel-decrypted] compare.stem.bn1 channel=31/64 decrypt_ms=22
+[2026-07-12 18:51:05.804] [decrypt-channel-done] compare.stem.bn1 channel=31/64 decode_copy_ms=981 total_ms=1003
+[2026-07-12 18:51:05.804] [decrypt-channel-start] compare.stem.bn1 channel=32/64
+[2026-07-12 18:51:05.855] [decrypt-channel-decrypted] compare.stem.bn1 channel=32/64 decrypt_ms=51
+[2026-07-12 18:51:06.931] [decrypt-channel-done] compare.stem.bn1 channel=32/64 decode_copy_ms=1075 total_ms=1126
+[2026-07-12 18:51:06.931] [decrypt-channel-start] compare.stem.bn1 channel=33/64
+[2026-07-12 18:51:06.966] [decrypt-channel-decrypted] compare.stem.bn1 channel=33/64 decrypt_ms=35
+[2026-07-12 18:51:07.985] [decrypt-channel-done] compare.stem.bn1 channel=33/64 decode_copy_ms=1018 total_ms=1053
+[2026-07-12 18:51:07.985] [decrypt-channel-start] compare.stem.bn1 channel=34/64
+[2026-07-12 18:51:08.007] [decrypt-channel-decrypted] compare.stem.bn1 channel=34/64 decrypt_ms=22
+[2026-07-12 18:51:09.075] [decrypt-channel-done] compare.stem.bn1 channel=34/64 decode_copy_ms=1067 total_ms=1089
+[2026-07-12 18:51:09.075] [decrypt-channel-start] compare.stem.bn1 channel=35/64
+[2026-07-12 18:51:09.101] [decrypt-channel-decrypted] compare.stem.bn1 channel=35/64 decrypt_ms=25
+[2026-07-12 18:51:10.147] [decrypt-channel-done] compare.stem.bn1 channel=35/64 decode_copy_ms=1046 total_ms=1072
+[2026-07-12 18:51:10.147] [decrypt-channel-start] compare.stem.bn1 channel=36/64
+[2026-07-12 18:51:10.170] [decrypt-channel-decrypted] compare.stem.bn1 channel=36/64 decrypt_ms=22
+[2026-07-12 18:51:11.112] [decrypt-channel-done] compare.stem.bn1 channel=36/64 decode_copy_ms=942 total_ms=964
+[2026-07-12 18:51:11.112] [decrypt-channel-start] compare.stem.bn1 channel=37/64
+[2026-07-12 18:51:11.133] [decrypt-channel-decrypted] compare.stem.bn1 channel=37/64 decrypt_ms=21
+[2026-07-12 18:51:12.132] [decrypt-channel-done] compare.stem.bn1 channel=37/64 decode_copy_ms=998 total_ms=1020
+[2026-07-12 18:51:12.132] [decrypt-channel-start] compare.stem.bn1 channel=38/64
+[2026-07-12 18:51:12.162] [decrypt-channel-decrypted] compare.stem.bn1 channel=38/64 decrypt_ms=29
+[2026-07-12 18:51:13.169] [decrypt-channel-done] compare.stem.bn1 channel=38/64 decode_copy_ms=1006 total_ms=1036
+[2026-07-12 18:51:13.169] [decrypt-channel-start] compare.stem.bn1 channel=39/64
+[2026-07-12 18:51:13.200] [decrypt-channel-decrypted] compare.stem.bn1 channel=39/64 decrypt_ms=31
+[2026-07-12 18:51:14.273] [decrypt-channel-done] compare.stem.bn1 channel=39/64 decode_copy_ms=1071 total_ms=1103
+[2026-07-12 18:51:14.273] [decrypt-channel-start] compare.stem.bn1 channel=40/64
+[2026-07-12 18:51:14.300] [decrypt-channel-decrypted] compare.stem.bn1 channel=40/64 decrypt_ms=27
+[2026-07-12 18:51:15.297] [decrypt-channel-done] compare.stem.bn1 channel=40/64 decode_copy_ms=997 total_ms=1024
+[2026-07-12 18:51:15.297] [decrypt-channel-start] compare.stem.bn1 channel=41/64
+[2026-07-12 18:51:15.331] [decrypt-channel-decrypted] compare.stem.bn1 channel=41/64 decrypt_ms=34
+[2026-07-12 18:51:16.343] [decrypt-channel-done] compare.stem.bn1 channel=41/64 decode_copy_ms=1011 total_ms=1045
+[2026-07-12 18:51:16.343] [decrypt-channel-start] compare.stem.bn1 channel=42/64
+[2026-07-12 18:51:16.365] [decrypt-channel-decrypted] compare.stem.bn1 channel=42/64 decrypt_ms=21
+[2026-07-12 18:51:17.334] [decrypt-channel-done] compare.stem.bn1 channel=42/64 decode_copy_ms=969 total_ms=990
+[2026-07-12 18:51:17.334] [decrypt-channel-start] compare.stem.bn1 channel=43/64
+[2026-07-12 18:51:17.370] [decrypt-channel-decrypted] compare.stem.bn1 channel=43/64 decrypt_ms=35
+[2026-07-12 18:51:18.350] [decrypt-channel-done] compare.stem.bn1 channel=43/64 decode_copy_ms=979 total_ms=1015
+[2026-07-12 18:51:18.350] [decrypt-channel-start] compare.stem.bn1 channel=44/64
+[2026-07-12 18:51:18.380] [decrypt-channel-decrypted] compare.stem.bn1 channel=44/64 decrypt_ms=29
+[2026-07-12 18:51:19.364] [decrypt-channel-done] compare.stem.bn1 channel=44/64 decode_copy_ms=983 total_ms=1013
+[2026-07-12 18:51:19.364] [decrypt-channel-start] compare.stem.bn1 channel=45/64
+[2026-07-12 18:51:19.389] [decrypt-channel-decrypted] compare.stem.bn1 channel=45/64 decrypt_ms=24
+[2026-07-12 18:51:20.431] [decrypt-channel-done] compare.stem.bn1 channel=45/64 decode_copy_ms=1042 total_ms=1067
+[2026-07-12 18:51:20.432] [decrypt-channel-start] compare.stem.bn1 channel=46/64
+[2026-07-12 18:51:20.467] [decrypt-channel-decrypted] compare.stem.bn1 channel=46/64 decrypt_ms=35
+[2026-07-12 18:51:21.530] [decrypt-channel-done] compare.stem.bn1 channel=46/64 decode_copy_ms=1062 total_ms=1097
+[2026-07-12 18:51:21.530] [decrypt-channel-start] compare.stem.bn1 channel=47/64
+[2026-07-12 18:51:21.570] [decrypt-channel-decrypted] compare.stem.bn1 channel=47/64 decrypt_ms=40
+[2026-07-12 18:51:22.664] [decrypt-channel-done] compare.stem.bn1 channel=47/64 decode_copy_ms=1093 total_ms=1134
+[2026-07-12 18:51:22.664] [decrypt-channel-start] compare.stem.bn1 channel=48/64
+[2026-07-12 18:51:22.697] [decrypt-channel-decrypted] compare.stem.bn1 channel=48/64 decrypt_ms=32
+[2026-07-12 18:51:23.729] [decrypt-channel-done] compare.stem.bn1 channel=48/64 decode_copy_ms=1031 total_ms=1064
+[2026-07-12 18:51:23.729] [decrypt-channel-start] compare.stem.bn1 channel=49/64
+[2026-07-12 18:51:23.752] [decrypt-channel-decrypted] compare.stem.bn1 channel=49/64 decrypt_ms=22
+[2026-07-12 18:51:24.746] [decrypt-channel-done] compare.stem.bn1 channel=49/64 decode_copy_ms=994 total_ms=1016
+[2026-07-12 18:51:24.746] [decrypt-channel-start] compare.stem.bn1 channel=50/64
+[2026-07-12 18:51:24.782] [decrypt-channel-decrypted] compare.stem.bn1 channel=50/64 decrypt_ms=35
+[2026-07-12 18:51:25.793] [decrypt-channel-done] compare.stem.bn1 channel=50/64 decode_copy_ms=1010 total_ms=1046
+[2026-07-12 18:51:25.793] [decrypt-channel-start] compare.stem.bn1 channel=51/64
+[2026-07-12 18:51:25.817] [decrypt-channel-decrypted] compare.stem.bn1 channel=51/64 decrypt_ms=23
+[2026-07-12 18:51:26.831] [decrypt-channel-done] compare.stem.bn1 channel=51/64 decode_copy_ms=1013 total_ms=1037
+[2026-07-12 18:51:26.831] [decrypt-channel-start] compare.stem.bn1 channel=52/64
+[2026-07-12 18:51:26.861] [decrypt-channel-decrypted] compare.stem.bn1 channel=52/64 decrypt_ms=30
+[2026-07-12 18:51:27.881] [decrypt-channel-done] compare.stem.bn1 channel=52/64 decode_copy_ms=1019 total_ms=1050
+[2026-07-12 18:51:27.882] [decrypt-channel-start] compare.stem.bn1 channel=53/64
+[2026-07-12 18:51:27.904] [decrypt-channel-decrypted] compare.stem.bn1 channel=53/64 decrypt_ms=22
+[2026-07-12 18:51:28.937] [decrypt-channel-done] compare.stem.bn1 channel=53/64 decode_copy_ms=1032 total_ms=1055
+[2026-07-12 18:51:28.937] [decrypt-channel-start] compare.stem.bn1 channel=54/64
+[2026-07-12 18:51:28.965] [decrypt-channel-decrypted] compare.stem.bn1 channel=54/64 decrypt_ms=27
+[2026-07-12 18:51:29.962] [decrypt-channel-done] compare.stem.bn1 channel=54/64 decode_copy_ms=997 total_ms=1024
+[2026-07-12 18:51:29.962] [decrypt-channel-start] compare.stem.bn1 channel=55/64
+[2026-07-12 18:51:29.984] [decrypt-channel-decrypted] compare.stem.bn1 channel=55/64 decrypt_ms=22
+[2026-07-12 18:51:31.041] [decrypt-channel-done] compare.stem.bn1 channel=55/64 decode_copy_ms=1057 total_ms=1079
+[2026-07-12 18:51:31.041] [decrypt-channel-start] compare.stem.bn1 channel=56/64
+[2026-07-12 18:51:31.067] [decrypt-channel-decrypted] compare.stem.bn1 channel=56/64 decrypt_ms=25
+[2026-07-12 18:51:32.117] [decrypt-channel-done] compare.stem.bn1 channel=56/64 decode_copy_ms=1049 total_ms=1075
+[2026-07-12 18:51:32.117] [decrypt-channel-start] compare.stem.bn1 channel=57/64
+[2026-07-12 18:51:32.139] [decrypt-channel-decrypted] compare.stem.bn1 channel=57/64 decrypt_ms=21
+[2026-07-12 18:51:33.304] [decrypt-channel-done] compare.stem.bn1 channel=57/64 decode_copy_ms=1164 total_ms=1186
+[2026-07-12 18:51:33.304] [decrypt-channel-start] compare.stem.bn1 channel=58/64
+[2026-07-12 18:51:33.347] [decrypt-channel-decrypted] compare.stem.bn1 channel=58/64 decrypt_ms=43
+[2026-07-12 18:51:34.511] [decrypt-channel-done] compare.stem.bn1 channel=58/64 decode_copy_ms=1163 total_ms=1207
+[2026-07-12 18:51:34.512] [decrypt-channel-start] compare.stem.bn1 channel=59/64
+[2026-07-12 18:51:34.548] [decrypt-channel-decrypted] compare.stem.bn1 channel=59/64 decrypt_ms=36
+[2026-07-12 18:51:35.564] [decrypt-channel-done] compare.stem.bn1 channel=59/64 decode_copy_ms=1016 total_ms=1052
+[2026-07-12 18:51:35.564] [decrypt-channel-start] compare.stem.bn1 channel=60/64
+[2026-07-12 18:51:35.591] [decrypt-channel-decrypted] compare.stem.bn1 channel=60/64 decrypt_ms=27
+[2026-07-12 18:51:36.577] [decrypt-channel-done] compare.stem.bn1 channel=60/64 decode_copy_ms=985 total_ms=1012
+[2026-07-12 18:51:36.577] [decrypt-channel-start] compare.stem.bn1 channel=61/64
+[2026-07-12 18:51:36.598] [decrypt-channel-decrypted] compare.stem.bn1 channel=61/64 decrypt_ms=20
+[2026-07-12 18:51:37.501] [decrypt-channel-done] compare.stem.bn1 channel=61/64 decode_copy_ms=903 total_ms=923
+[2026-07-12 18:51:37.501] [decrypt-channel-start] compare.stem.bn1 channel=62/64
+[2026-07-12 18:51:37.524] [decrypt-channel-decrypted] compare.stem.bn1 channel=62/64 decrypt_ms=22
+[2026-07-12 18:51:38.489] [decrypt-channel-done] compare.stem.bn1 channel=62/64 decode_copy_ms=964 total_ms=987
+[2026-07-12 18:51:38.489] [decrypt-channel-start] compare.stem.bn1 channel=63/64
+[2026-07-12 18:51:38.523] [decrypt-channel-decrypted] compare.stem.bn1 channel=63/64 decrypt_ms=33
+[2026-07-12 18:51:39.541] [decrypt-channel-done] compare.stem.bn1 channel=63/64 decode_copy_ms=1018 total_ms=1052
+[2026-07-12 18:51:39.541] [decrypt-channel-start] compare.stem.bn1 channel=64/64
+[2026-07-12 18:51:39.572] [decrypt-channel-decrypted] compare.stem.bn1 channel=64/64 decrypt_ms=30
+[2026-07-12 18:51:40.601] [decrypt-channel-done] compare.stem.bn1 channel=64/64 decode_copy_ms=1029 total_ms=1060
+[2026-07-12 18:51:40.601] [decrypt-done] compare.stem.bn1 channels=64 total_ms=66388
+[compare] stem.bn1 shape=112x112x64 values=802816 max_abs_error=1.1527e-07 mean_abs_error=4.98861e-09 max_cipher_imag=1.21128e-07 max_plain_abs=0.268763 max_cipher_abs=0.268763
+[value-dump] stem.bn1 plain_first16=0.0475369 0.0261005 0.0267972 0.0354507 0.0306663 0.0346402 0.0233353 -0.000805929 0.0240456 0.0208778 0.0260697 0.0340442 0.01706 0.0232589 0.0280843 0.0258535
+[value-dump] stem.bn1 cipher_real_first16=0.0475369 0.0261005 0.0267972 0.0354507 0.0306663 0.0346402 0.0233353 -0.000805931 0.0240456 0.0208778 0.0260697 0.0340442 0.01706 0.0232589 0.0280844 0.0258535
+[value-dump] stem.bn1 cipher_imag_first16=3.70785e-09 -9.66483e-10 -1.50297e-09 2.83012e-08 3.33377e-09 2.39977e-08 3.40214e-10 1.60896e-08 -1.59308e-09 7.6561e-09 -4.86296e-10 5.81541e-10 2.48282e-09 5.66028e-10 -2.1702e-08 1.17399e-09
+[2026-07-12 18:51:40.605] [compare-done] stem.bn1 total_ms=66392
+[2026-07-12 18:51:41.292] [relu-start] mode=mock shape=112x112x64 threads=16
+[2026-07-12 18:51:41.292] [decrypt-start] mock.decrypt_input shape=112x112x64 channels=64 spatial_per_channel=12544
+[2026-07-12 18:51:41.294] [decrypt-channel-start] mock.decrypt_input channel=1/64
+[2026-07-12 18:51:41.328] [decrypt-channel-decrypted] mock.decrypt_input channel=1/64 decrypt_ms=33
+[2026-07-12 18:51:42.264] [decrypt-channel-done] mock.decrypt_input channel=1/64 decode_copy_ms=935 total_ms=969
+[2026-07-12 18:51:42.264] [decrypt-channel-start] mock.decrypt_input channel=2/64
+[2026-07-12 18:51:42.302] [decrypt-channel-decrypted] mock.decrypt_input channel=2/64 decrypt_ms=37
+[2026-07-12 18:51:43.258] [decrypt-channel-done] mock.decrypt_input channel=2/64 decode_copy_ms=956 total_ms=994
+[2026-07-12 18:51:43.258] [decrypt-channel-start] mock.decrypt_input channel=3/64
+[2026-07-12 18:51:43.279] [decrypt-channel-decrypted] mock.decrypt_input channel=3/64 decrypt_ms=21
+[2026-07-12 18:51:44.248] [decrypt-channel-done] mock.decrypt_input channel=3/64 decode_copy_ms=968 total_ms=989
+[2026-07-12 18:51:44.248] [decrypt-channel-start] mock.decrypt_input channel=4/64
+[2026-07-12 18:51:44.278] [decrypt-channel-decrypted] mock.decrypt_input channel=4/64 decrypt_ms=30
+[2026-07-12 18:51:45.301] [decrypt-channel-done] mock.decrypt_input channel=4/64 decode_copy_ms=1022 total_ms=1052
+[2026-07-12 18:51:45.301] [decrypt-channel-start] mock.decrypt_input channel=5/64
+[2026-07-12 18:51:45.323] [decrypt-channel-decrypted] mock.decrypt_input channel=5/64 decrypt_ms=22
+[2026-07-12 18:51:46.326] [decrypt-channel-done] mock.decrypt_input channel=5/64 decode_copy_ms=1002 total_ms=1024
+[2026-07-12 18:51:46.326] [decrypt-channel-start] mock.decrypt_input channel=6/64
+[2026-07-12 18:51:46.348] [decrypt-channel-decrypted] mock.decrypt_input channel=6/64 decrypt_ms=21
+[2026-07-12 18:51:47.357] [decrypt-channel-done] mock.decrypt_input channel=6/64 decode_copy_ms=1009 total_ms=1031
+[2026-07-12 18:51:47.357] [decrypt-channel-start] mock.decrypt_input channel=7/64
+[2026-07-12 18:51:47.381] [decrypt-channel-decrypted] mock.decrypt_input channel=7/64 decrypt_ms=23
+[2026-07-12 18:51:48.339] [decrypt-channel-done] mock.decrypt_input channel=7/64 decode_copy_ms=957 total_ms=981
+[2026-07-12 18:51:48.339] [decrypt-channel-start] mock.decrypt_input channel=8/64
+[2026-07-12 18:51:48.361] [decrypt-channel-decrypted] mock.decrypt_input channel=8/64 decrypt_ms=22
+[2026-07-12 18:51:49.337] [decrypt-channel-done] mock.decrypt_input channel=8/64 decode_copy_ms=975 total_ms=998
+[2026-07-12 18:51:49.337] [decrypt-channel-start] mock.decrypt_input channel=9/64
+[2026-07-12 18:51:49.360] [decrypt-channel-decrypted] mock.decrypt_input channel=9/64 decrypt_ms=22
+[2026-07-12 18:51:50.354] [decrypt-channel-done] mock.decrypt_input channel=9/64 decode_copy_ms=994 total_ms=1017
+[2026-07-12 18:51:50.355] [decrypt-channel-start] mock.decrypt_input channel=10/64
+[2026-07-12 18:51:50.379] [decrypt-channel-decrypted] mock.decrypt_input channel=10/64 decrypt_ms=24
+[2026-07-12 18:51:51.367] [decrypt-channel-done] mock.decrypt_input channel=10/64 decode_copy_ms=987 total_ms=1012
+[2026-07-12 18:51:51.367] [decrypt-channel-start] mock.decrypt_input channel=11/64
+[2026-07-12 18:51:51.390] [decrypt-channel-decrypted] mock.decrypt_input channel=11/64 decrypt_ms=23
+[2026-07-12 18:51:52.351] [decrypt-channel-done] mock.decrypt_input channel=11/64 decode_copy_ms=961 total_ms=984
+[2026-07-12 18:51:52.351] [decrypt-channel-start] mock.decrypt_input channel=12/64
+[2026-07-12 18:51:52.376] [decrypt-channel-decrypted] mock.decrypt_input channel=12/64 decrypt_ms=24
+[2026-07-12 18:51:53.340] [decrypt-channel-done] mock.decrypt_input channel=12/64 decode_copy_ms=964 total_ms=988
+[2026-07-12 18:51:53.340] [decrypt-channel-start] mock.decrypt_input channel=13/64
+[2026-07-12 18:51:53.363] [decrypt-channel-decrypted] mock.decrypt_input channel=13/64 decrypt_ms=23
+[2026-07-12 18:51:54.372] [decrypt-channel-done] mock.decrypt_input channel=13/64 decode_copy_ms=1008 total_ms=1031
+[2026-07-12 18:51:54.372] [decrypt-channel-start] mock.decrypt_input channel=14/64
+[2026-07-12 18:51:54.411] [decrypt-channel-decrypted] mock.decrypt_input channel=14/64 decrypt_ms=39
+[2026-07-12 18:51:55.431] [decrypt-channel-done] mock.decrypt_input channel=14/64 decode_copy_ms=1019 total_ms=1058
+[2026-07-12 18:51:55.431] [decrypt-channel-start] mock.decrypt_input channel=15/64
+[2026-07-12 18:51:55.454] [decrypt-channel-decrypted] mock.decrypt_input channel=15/64 decrypt_ms=22
+[2026-07-12 18:51:56.433] [decrypt-channel-done] mock.decrypt_input channel=15/64 decode_copy_ms=978 total_ms=1001
+[2026-07-12 18:51:56.433] [decrypt-channel-start] mock.decrypt_input channel=16/64
+[2026-07-12 18:51:56.461] [decrypt-channel-decrypted] mock.decrypt_input channel=16/64 decrypt_ms=28
+[2026-07-12 18:51:57.498] [decrypt-channel-done] mock.decrypt_input channel=16/64 decode_copy_ms=1037 total_ms=1065
+[2026-07-12 18:51:57.499] [decrypt-channel-start] mock.decrypt_input channel=17/64
+[2026-07-12 18:51:57.545] [decrypt-channel-decrypted] mock.decrypt_input channel=17/64 decrypt_ms=46
+[2026-07-12 18:51:58.535] [decrypt-channel-done] mock.decrypt_input channel=17/64 decode_copy_ms=989 total_ms=1035
+[2026-07-12 18:51:58.535] [decrypt-channel-start] mock.decrypt_input channel=18/64
+[2026-07-12 18:51:58.559] [decrypt-channel-decrypted] mock.decrypt_input channel=18/64 decrypt_ms=24
+[2026-07-12 18:51:59.553] [decrypt-channel-done] mock.decrypt_input channel=18/64 decode_copy_ms=993 total_ms=1018
+[2026-07-12 18:51:59.553] [decrypt-channel-start] mock.decrypt_input channel=19/64
+[2026-07-12 18:51:59.579] [decrypt-channel-decrypted] mock.decrypt_input channel=19/64 decrypt_ms=25
+[2026-07-12 18:52:00.606] [decrypt-channel-done] mock.decrypt_input channel=19/64 decode_copy_ms=1027 total_ms=1052
+[2026-07-12 18:52:00.606] [decrypt-channel-start] mock.decrypt_input channel=20/64
+[2026-07-12 18:52:00.631] [decrypt-channel-decrypted] mock.decrypt_input channel=20/64 decrypt_ms=24
+[2026-07-12 18:52:01.601] [decrypt-channel-done] mock.decrypt_input channel=20/64 decode_copy_ms=969 total_ms=994
+[2026-07-12 18:52:01.601] [decrypt-channel-start] mock.decrypt_input channel=21/64
+[2026-07-12 18:52:01.633] [decrypt-channel-decrypted] mock.decrypt_input channel=21/64 decrypt_ms=32
+[2026-07-12 18:52:02.640] [decrypt-channel-done] mock.decrypt_input channel=21/64 decode_copy_ms=1007 total_ms=1039
+[2026-07-12 18:52:02.640] [decrypt-channel-start] mock.decrypt_input channel=22/64
+[2026-07-12 18:52:02.713] [decrypt-channel-decrypted] mock.decrypt_input channel=22/64 decrypt_ms=72
+[2026-07-12 18:52:03.765] [decrypt-channel-done] mock.decrypt_input channel=22/64 decode_copy_ms=1052 total_ms=1124
+[2026-07-12 18:52:03.766] [decrypt-channel-start] mock.decrypt_input channel=23/64
+[2026-07-12 18:52:03.810] [decrypt-channel-decrypted] mock.decrypt_input channel=23/64 decrypt_ms=44
+[2026-07-12 18:52:04.949] [decrypt-channel-done] mock.decrypt_input channel=23/64 decode_copy_ms=1138 total_ms=1182
+[2026-07-12 18:52:04.949] [decrypt-channel-start] mock.decrypt_input channel=24/64
+[2026-07-12 18:52:04.973] [decrypt-channel-decrypted] mock.decrypt_input channel=24/64 decrypt_ms=23
+[2026-07-12 18:52:06.002] [decrypt-channel-done] mock.decrypt_input channel=24/64 decode_copy_ms=1029 total_ms=1053
+[2026-07-12 18:52:06.003] [decrypt-channel-start] mock.decrypt_input channel=25/64
+[2026-07-12 18:52:06.046] [decrypt-channel-decrypted] mock.decrypt_input channel=25/64 decrypt_ms=43
+[2026-07-12 18:52:07.110] [decrypt-channel-done] mock.decrypt_input channel=25/64 decode_copy_ms=1064 total_ms=1107
+[2026-07-12 18:52:07.111] [decrypt-channel-start] mock.decrypt_input channel=26/64
+[2026-07-12 18:52:07.154] [decrypt-channel-decrypted] mock.decrypt_input channel=26/64 decrypt_ms=43
+[2026-07-12 18:52:08.185] [decrypt-channel-done] mock.decrypt_input channel=26/64 decode_copy_ms=1031 total_ms=1074
+[2026-07-12 18:52:08.185] [decrypt-channel-start] mock.decrypt_input channel=27/64
+[2026-07-12 18:52:08.210] [decrypt-channel-decrypted] mock.decrypt_input channel=27/64 decrypt_ms=24
+[2026-07-12 18:52:09.206] [decrypt-channel-done] mock.decrypt_input channel=27/64 decode_copy_ms=995 total_ms=1020
+[2026-07-12 18:52:09.206] [decrypt-channel-start] mock.decrypt_input channel=28/64
+[2026-07-12 18:52:09.228] [decrypt-channel-decrypted] mock.decrypt_input channel=28/64 decrypt_ms=21
+[2026-07-12 18:52:10.193] [decrypt-channel-done] mock.decrypt_input channel=28/64 decode_copy_ms=965 total_ms=987
+[2026-07-12 18:52:10.193] [decrypt-channel-start] mock.decrypt_input channel=29/64
+[2026-07-12 18:52:10.235] [decrypt-channel-decrypted] mock.decrypt_input channel=29/64 decrypt_ms=41
+[2026-07-12 18:52:11.323] [decrypt-channel-done] mock.decrypt_input channel=29/64 decode_copy_ms=1087 total_ms=1129
+[2026-07-12 18:52:11.323] [decrypt-channel-start] mock.decrypt_input channel=30/64
+[2026-07-12 18:52:11.347] [decrypt-channel-decrypted] mock.decrypt_input channel=30/64 decrypt_ms=23
+[2026-07-12 18:52:12.330] [decrypt-channel-done] mock.decrypt_input channel=30/64 decode_copy_ms=983 total_ms=1007
+[2026-07-12 18:52:12.331] [decrypt-channel-start] mock.decrypt_input channel=31/64
+[2026-07-12 18:52:12.359] [decrypt-channel-decrypted] mock.decrypt_input channel=31/64 decrypt_ms=28
+[2026-07-12 18:52:13.339] [decrypt-channel-done] mock.decrypt_input channel=31/64 decode_copy_ms=980 total_ms=1008
+[2026-07-12 18:52:13.340] [decrypt-channel-start] mock.decrypt_input channel=32/64
+[2026-07-12 18:52:13.364] [decrypt-channel-decrypted] mock.decrypt_input channel=32/64 decrypt_ms=24
+[2026-07-12 18:52:14.321] [decrypt-channel-done] mock.decrypt_input channel=32/64 decode_copy_ms=956 total_ms=981
+[2026-07-12 18:52:14.321] [decrypt-channel-start] mock.decrypt_input channel=33/64
+[2026-07-12 18:52:14.361] [decrypt-channel-decrypted] mock.decrypt_input channel=33/64 decrypt_ms=39
+[2026-07-12 18:52:15.349] [decrypt-channel-done] mock.decrypt_input channel=33/64 decode_copy_ms=987 total_ms=1027
+[2026-07-12 18:52:15.349] [decrypt-channel-start] mock.decrypt_input channel=34/64
+[2026-07-12 18:52:15.401] [decrypt-channel-decrypted] mock.decrypt_input channel=34/64 decrypt_ms=52
+[2026-07-12 18:52:16.375] [decrypt-channel-done] mock.decrypt_input channel=34/64 decode_copy_ms=973 total_ms=1025
+[2026-07-12 18:52:16.375] [decrypt-channel-start] mock.decrypt_input channel=35/64
+[2026-07-12 18:52:16.403] [decrypt-channel-decrypted] mock.decrypt_input channel=35/64 decrypt_ms=28
+[2026-07-12 18:52:17.373] [decrypt-channel-done] mock.decrypt_input channel=35/64 decode_copy_ms=970 total_ms=998
+[2026-07-12 18:52:17.373] [decrypt-channel-start] mock.decrypt_input channel=36/64
+[2026-07-12 18:52:17.406] [decrypt-channel-decrypted] mock.decrypt_input channel=36/64 decrypt_ms=32
+[2026-07-12 18:52:18.394] [decrypt-channel-done] mock.decrypt_input channel=36/64 decode_copy_ms=988 total_ms=1020
+[2026-07-12 18:52:18.394] [decrypt-channel-start] mock.decrypt_input channel=37/64
+[2026-07-12 18:52:18.435] [decrypt-channel-decrypted] mock.decrypt_input channel=37/64 decrypt_ms=40
+[2026-07-12 18:52:19.413] [decrypt-channel-done] mock.decrypt_input channel=37/64 decode_copy_ms=978 total_ms=1018
+[2026-07-12 18:52:19.413] [decrypt-channel-start] mock.decrypt_input channel=38/64
+[2026-07-12 18:52:19.456] [decrypt-channel-decrypted] mock.decrypt_input channel=38/64 decrypt_ms=42
+[2026-07-12 18:52:20.471] [decrypt-channel-done] mock.decrypt_input channel=38/64 decode_copy_ms=1014 total_ms=1057
+[2026-07-12 18:52:20.471] [decrypt-channel-start] mock.decrypt_input channel=39/64
+[2026-07-12 18:52:20.496] [decrypt-channel-decrypted] mock.decrypt_input channel=39/64 decrypt_ms=25
+[2026-07-12 18:52:21.493] [decrypt-channel-done] mock.decrypt_input channel=39/64 decode_copy_ms=997 total_ms=1022
+[2026-07-12 18:52:21.494] [decrypt-channel-start] mock.decrypt_input channel=40/64
+[2026-07-12 18:52:21.520] [decrypt-channel-decrypted] mock.decrypt_input channel=40/64 decrypt_ms=25
+[2026-07-12 18:52:22.479] [decrypt-channel-done] mock.decrypt_input channel=40/64 decode_copy_ms=959 total_ms=985
+[2026-07-12 18:52:22.479] [decrypt-channel-start] mock.decrypt_input channel=41/64
+[2026-07-12 18:52:22.529] [decrypt-channel-decrypted] mock.decrypt_input channel=41/64 decrypt_ms=49
+[2026-07-12 18:52:23.522] [decrypt-channel-done] mock.decrypt_input channel=41/64 decode_copy_ms=992 total_ms=1042
+[2026-07-12 18:52:23.522] [decrypt-channel-start] mock.decrypt_input channel=42/64
+[2026-07-12 18:52:23.560] [decrypt-channel-decrypted] mock.decrypt_input channel=42/64 decrypt_ms=37
+[2026-07-12 18:52:24.525] [decrypt-channel-done] mock.decrypt_input channel=42/64 decode_copy_ms=964 total_ms=1002
+[2026-07-12 18:52:24.525] [decrypt-channel-start] mock.decrypt_input channel=43/64
+[2026-07-12 18:52:24.551] [decrypt-channel-decrypted] mock.decrypt_input channel=43/64 decrypt_ms=26
+[2026-07-12 18:52:25.615] [decrypt-channel-done] mock.decrypt_input channel=43/64 decode_copy_ms=1063 total_ms=1089
+[2026-07-12 18:52:25.615] [decrypt-channel-start] mock.decrypt_input channel=44/64
+[2026-07-12 18:52:25.652] [decrypt-channel-decrypted] mock.decrypt_input channel=44/64 decrypt_ms=37
+[2026-07-12 18:52:26.785] [decrypt-channel-done] mock.decrypt_input channel=44/64 decode_copy_ms=1132 total_ms=1169
+[2026-07-12 18:52:26.785] [decrypt-channel-start] mock.decrypt_input channel=45/64
+[2026-07-12 18:52:26.829] [decrypt-channel-decrypted] mock.decrypt_input channel=45/64 decrypt_ms=43
+[2026-07-12 18:52:27.958] [decrypt-channel-done] mock.decrypt_input channel=45/64 decode_copy_ms=1129 total_ms=1173
+[2026-07-12 18:52:27.958] [decrypt-channel-start] mock.decrypt_input channel=46/64
+[2026-07-12 18:52:27.999] [decrypt-channel-decrypted] mock.decrypt_input channel=46/64 decrypt_ms=40
+[2026-07-12 18:52:29.002] [decrypt-channel-done] mock.decrypt_input channel=46/64 decode_copy_ms=1003 total_ms=1044
+[2026-07-12 18:52:29.003] [decrypt-channel-start] mock.decrypt_input channel=47/64
+[2026-07-12 18:52:29.027] [decrypt-channel-decrypted] mock.decrypt_input channel=47/64 decrypt_ms=24
+[2026-07-12 18:52:30.004] [decrypt-channel-done] mock.decrypt_input channel=47/64 decode_copy_ms=976 total_ms=1000
+[2026-07-12 18:52:30.004] [decrypt-channel-start] mock.decrypt_input channel=48/64
+[2026-07-12 18:52:30.028] [decrypt-channel-decrypted] mock.decrypt_input channel=48/64 decrypt_ms=24
+[2026-07-12 18:52:31.042] [decrypt-channel-done] mock.decrypt_input channel=48/64 decode_copy_ms=1013 total_ms=1037
+[2026-07-12 18:52:31.042] [decrypt-channel-start] mock.decrypt_input channel=49/64
+[2026-07-12 18:52:31.081] [decrypt-channel-decrypted] mock.decrypt_input channel=49/64 decrypt_ms=39
+[2026-07-12 18:52:32.120] [decrypt-channel-done] mock.decrypt_input channel=49/64 decode_copy_ms=1038 total_ms=1078
+[2026-07-12 18:52:32.120] [decrypt-channel-start] mock.decrypt_input channel=50/64
+[2026-07-12 18:52:32.144] [decrypt-channel-decrypted] mock.decrypt_input channel=50/64 decrypt_ms=23
+[2026-07-12 18:52:33.146] [decrypt-channel-done] mock.decrypt_input channel=50/64 decode_copy_ms=1002 total_ms=1025
+[2026-07-12 18:52:33.146] [decrypt-channel-start] mock.decrypt_input channel=51/64
+[2026-07-12 18:52:33.173] [decrypt-channel-decrypted] mock.decrypt_input channel=51/64 decrypt_ms=26
+[2026-07-12 18:52:34.198] [decrypt-channel-done] mock.decrypt_input channel=51/64 decode_copy_ms=1024 total_ms=1051
+[2026-07-12 18:52:34.198] [decrypt-channel-start] mock.decrypt_input channel=52/64
+[2026-07-12 18:52:34.223] [decrypt-channel-decrypted] mock.decrypt_input channel=52/64 decrypt_ms=25
+[2026-07-12 18:52:35.226] [decrypt-channel-done] mock.decrypt_input channel=52/64 decode_copy_ms=1002 total_ms=1027
+[2026-07-12 18:52:35.226] [decrypt-channel-start] mock.decrypt_input channel=53/64
+[2026-07-12 18:52:35.265] [decrypt-channel-decrypted] mock.decrypt_input channel=53/64 decrypt_ms=38
+[2026-07-12 18:52:36.267] [decrypt-channel-done] mock.decrypt_input channel=53/64 decode_copy_ms=1002 total_ms=1041
+[2026-07-12 18:52:36.267] [decrypt-channel-start] mock.decrypt_input channel=54/64
+[2026-07-12 18:52:36.310] [decrypt-channel-decrypted] mock.decrypt_input channel=54/64 decrypt_ms=42
+[2026-07-12 18:52:37.327] [decrypt-channel-done] mock.decrypt_input channel=54/64 decode_copy_ms=1016 total_ms=1059
+[2026-07-12 18:52:37.327] [decrypt-channel-start] mock.decrypt_input channel=55/64
+[2026-07-12 18:52:37.350] [decrypt-channel-decrypted] mock.decrypt_input channel=55/64 decrypt_ms=23
+[2026-07-12 18:52:38.389] [decrypt-channel-done] mock.decrypt_input channel=55/64 decode_copy_ms=1038 total_ms=1061
+[2026-07-12 18:52:38.389] [decrypt-channel-start] mock.decrypt_input channel=56/64
+[2026-07-12 18:52:38.434] [decrypt-channel-decrypted] mock.decrypt_input channel=56/64 decrypt_ms=45
+[2026-07-12 18:52:39.474] [decrypt-channel-done] mock.decrypt_input channel=56/64 decode_copy_ms=1039 total_ms=1085
+[2026-07-12 18:52:39.474] [decrypt-channel-start] mock.decrypt_input channel=57/64
+[2026-07-12 18:52:39.516] [decrypt-channel-decrypted] mock.decrypt_input channel=57/64 decrypt_ms=41
+[2026-07-12 18:52:40.494] [decrypt-channel-done] mock.decrypt_input channel=57/64 decode_copy_ms=978 total_ms=1019
+[2026-07-12 18:52:40.494] [decrypt-channel-start] mock.decrypt_input channel=58/64
+[2026-07-12 18:52:40.536] [decrypt-channel-decrypted] mock.decrypt_input channel=58/64 decrypt_ms=41
+[2026-07-12 18:52:41.573] [decrypt-channel-done] mock.decrypt_input channel=58/64 decode_copy_ms=1037 total_ms=1078
+[2026-07-12 18:52:41.573] [decrypt-channel-start] mock.decrypt_input channel=59/64
+[2026-07-12 18:52:41.620] [decrypt-channel-decrypted] mock.decrypt_input channel=59/64 decrypt_ms=46
+[2026-07-12 18:52:42.621] [decrypt-channel-done] mock.decrypt_input channel=59/64 decode_copy_ms=1000 total_ms=1047
+[2026-07-12 18:52:42.621] [decrypt-channel-start] mock.decrypt_input channel=60/64
+[2026-07-12 18:52:42.683] [decrypt-channel-decrypted] mock.decrypt_input channel=60/64 decrypt_ms=61
+[2026-07-12 18:52:43.663] [decrypt-channel-done] mock.decrypt_input channel=60/64 decode_copy_ms=980 total_ms=1042
+[2026-07-12 18:52:43.664] [decrypt-channel-start] mock.decrypt_input channel=61/64
+[2026-07-12 18:52:43.709] [decrypt-channel-decrypted] mock.decrypt_input channel=61/64 decrypt_ms=45
+[2026-07-12 18:52:44.826] [decrypt-channel-done] mock.decrypt_input channel=61/64 decode_copy_ms=1116 total_ms=1162
+[2026-07-12 18:52:44.827] [decrypt-channel-start] mock.decrypt_input channel=62/64
+[2026-07-12 18:52:44.884] [decrypt-channel-decrypted] mock.decrypt_input channel=62/64 decrypt_ms=57
+[2026-07-12 18:52:46.020] [decrypt-channel-done] mock.decrypt_input channel=62/64 decode_copy_ms=1135 total_ms=1193
+[2026-07-12 18:52:46.020] [decrypt-channel-start] mock.decrypt_input channel=63/64
+[2026-07-12 18:52:46.064] [decrypt-channel-decrypted] mock.decrypt_input channel=63/64 decrypt_ms=43
+[2026-07-12 18:52:47.153] [decrypt-channel-done] mock.decrypt_input channel=63/64 decode_copy_ms=1088 total_ms=1132
+[2026-07-12 18:52:47.153] [decrypt-channel-start] mock.decrypt_input channel=64/64
+[2026-07-12 18:52:47.217] [decrypt-channel-decrypted] mock.decrypt_input channel=64/64 decrypt_ms=64
+[2026-07-12 18:52:48.352] [decrypt-channel-done] mock.decrypt_input channel=64/64 decode_copy_ms=1135 total_ms=1199
+[2026-07-12 18:52:48.352] [decrypt-done] mock.decrypt_input channels=64 total_ms=67060
+[2026-07-12 18:52:49.101] [encrypt-group-start] mock.refresh shape=112x112x64 logp=46
+[2026-07-12 18:52:49.333] [encrypt-channel-done] mock.refresh channel=1/64
+[2026-07-12 18:52:49.517] [encrypt-channel-done] mock.refresh channel=2/64
+[2026-07-12 18:52:49.688] [encrypt-channel-done] mock.refresh channel=3/64
+[2026-07-12 18:52:49.888] [encrypt-channel-done] mock.refresh channel=4/64
+[2026-07-12 18:52:50.088] [encrypt-channel-done] mock.refresh channel=5/64
+[2026-07-12 18:52:50.288] [encrypt-channel-done] mock.refresh channel=6/64
+[2026-07-12 18:52:50.505] [encrypt-channel-done] mock.refresh channel=7/64
+[2026-07-12 18:52:50.778] [encrypt-channel-done] mock.refresh channel=8/64
+[2026-07-12 18:52:50.979] [encrypt-channel-done] mock.refresh channel=9/64
+[2026-07-12 18:52:51.228] [encrypt-channel-done] mock.refresh channel=10/64
+[2026-07-12 18:52:51.459] [encrypt-channel-done] mock.refresh channel=11/64
+[2026-07-12 18:52:51.665] [encrypt-channel-done] mock.refresh channel=12/64
+[2026-07-12 18:52:51.895] [encrypt-channel-done] mock.refresh channel=13/64
+[2026-07-12 18:52:52.129] [encrypt-channel-done] mock.refresh channel=14/64
+[2026-07-12 18:52:52.328] [encrypt-channel-done] mock.refresh channel=15/64
+[2026-07-12 18:52:52.555] [encrypt-channel-done] mock.refresh channel=16/64
+[2026-07-12 18:52:52.796] [encrypt-channel-done] mock.refresh channel=17/64
+[2026-07-12 18:52:53.027] [encrypt-channel-done] mock.refresh channel=18/64
+[2026-07-12 18:52:53.224] [encrypt-channel-done] mock.refresh channel=19/64
+[2026-07-12 18:52:53.449] [encrypt-channel-done] mock.refresh channel=20/64
+[2026-07-12 18:52:53.671] [encrypt-channel-done] mock.refresh channel=21/64
+[2026-07-12 18:52:53.871] [encrypt-channel-done] mock.refresh channel=22/64
+[2026-07-12 18:52:54.089] [encrypt-channel-done] mock.refresh channel=23/64
+[2026-07-12 18:52:54.306] [encrypt-channel-done] mock.refresh channel=24/64
+[2026-07-12 18:52:54.500] [encrypt-channel-done] mock.refresh channel=25/64
+[2026-07-12 18:52:54.731] [encrypt-channel-done] mock.refresh channel=26/64
+[2026-07-12 18:52:54.962] [encrypt-channel-done] mock.refresh channel=27/64
+[2026-07-12 18:52:55.170] [encrypt-channel-done] mock.refresh channel=28/64
+[2026-07-12 18:52:55.384] [encrypt-channel-done] mock.refresh channel=29/64
+[2026-07-12 18:52:55.592] [encrypt-channel-done] mock.refresh channel=30/64
+[2026-07-12 18:52:55.778] [encrypt-channel-done] mock.refresh channel=31/64
+[2026-07-12 18:52:56.006] [encrypt-channel-done] mock.refresh channel=32/64
+[2026-07-12 18:52:56.257] [encrypt-channel-done] mock.refresh channel=33/64
+[2026-07-12 18:52:56.472] [encrypt-channel-done] mock.refresh channel=34/64
+[2026-07-12 18:52:56.699] [encrypt-channel-done] mock.refresh channel=35/64
+[2026-07-12 18:52:56.920] [encrypt-channel-done] mock.refresh channel=36/64
+[2026-07-12 18:52:57.146] [encrypt-channel-done] mock.refresh channel=37/64
+[2026-07-12 18:52:57.343] [encrypt-channel-done] mock.refresh channel=38/64
+[2026-07-12 18:52:57.581] [encrypt-channel-done] mock.refresh channel=39/64
+[2026-07-12 18:52:57.814] [encrypt-channel-done] mock.refresh channel=40/64
+[2026-07-12 18:52:58.062] [encrypt-channel-done] mock.refresh channel=41/64
+[2026-07-12 18:52:58.340] [encrypt-channel-done] mock.refresh channel=42/64
+[2026-07-12 18:52:58.537] [encrypt-channel-done] mock.refresh channel=43/64
+[2026-07-12 18:52:58.787] [encrypt-channel-done] mock.refresh channel=44/64
+[2026-07-12 18:52:59.001] [encrypt-channel-done] mock.refresh channel=45/64
+[2026-07-12 18:52:59.208] [encrypt-channel-done] mock.refresh channel=46/64
+[2026-07-12 18:52:59.407] [encrypt-channel-done] mock.refresh channel=47/64
+[2026-07-12 18:52:59.634] [encrypt-channel-done] mock.refresh channel=48/64
+[2026-07-12 18:52:59.860] [encrypt-channel-done] mock.refresh channel=49/64
+[2026-07-12 18:53:00.060] [encrypt-channel-done] mock.refresh channel=50/64
+[2026-07-12 18:53:00.304] [encrypt-channel-done] mock.refresh channel=51/64
+[2026-07-12 18:53:00.539] [encrypt-channel-done] mock.refresh channel=52/64
+[2026-07-12 18:53:00.792] [encrypt-channel-done] mock.refresh channel=53/64
+[2026-07-12 18:53:01.012] [encrypt-channel-done] mock.refresh channel=54/64
+[2026-07-12 18:53:01.226] [encrypt-channel-done] mock.refresh channel=55/64
+[2026-07-12 18:53:01.461] [encrypt-channel-done] mock.refresh channel=56/64
+[2026-07-12 18:53:01.671] [encrypt-channel-done] mock.refresh channel=57/64
+[2026-07-12 18:53:01.913] [encrypt-channel-done] mock.refresh channel=58/64
+[2026-07-12 18:53:02.136] [encrypt-channel-done] mock.refresh channel=59/64
+[2026-07-12 18:53:02.363] [encrypt-channel-done] mock.refresh channel=60/64
+[2026-07-12 18:53:02.588] [encrypt-channel-done] mock.refresh channel=61/64
+[2026-07-12 18:53:02.807] [encrypt-channel-done] mock.refresh channel=62/64
+[2026-07-12 18:53:03.031] [encrypt-channel-done] mock.refresh channel=63/64
+[2026-07-12 18:53:03.260] [encrypt-channel-done] mock.refresh channel=64/64
+[2026-07-12 18:53:03.260] [encrypt-group-done] mock.refresh total_ms=14158
+[2026-07-12 18:53:03.260] [relu-done] mode=mock total_ms=81968
+[2026-07-12 18:53:03.260] [compare-start] stem.relu1 shape=112x112x64 values=802816
+[2026-07-12 18:53:03.260] [decrypt-start] compare.stem.relu1 shape=112x112x64 channels=64 spatial_per_channel=12544
+[2026-07-12 18:53:03.263] [decrypt-channel-start] compare.stem.relu1 channel=1/64
+[2026-07-12 18:53:03.300] [decrypt-channel-decrypted] compare.stem.relu1 channel=1/64 decrypt_ms=37
+[2026-07-12 18:53:04.499] [decrypt-channel-done] compare.stem.relu1 channel=1/64 decode_copy_ms=1198 total_ms=1236
+[2026-07-12 18:53:04.499] [decrypt-channel-start] compare.stem.relu1 channel=2/64
+[2026-07-12 18:53:04.525] [decrypt-channel-decrypted] compare.stem.relu1 channel=2/64 decrypt_ms=25
+[2026-07-12 18:53:05.617] [decrypt-channel-done] compare.stem.relu1 channel=2/64 decode_copy_ms=1092 total_ms=1118
+[2026-07-12 18:53:05.617] [decrypt-channel-start] compare.stem.relu1 channel=3/64
+[2026-07-12 18:53:05.638] [decrypt-channel-decrypted] compare.stem.relu1 channel=3/64 decrypt_ms=21
+[2026-07-12 18:53:06.763] [decrypt-channel-done] compare.stem.relu1 channel=3/64 decode_copy_ms=1124 total_ms=1145
+[2026-07-12 18:53:06.764] [decrypt-channel-start] compare.stem.relu1 channel=4/64
+[2026-07-12 18:53:06.810] [decrypt-channel-decrypted] compare.stem.relu1 channel=4/64 decrypt_ms=46
+[2026-07-12 18:53:07.955] [decrypt-channel-done] compare.stem.relu1 channel=4/64 decode_copy_ms=1144 total_ms=1190
+[2026-07-12 18:53:07.955] [decrypt-channel-start] compare.stem.relu1 channel=5/64
+[2026-07-12 18:53:07.985] [decrypt-channel-decrypted] compare.stem.relu1 channel=5/64 decrypt_ms=30
+[2026-07-12 18:53:09.096] [decrypt-channel-done] compare.stem.relu1 channel=5/64 decode_copy_ms=1111 total_ms=1141
+[2026-07-12 18:53:09.096] [decrypt-channel-start] compare.stem.relu1 channel=6/64
+[2026-07-12 18:53:09.125] [decrypt-channel-decrypted] compare.stem.relu1 channel=6/64 decrypt_ms=28
+[2026-07-12 18:53:10.307] [decrypt-channel-done] compare.stem.relu1 channel=6/64 decode_copy_ms=1181 total_ms=1210
+[2026-07-12 18:53:10.307] [decrypt-channel-start] compare.stem.relu1 channel=7/64
+[2026-07-12 18:53:10.344] [decrypt-channel-decrypted] compare.stem.relu1 channel=7/64 decrypt_ms=37
+[2026-07-12 18:53:11.511] [decrypt-channel-done] compare.stem.relu1 channel=7/64 decode_copy_ms=1166 total_ms=1204
+[2026-07-12 18:53:11.511] [decrypt-channel-start] compare.stem.relu1 channel=8/64
+[2026-07-12 18:53:11.570] [decrypt-channel-decrypted] compare.stem.relu1 channel=8/64 decrypt_ms=58
+[2026-07-12 18:53:12.733] [decrypt-channel-done] compare.stem.relu1 channel=8/64 decode_copy_ms=1162 total_ms=1221
+[2026-07-12 18:53:12.733] [decrypt-channel-start] compare.stem.relu1 channel=9/64
+[2026-07-12 18:53:12.766] [decrypt-channel-decrypted] compare.stem.relu1 channel=9/64 decrypt_ms=33
+[2026-07-12 18:53:13.848] [decrypt-channel-done] compare.stem.relu1 channel=9/64 decode_copy_ms=1081 total_ms=1114
+[2026-07-12 18:53:13.848] [decrypt-channel-start] compare.stem.relu1 channel=10/64
+[2026-07-12 18:53:13.875] [decrypt-channel-decrypted] compare.stem.relu1 channel=10/64 decrypt_ms=26
+[2026-07-12 18:53:14.898] [decrypt-channel-done] compare.stem.relu1 channel=10/64 decode_copy_ms=1023 total_ms=1050
+[2026-07-12 18:53:14.898] [decrypt-channel-start] compare.stem.relu1 channel=11/64
+[2026-07-12 18:53:14.920] [decrypt-channel-decrypted] compare.stem.relu1 channel=11/64 decrypt_ms=22
+[2026-07-12 18:53:16.045] [decrypt-channel-done] compare.stem.relu1 channel=11/64 decode_copy_ms=1124 total_ms=1146
+[2026-07-12 18:53:16.045] [decrypt-channel-start] compare.stem.relu1 channel=12/64
+[2026-07-12 18:53:16.083] [decrypt-channel-decrypted] compare.stem.relu1 channel=12/64 decrypt_ms=38
+[2026-07-12 18:53:17.043] [decrypt-channel-done] compare.stem.relu1 channel=12/64 decode_copy_ms=960 total_ms=998
+[2026-07-12 18:53:17.043] [decrypt-channel-start] compare.stem.relu1 channel=13/64
+[2026-07-12 18:53:17.094] [decrypt-channel-decrypted] compare.stem.relu1 channel=13/64 decrypt_ms=50
+[2026-07-12 18:53:18.090] [decrypt-channel-done] compare.stem.relu1 channel=13/64 decode_copy_ms=996 total_ms=1046
+[2026-07-12 18:53:18.090] [decrypt-channel-start] compare.stem.relu1 channel=14/64
+[2026-07-12 18:53:18.112] [decrypt-channel-decrypted] compare.stem.relu1 channel=14/64 decrypt_ms=21
+[2026-07-12 18:53:19.133] [decrypt-channel-done] compare.stem.relu1 channel=14/64 decode_copy_ms=1020 total_ms=1041
+[2026-07-12 18:53:19.133] [decrypt-channel-start] compare.stem.relu1 channel=15/64
+[2026-07-12 18:53:19.156] [decrypt-channel-decrypted] compare.stem.relu1 channel=15/64 decrypt_ms=23
+[2026-07-12 18:53:20.238] [decrypt-channel-done] compare.stem.relu1 channel=15/64 decode_copy_ms=1081 total_ms=1105
+[2026-07-12 18:53:20.238] [decrypt-channel-start] compare.stem.relu1 channel=16/64
+[2026-07-12 18:53:20.292] [decrypt-channel-decrypted] compare.stem.relu1 channel=16/64 decrypt_ms=53
+[2026-07-12 18:53:21.373] [decrypt-channel-done] compare.stem.relu1 channel=16/64 decode_copy_ms=1080 total_ms=1134
+[2026-07-12 18:53:21.373] [decrypt-channel-start] compare.stem.relu1 channel=17/64
+[2026-07-12 18:53:21.396] [decrypt-channel-decrypted] compare.stem.relu1 channel=17/64 decrypt_ms=23
+[2026-07-12 18:53:22.494] [decrypt-channel-done] compare.stem.relu1 channel=17/64 decode_copy_ms=1097 total_ms=1121
+[2026-07-12 18:53:22.494] [decrypt-channel-start] compare.stem.relu1 channel=18/64
+[2026-07-12 18:53:22.526] [decrypt-channel-decrypted] compare.stem.relu1 channel=18/64 decrypt_ms=32
+[2026-07-12 18:53:23.751] [decrypt-channel-done] compare.stem.relu1 channel=18/64 decode_copy_ms=1224 total_ms=1256
+[2026-07-12 18:53:23.751] [decrypt-channel-start] compare.stem.relu1 channel=19/64
+[2026-07-12 18:53:23.779] [decrypt-channel-decrypted] compare.stem.relu1 channel=19/64 decrypt_ms=28
+[2026-07-12 18:53:24.898] [decrypt-channel-done] compare.stem.relu1 channel=19/64 decode_copy_ms=1118 total_ms=1146
+[2026-07-12 18:53:24.898] [decrypt-channel-start] compare.stem.relu1 channel=20/64
+[2026-07-12 18:53:24.934] [decrypt-channel-decrypted] compare.stem.relu1 channel=20/64 decrypt_ms=36
+[2026-07-12 18:53:26.077] [decrypt-channel-done] compare.stem.relu1 channel=20/64 decode_copy_ms=1142 total_ms=1178
+[2026-07-12 18:53:26.077] [decrypt-channel-start] compare.stem.relu1 channel=21/64
+[2026-07-12 18:53:26.098] [decrypt-channel-decrypted] compare.stem.relu1 channel=21/64 decrypt_ms=21
+[2026-07-12 18:53:27.223] [decrypt-channel-done] compare.stem.relu1 channel=21/64 decode_copy_ms=1124 total_ms=1145
+[2026-07-12 18:53:27.223] [decrypt-channel-start] compare.stem.relu1 channel=22/64
+[2026-07-12 18:53:27.250] [decrypt-channel-decrypted] compare.stem.relu1 channel=22/64 decrypt_ms=27
+[2026-07-12 18:53:28.295] [decrypt-channel-done] compare.stem.relu1 channel=22/64 decode_copy_ms=1044 total_ms=1072
+[2026-07-12 18:53:28.295] [decrypt-channel-start] compare.stem.relu1 channel=23/64
+[2026-07-12 18:53:28.328] [decrypt-channel-decrypted] compare.stem.relu1 channel=23/64 decrypt_ms=32
+[2026-07-12 18:53:29.354] [decrypt-channel-done] compare.stem.relu1 channel=23/64 decode_copy_ms=1025 total_ms=1058
+[2026-07-12 18:53:29.354] [decrypt-channel-start] compare.stem.relu1 channel=24/64
+[2026-07-12 18:53:29.403] [decrypt-channel-decrypted] compare.stem.relu1 channel=24/64 decrypt_ms=49
+[2026-07-12 18:53:30.379] [decrypt-channel-done] compare.stem.relu1 channel=24/64 decode_copy_ms=975 total_ms=1024
+[2026-07-12 18:53:30.379] [decrypt-channel-start] compare.stem.relu1 channel=25/64
+[2026-07-12 18:53:30.401] [decrypt-channel-decrypted] compare.stem.relu1 channel=25/64 decrypt_ms=22
+[2026-07-12 18:53:31.440] [decrypt-channel-done] compare.stem.relu1 channel=25/64 decode_copy_ms=1038 total_ms=1061
+[2026-07-12 18:53:31.440] [decrypt-channel-start] compare.stem.relu1 channel=26/64
+[2026-07-12 18:53:31.461] [decrypt-channel-decrypted] compare.stem.relu1 channel=26/64 decrypt_ms=20
+[2026-07-12 18:53:32.489] [decrypt-channel-done] compare.stem.relu1 channel=26/64 decode_copy_ms=1027 total_ms=1048
+[2026-07-12 18:53:32.489] [decrypt-channel-start] compare.stem.relu1 channel=27/64
+[2026-07-12 18:53:32.531] [decrypt-channel-decrypted] compare.stem.relu1 channel=27/64 decrypt_ms=41
+[2026-07-12 18:53:33.716] [decrypt-channel-done] compare.stem.relu1 channel=27/64 decode_copy_ms=1184 total_ms=1226
+[2026-07-12 18:53:33.716] [decrypt-channel-start] compare.stem.relu1 channel=28/64
+[2026-07-12 18:53:33.789] [decrypt-channel-decrypted] compare.stem.relu1 channel=28/64 decrypt_ms=73
+[2026-07-12 18:53:34.854] [decrypt-channel-done] compare.stem.relu1 channel=28/64 decode_copy_ms=1065 total_ms=1138
+[2026-07-12 18:53:34.854] [decrypt-channel-start] compare.stem.relu1 channel=29/64
+[2026-07-12 18:53:34.883] [decrypt-channel-decrypted] compare.stem.relu1 channel=29/64 decrypt_ms=28
+[2026-07-12 18:53:35.888] [decrypt-channel-done] compare.stem.relu1 channel=29/64 decode_copy_ms=1005 total_ms=1033
+[2026-07-12 18:53:35.888] [decrypt-channel-start] compare.stem.relu1 channel=30/64
+[2026-07-12 18:53:35.910] [decrypt-channel-decrypted] compare.stem.relu1 channel=30/64 decrypt_ms=22
+[2026-07-12 18:53:36.926] [decrypt-channel-done] compare.stem.relu1 channel=30/64 decode_copy_ms=1015 total_ms=1037
+[2026-07-12 18:53:36.926] [decrypt-channel-start] compare.stem.relu1 channel=31/64
+[2026-07-12 18:53:36.947] [decrypt-channel-decrypted] compare.stem.relu1 channel=31/64 decrypt_ms=20
+[2026-07-12 18:53:37.964] [decrypt-channel-done] compare.stem.relu1 channel=31/64 decode_copy_ms=1016 total_ms=1037
+[2026-07-12 18:53:37.964] [decrypt-channel-start] compare.stem.relu1 channel=32/64
+[2026-07-12 18:53:38.025] [decrypt-channel-decrypted] compare.stem.relu1 channel=32/64 decrypt_ms=60
+[2026-07-12 18:53:39.028] [decrypt-channel-done] compare.stem.relu1 channel=32/64 decode_copy_ms=1002 total_ms=1063
+[2026-07-12 18:53:39.028] [decrypt-channel-start] compare.stem.relu1 channel=33/64
+[2026-07-12 18:53:39.049] [decrypt-channel-decrypted] compare.stem.relu1 channel=33/64 decrypt_ms=21
+[2026-07-12 18:53:40.159] [decrypt-channel-done] compare.stem.relu1 channel=33/64 decode_copy_ms=1109 total_ms=1131
+[2026-07-12 18:53:40.159] [decrypt-channel-start] compare.stem.relu1 channel=34/64
+[2026-07-12 18:53:40.191] [decrypt-channel-decrypted] compare.stem.relu1 channel=34/64 decrypt_ms=32
+[2026-07-12 18:53:41.294] [decrypt-channel-done] compare.stem.relu1 channel=34/64 decode_copy_ms=1102 total_ms=1135
+[2026-07-12 18:53:41.294] [decrypt-channel-start] compare.stem.relu1 channel=35/64
+[2026-07-12 18:53:41.317] [decrypt-channel-decrypted] compare.stem.relu1 channel=35/64 decrypt_ms=22
+[2026-07-12 18:53:42.283] [decrypt-channel-done] compare.stem.relu1 channel=35/64 decode_copy_ms=965 total_ms=988
+[2026-07-12 18:53:42.283] [decrypt-channel-start] compare.stem.relu1 channel=36/64
+[2026-07-12 18:53:42.317] [decrypt-channel-decrypted] compare.stem.relu1 channel=36/64 decrypt_ms=34
+[2026-07-12 18:53:43.356] [decrypt-channel-done] compare.stem.relu1 channel=36/64 decode_copy_ms=1038 total_ms=1072
+[2026-07-12 18:53:43.356] [decrypt-channel-start] compare.stem.relu1 channel=37/64
+[2026-07-12 18:53:43.377] [decrypt-channel-decrypted] compare.stem.relu1 channel=37/64 decrypt_ms=21
+[2026-07-12 18:53:44.401] [decrypt-channel-done] compare.stem.relu1 channel=37/64 decode_copy_ms=1023 total_ms=1045
+[2026-07-12 18:53:44.402] [decrypt-channel-start] compare.stem.relu1 channel=38/64
+[2026-07-12 18:53:44.424] [decrypt-channel-decrypted] compare.stem.relu1 channel=38/64 decrypt_ms=22
+[2026-07-12 18:53:45.638] [decrypt-channel-done] compare.stem.relu1 channel=38/64 decode_copy_ms=1213 total_ms=1236
+[2026-07-12 18:53:45.639] [decrypt-channel-start] compare.stem.relu1 channel=39/64
+[2026-07-12 18:53:45.661] [decrypt-channel-decrypted] compare.stem.relu1 channel=39/64 decrypt_ms=22
+[2026-07-12 18:53:46.688] [decrypt-channel-done] compare.stem.relu1 channel=39/64 decode_copy_ms=1027 total_ms=1049
+[2026-07-12 18:53:46.688] [decrypt-channel-start] compare.stem.relu1 channel=40/64
+[2026-07-12 18:53:46.759] [decrypt-channel-decrypted] compare.stem.relu1 channel=40/64 decrypt_ms=70
+[2026-07-12 18:53:47.975] [decrypt-channel-done] compare.stem.relu1 channel=40/64 decode_copy_ms=1215 total_ms=1286
+[2026-07-12 18:53:47.975] [decrypt-channel-start] compare.stem.relu1 channel=41/64
+[2026-07-12 18:53:48.011] [decrypt-channel-decrypted] compare.stem.relu1 channel=41/64 decrypt_ms=35
+[2026-07-12 18:53:49.036] [decrypt-channel-done] compare.stem.relu1 channel=41/64 decode_copy_ms=1024 total_ms=1060
+[2026-07-12 18:53:49.036] [decrypt-channel-start] compare.stem.relu1 channel=42/64
+[2026-07-12 18:53:49.061] [decrypt-channel-decrypted] compare.stem.relu1 channel=42/64 decrypt_ms=24
+[2026-07-12 18:53:50.045] [decrypt-channel-done] compare.stem.relu1 channel=42/64 decode_copy_ms=984 total_ms=1008
+[2026-07-12 18:53:50.045] [decrypt-channel-start] compare.stem.relu1 channel=43/64
+[2026-07-12 18:53:50.074] [decrypt-channel-decrypted] compare.stem.relu1 channel=43/64 decrypt_ms=29
+[2026-07-12 18:53:51.085] [decrypt-channel-done] compare.stem.relu1 channel=43/64 decode_copy_ms=1010 total_ms=1040
+[2026-07-12 18:53:51.085] [decrypt-channel-start] compare.stem.relu1 channel=44/64
+[2026-07-12 18:53:51.121] [decrypt-channel-decrypted] compare.stem.relu1 channel=44/64 decrypt_ms=35
+[2026-07-12 18:53:52.189] [decrypt-channel-done] compare.stem.relu1 channel=44/64 decode_copy_ms=1067 total_ms=1103
+[2026-07-12 18:53:52.189] [decrypt-channel-start] compare.stem.relu1 channel=45/64
+[2026-07-12 18:53:52.211] [decrypt-channel-decrypted] compare.stem.relu1 channel=45/64 decrypt_ms=21
+[2026-07-12 18:53:53.213] [decrypt-channel-done] compare.stem.relu1 channel=45/64 decode_copy_ms=1002 total_ms=1024
+[2026-07-12 18:53:53.213] [decrypt-channel-start] compare.stem.relu1 channel=46/64
+[2026-07-12 18:53:53.248] [decrypt-channel-decrypted] compare.stem.relu1 channel=46/64 decrypt_ms=34
+[2026-07-12 18:53:54.292] [decrypt-channel-done] compare.stem.relu1 channel=46/64 decode_copy_ms=1044 total_ms=1079
+[2026-07-12 18:53:54.293] [decrypt-channel-start] compare.stem.relu1 channel=47/64
+[2026-07-12 18:53:54.331] [decrypt-channel-decrypted] compare.stem.relu1 channel=47/64 decrypt_ms=38
+[2026-07-12 18:53:55.467] [decrypt-channel-done] compare.stem.relu1 channel=47/64 decode_copy_ms=1135 total_ms=1174
+[2026-07-12 18:53:55.467] [decrypt-channel-start] compare.stem.relu1 channel=48/64
+[2026-07-12 18:53:55.505] [decrypt-channel-decrypted] compare.stem.relu1 channel=48/64 decrypt_ms=37
+[2026-07-12 18:53:56.638] [decrypt-channel-done] compare.stem.relu1 channel=48/64 decode_copy_ms=1132 total_ms=1170
+[2026-07-12 18:53:56.638] [decrypt-channel-start] compare.stem.relu1 channel=49/64
+[2026-07-12 18:53:56.674] [decrypt-channel-decrypted] compare.stem.relu1 channel=49/64 decrypt_ms=35
+[2026-07-12 18:53:57.725] [decrypt-channel-done] compare.stem.relu1 channel=49/64 decode_copy_ms=1051 total_ms=1087
+[2026-07-12 18:53:57.725] [decrypt-channel-start] compare.stem.relu1 channel=50/64
+[2026-07-12 18:53:57.764] [decrypt-channel-decrypted] compare.stem.relu1 channel=50/64 decrypt_ms=38
+[2026-07-12 18:53:58.890] [decrypt-channel-done] compare.stem.relu1 channel=50/64 decode_copy_ms=1126 total_ms=1164
+[2026-07-12 18:53:58.890] [decrypt-channel-start] compare.stem.relu1 channel=51/64
+[2026-07-12 18:53:58.923] [decrypt-channel-decrypted] compare.stem.relu1 channel=51/64 decrypt_ms=33
+[2026-07-12 18:53:59.980] [decrypt-channel-done] compare.stem.relu1 channel=51/64 decode_copy_ms=1056 total_ms=1089
+[2026-07-12 18:53:59.980] [decrypt-channel-start] compare.stem.relu1 channel=52/64
+[2026-07-12 18:54:00.022] [decrypt-channel-decrypted] compare.stem.relu1 channel=52/64 decrypt_ms=41
+[2026-07-12 18:54:01.070] [decrypt-channel-done] compare.stem.relu1 channel=52/64 decode_copy_ms=1048 total_ms=1090
+[2026-07-12 18:54:01.070] [decrypt-channel-start] compare.stem.relu1 channel=53/64
+[2026-07-12 18:54:01.094] [decrypt-channel-decrypted] compare.stem.relu1 channel=53/64 decrypt_ms=23
+[2026-07-12 18:54:02.232] [decrypt-channel-done] compare.stem.relu1 channel=53/64 decode_copy_ms=1138 total_ms=1161
+[2026-07-12 18:54:02.232] [decrypt-channel-start] compare.stem.relu1 channel=54/64
+[2026-07-12 18:54:02.258] [decrypt-channel-decrypted] compare.stem.relu1 channel=54/64 decrypt_ms=25
+[2026-07-12 18:54:03.448] [decrypt-channel-done] compare.stem.relu1 channel=54/64 decode_copy_ms=1190 total_ms=1215
+[2026-07-12 18:54:03.448] [decrypt-channel-start] compare.stem.relu1 channel=55/64
+[2026-07-12 18:54:03.476] [decrypt-channel-decrypted] compare.stem.relu1 channel=55/64 decrypt_ms=27
+[2026-07-12 18:54:04.588] [decrypt-channel-done] compare.stem.relu1 channel=55/64 decode_copy_ms=1111 total_ms=1139
+[2026-07-12 18:54:04.588] [decrypt-channel-start] compare.stem.relu1 channel=56/64
+[2026-07-12 18:54:04.637] [decrypt-channel-decrypted] compare.stem.relu1 channel=56/64 decrypt_ms=49
+[2026-07-12 18:54:05.727] [decrypt-channel-done] compare.stem.relu1 channel=56/64 decode_copy_ms=1090 total_ms=1139
+[2026-07-12 18:54:05.727] [decrypt-channel-start] compare.stem.relu1 channel=57/64
+[2026-07-12 18:54:05.751] [decrypt-channel-decrypted] compare.stem.relu1 channel=57/64 decrypt_ms=23
+[2026-07-12 18:54:06.848] [decrypt-channel-done] compare.stem.relu1 channel=57/64 decode_copy_ms=1096 total_ms=1120
+[2026-07-12 18:54:06.848] [decrypt-channel-start] compare.stem.relu1 channel=58/64
+[2026-07-12 18:54:06.885] [decrypt-channel-decrypted] compare.stem.relu1 channel=58/64 decrypt_ms=37
+[2026-07-12 18:54:07.921] [decrypt-channel-done] compare.stem.relu1 channel=58/64 decode_copy_ms=1035 total_ms=1072
+[2026-07-12 18:54:07.921] [decrypt-channel-start] compare.stem.relu1 channel=59/64
+[2026-07-12 18:54:07.946] [decrypt-channel-decrypted] compare.stem.relu1 channel=59/64 decrypt_ms=25
+[2026-07-12 18:54:08.962] [decrypt-channel-done] compare.stem.relu1 channel=59/64 decode_copy_ms=1015 total_ms=1040
+[2026-07-12 18:54:08.962] [decrypt-channel-start] compare.stem.relu1 channel=60/64
+[2026-07-12 18:54:09.013] [decrypt-channel-decrypted] compare.stem.relu1 channel=60/64 decrypt_ms=51
+[2026-07-12 18:54:10.073] [decrypt-channel-done] compare.stem.relu1 channel=60/64 decode_copy_ms=1060 total_ms=1111
+[2026-07-12 18:54:10.073] [decrypt-channel-start] compare.stem.relu1 channel=61/64
+[2026-07-12 18:54:10.117] [decrypt-channel-decrypted] compare.stem.relu1 channel=61/64 decrypt_ms=43
+[2026-07-12 18:54:11.147] [decrypt-channel-done] compare.stem.relu1 channel=61/64 decode_copy_ms=1029 total_ms=1073
+[2026-07-12 18:54:11.147] [decrypt-channel-start] compare.stem.relu1 channel=62/64
+[2026-07-12 18:54:11.183] [decrypt-channel-decrypted] compare.stem.relu1 channel=62/64 decrypt_ms=36
+[2026-07-12 18:54:12.263] [decrypt-channel-done] compare.stem.relu1 channel=62/64 decode_copy_ms=1080 total_ms=1116
+[2026-07-12 18:54:12.264] [decrypt-channel-start] compare.stem.relu1 channel=63/64
+[2026-07-12 18:54:12.309] [decrypt-channel-decrypted] compare.stem.relu1 channel=63/64 decrypt_ms=45
+[2026-07-12 18:54:13.408] [decrypt-channel-done] compare.stem.relu1 channel=63/64 decode_copy_ms=1098 total_ms=1144
+[2026-07-12 18:54:13.408] [decrypt-channel-start] compare.stem.relu1 channel=64/64
+[2026-07-12 18:54:13.453] [decrypt-channel-decrypted] compare.stem.relu1 channel=64/64 decrypt_ms=44
+[2026-07-12 18:54:14.506] [decrypt-channel-done] compare.stem.relu1 channel=64/64 decode_copy_ms=1052 total_ms=1097
+[2026-07-12 18:54:14.506] [decrypt-done] compare.stem.relu1 channels=64 total_ms=71245
+[compare] stem.relu1 shape=112x112x64 values=802816 max_abs_error=1.12097e-07 mean_abs_error=4.95564e-09 max_cipher_imag=1.85595e-08 max_plain_abs=0.268755 max_cipher_abs=0.268755
+[value-dump] stem.relu1 plain_first16=0.0475389 0.0260992 0.0267967 0.0354525 0.0306678 0.0346389 0.0233343 -9.17217e-05 0.024046 0.0208771 0.0260684 0.0340431 0.0170607 0.0232577 0.0280855 0.0258526
+[value-dump] stem.relu1 cipher_real_first16=0.0475389 0.0260992 0.0267967 0.0354525 0.0306678 0.0346389 0.0233343 -9.17214e-05 0.024046 0.0208771 0.0260684 0.0340431 0.0170607 0.0232578 0.0280855 0.0258525
+[value-dump] stem.relu1 cipher_imag_first16=6.29783e-10 -6.33132e-10 -1.55146e-09 2.21923e-09 5.52829e-10 2.82079e-09 7.32371e-10 1.56544e-09 -3.30292e-10 -3.13993e-10 1.76358e-10 3.66008e-11 2.803e-10 1.3478e-10 6.90412e-10 1.54007e-09
+[2026-07-12 18:54:14.515] [compare-done] stem.relu1 total_ms=71255

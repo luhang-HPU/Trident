@@ -1,4 +1,0 @@
-ResNet50 ImageNet encrypted inference
-images=0..0, mock_relu=0, mock_bootstrap=0
-
-[image] id=0

@@ -1,0 +1,261 @@
+ResNet50 ImageNet encrypted inference
+images=0..0, mock_relu=1, mock_bootstrap=1
+
+[image] id=0
+[2026-07-13 14:41:17.109] [start] conv_im2col_all_channels
+[2026-07-13 14:41:17.109] conv im2col encrypted channel parallel threads: 8
+[2026-07-13 14:45:06.288] conv im2col encrypted channel progress: 64/64
+[2026-07-13 14:45:06.289] [cipher-state] conv_im2col_all_channels output: shape(h=112, w=112, c=64, spatial=12544), channels=64, chain_index(first/min/max)=40/40/40, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-07-13 14:45:06.289] [duration] conv_im2col_all_channels: 229180 ms
+[2026-07-13 14:45:06.289] [compare-start] stem.conv1 shape=112x112x64 values=802816
+[2026-07-13 14:45:06.289] [decrypt-start] compare.stem.conv1 shape=112x112x64 channels=64 spatial_per_channel=12544
+[2026-07-13 14:45:06.303] [decrypt-channel-start] compare.stem.conv1 channel=1/64
+[2026-07-13 14:45:06.397] [decrypt-channel-decrypted] compare.stem.conv1 channel=1/64 decrypt_ms=93
+[2026-07-13 14:45:07.676] [decrypt-channel-done] compare.stem.conv1 channel=1/64 decode_copy_ms=1278 total_ms=1372
+[2026-07-13 14:45:07.676] [decrypt-channel-start] compare.stem.conv1 channel=2/64
+[2026-07-13 14:45:07.733] [decrypt-channel-decrypted] compare.stem.conv1 channel=2/64 decrypt_ms=57
+[2026-07-13 14:45:08.755] [decrypt-channel-done] compare.stem.conv1 channel=2/64 decode_copy_ms=1021 total_ms=1078
+[2026-07-13 14:45:08.755] [decrypt-channel-start] compare.stem.conv1 channel=3/64
+[2026-07-13 14:45:08.824] [decrypt-channel-decrypted] compare.stem.conv1 channel=3/64 decrypt_ms=68
+[2026-07-13 14:45:09.809] [decrypt-channel-done] compare.stem.conv1 channel=3/64 decode_copy_ms=985 total_ms=1054
+[2026-07-13 14:45:09.809] [decrypt-channel-start] compare.stem.conv1 channel=4/64
+[2026-07-13 14:45:09.856] [decrypt-channel-decrypted] compare.stem.conv1 channel=4/64 decrypt_ms=46
+[2026-07-13 14:45:10.892] [decrypt-channel-done] compare.stem.conv1 channel=4/64 decode_copy_ms=1036 total_ms=1082
+[2026-07-13 14:45:10.892] [decrypt-channel-start] compare.stem.conv1 channel=5/64
+[2026-07-13 14:45:10.955] [decrypt-channel-decrypted] compare.stem.conv1 channel=5/64 decrypt_ms=63
+[2026-07-13 14:45:11.949] [decrypt-channel-done] compare.stem.conv1 channel=5/64 decode_copy_ms=993 total_ms=1056
+[2026-07-13 14:45:11.949] [decrypt-channel-start] compare.stem.conv1 channel=6/64
+[2026-07-13 14:45:12.013] [decrypt-channel-decrypted] compare.stem.conv1 channel=6/64 decrypt_ms=64
+[2026-07-13 14:45:12.993] [decrypt-channel-done] compare.stem.conv1 channel=6/64 decode_copy_ms=979 total_ms=1043
+[2026-07-13 14:45:12.993] [decrypt-channel-start] compare.stem.conv1 channel=7/64
+[2026-07-13 14:45:13.071] [decrypt-channel-decrypted] compare.stem.conv1 channel=7/64 decrypt_ms=77
+[2026-07-13 14:45:13.992] [decrypt-channel-done] compare.stem.conv1 channel=7/64 decode_copy_ms=920 total_ms=998
+[2026-07-13 14:45:13.992] [decrypt-channel-start] compare.stem.conv1 channel=8/64
+[2026-07-13 14:45:14.058] [decrypt-channel-decrypted] compare.stem.conv1 channel=8/64 decrypt_ms=66
+[2026-07-13 14:45:15.079] [decrypt-channel-done] compare.stem.conv1 channel=8/64 decode_copy_ms=1020 total_ms=1086
+[2026-07-13 14:45:15.079] [decrypt-channel-start] compare.stem.conv1 channel=9/64
+[2026-07-13 14:45:15.114] [decrypt-channel-decrypted] compare.stem.conv1 channel=9/64 decrypt_ms=35
+[2026-07-13 14:45:16.156] [decrypt-channel-done] compare.stem.conv1 channel=9/64 decode_copy_ms=1041 total_ms=1077
+[2026-07-13 14:45:16.156] [decrypt-channel-start] compare.stem.conv1 channel=10/64
+[2026-07-13 14:45:16.201] [decrypt-channel-decrypted] compare.stem.conv1 channel=10/64 decrypt_ms=45
+[2026-07-13 14:45:17.210] [decrypt-channel-done] compare.stem.conv1 channel=10/64 decode_copy_ms=1008 total_ms=1054
+[2026-07-13 14:45:17.210] [decrypt-channel-start] compare.stem.conv1 channel=11/64
+[2026-07-13 14:45:17.270] [decrypt-channel-decrypted] compare.stem.conv1 channel=11/64 decrypt_ms=59
+[2026-07-13 14:45:18.226] [decrypt-channel-done] compare.stem.conv1 channel=11/64 decode_copy_ms=956 total_ms=1016
+[2026-07-13 14:45:18.226] [decrypt-channel-start] compare.stem.conv1 channel=12/64
+[2026-07-13 14:45:18.270] [decrypt-channel-decrypted] compare.stem.conv1 channel=12/64 decrypt_ms=44
+[2026-07-13 14:45:19.243] [decrypt-channel-done] compare.stem.conv1 channel=12/64 decode_copy_ms=971 total_ms=1016
+[2026-07-13 14:45:19.243] [decrypt-channel-start] compare.stem.conv1 channel=13/64
+[2026-07-13 14:45:19.313] [decrypt-channel-decrypted] compare.stem.conv1 channel=13/64 decrypt_ms=70
+[2026-07-13 14:45:20.276] [decrypt-channel-done] compare.stem.conv1 channel=13/64 decode_copy_ms=963 total_ms=1033
+[2026-07-13 14:45:20.276] [decrypt-channel-start] compare.stem.conv1 channel=14/64
+[2026-07-13 14:45:20.344] [decrypt-channel-decrypted] compare.stem.conv1 channel=14/64 decrypt_ms=67
+[2026-07-13 14:45:21.323] [decrypt-channel-done] compare.stem.conv1 channel=14/64 decode_copy_ms=978 total_ms=1046
+[2026-07-13 14:45:21.323] [decrypt-channel-start] compare.stem.conv1 channel=15/64
+[2026-07-13 14:45:21.377] [decrypt-channel-decrypted] compare.stem.conv1 channel=15/64 decrypt_ms=53
+[2026-07-13 14:45:22.394] [decrypt-channel-done] compare.stem.conv1 channel=15/64 decode_copy_ms=1016 total_ms=1070
+[2026-07-13 14:45:22.394] [decrypt-channel-start] compare.stem.conv1 channel=16/64
+[2026-07-13 14:45:22.431] [decrypt-channel-decrypted] compare.stem.conv1 channel=16/64 decrypt_ms=36
+[2026-07-13 14:45:23.428] [decrypt-channel-done] compare.stem.conv1 channel=16/64 decode_copy_ms=996 total_ms=1033
+[2026-07-13 14:45:23.428] [decrypt-channel-start] compare.stem.conv1 channel=17/64
+[2026-07-13 14:45:23.465] [decrypt-channel-decrypted] compare.stem.conv1 channel=17/64 decrypt_ms=37
+[2026-07-13 14:45:24.561] [decrypt-channel-done] compare.stem.conv1 channel=17/64 decode_copy_ms=1095 total_ms=1133
+[2026-07-13 14:45:24.561] [decrypt-channel-start] compare.stem.conv1 channel=18/64
+[2026-07-13 14:45:24.620] [decrypt-channel-decrypted] compare.stem.conv1 channel=18/64 decrypt_ms=58
+[2026-07-13 14:45:25.588] [decrypt-channel-done] compare.stem.conv1 channel=18/64 decode_copy_ms=967 total_ms=1026
+[2026-07-13 14:45:25.588] [decrypt-channel-start] compare.stem.conv1 channel=19/64
+[2026-07-13 14:45:25.667] [decrypt-channel-decrypted] compare.stem.conv1 channel=19/64 decrypt_ms=79
+[2026-07-13 14:45:26.662] [decrypt-channel-done] compare.stem.conv1 channel=19/64 decode_copy_ms=995 total_ms=1074
+[2026-07-13 14:45:26.662] [decrypt-channel-start] compare.stem.conv1 channel=20/64
+[2026-07-13 14:45:26.697] [decrypt-channel-decrypted] compare.stem.conv1 channel=20/64 decrypt_ms=34
+[2026-07-13 14:45:27.725] [decrypt-channel-done] compare.stem.conv1 channel=20/64 decode_copy_ms=1028 total_ms=1063
+[2026-07-13 14:45:27.725] [decrypt-channel-start] compare.stem.conv1 channel=21/64
+[2026-07-13 14:45:27.790] [decrypt-channel-decrypted] compare.stem.conv1 channel=21/64 decrypt_ms=64
+[2026-07-13 14:45:28.715] [decrypt-channel-done] compare.stem.conv1 channel=21/64 decode_copy_ms=924 total_ms=989
+[2026-07-13 14:45:28.715] [decrypt-channel-start] compare.stem.conv1 channel=22/64
+[2026-07-13 14:45:28.773] [decrypt-channel-decrypted] compare.stem.conv1 channel=22/64 decrypt_ms=58
+[2026-07-13 14:45:29.744] [decrypt-channel-done] compare.stem.conv1 channel=22/64 decode_copy_ms=970 total_ms=1028
+[2026-07-13 14:45:29.744] [decrypt-channel-start] compare.stem.conv1 channel=23/64
+[2026-07-13 14:45:29.830] [decrypt-channel-decrypted] compare.stem.conv1 channel=23/64 decrypt_ms=86
+[2026-07-13 14:45:30.867] [decrypt-channel-done] compare.stem.conv1 channel=23/64 decode_copy_ms=1036 total_ms=1123
+[2026-07-13 14:45:30.867] [decrypt-channel-start] compare.stem.conv1 channel=24/64
+[2026-07-13 14:45:30.941] [decrypt-channel-decrypted] compare.stem.conv1 channel=24/64 decrypt_ms=74
+[2026-07-13 14:45:31.963] [decrypt-channel-done] compare.stem.conv1 channel=24/64 decode_copy_ms=1021 total_ms=1095
+[2026-07-13 14:45:31.963] [decrypt-channel-start] compare.stem.conv1 channel=25/64
+[2026-07-13 14:45:32.012] [decrypt-channel-decrypted] compare.stem.conv1 channel=25/64 decrypt_ms=49
+[2026-07-13 14:45:32.970] [decrypt-channel-done] compare.stem.conv1 channel=25/64 decode_copy_ms=957 total_ms=1007
+[2026-07-13 14:45:32.970] [decrypt-channel-start] compare.stem.conv1 channel=26/64
+[2026-07-13 14:45:33.021] [decrypt-channel-decrypted] compare.stem.conv1 channel=26/64 decrypt_ms=51
+[2026-07-13 14:45:34.161] [decrypt-channel-done] compare.stem.conv1 channel=26/64 decode_copy_ms=1139 total_ms=1190
+[2026-07-13 14:45:34.161] [decrypt-channel-start] compare.stem.conv1 channel=27/64
+[2026-07-13 14:45:34.248] [decrypt-channel-decrypted] compare.stem.conv1 channel=27/64 decrypt_ms=87
+[2026-07-13 14:45:35.233] [decrypt-channel-done] compare.stem.conv1 channel=27/64 decode_copy_ms=985 total_ms=1072
+[2026-07-13 14:45:35.233] [decrypt-channel-start] compare.stem.conv1 channel=28/64
+[2026-07-13 14:45:35.320] [decrypt-channel-decrypted] compare.stem.conv1 channel=28/64 decrypt_ms=86
+[2026-07-13 14:45:36.335] [decrypt-channel-done] compare.stem.conv1 channel=28/64 decode_copy_ms=1015 total_ms=1101
+[2026-07-13 14:45:36.335] [decrypt-channel-start] compare.stem.conv1 channel=29/64
+[2026-07-13 14:45:36.411] [decrypt-channel-decrypted] compare.stem.conv1 channel=29/64 decrypt_ms=75
+[2026-07-13 14:45:37.493] [decrypt-channel-done] compare.stem.conv1 channel=29/64 decode_copy_ms=1081 total_ms=1156
+[2026-07-13 14:45:37.493] [decrypt-channel-start] compare.stem.conv1 channel=30/64
+[2026-07-13 14:45:37.541] [decrypt-channel-decrypted] compare.stem.conv1 channel=30/64 decrypt_ms=47
+[2026-07-13 14:45:38.578] [decrypt-channel-done] compare.stem.conv1 channel=30/64 decode_copy_ms=1036 total_ms=1084
+[2026-07-13 14:45:38.578] [decrypt-channel-start] compare.stem.conv1 channel=31/64
+[2026-07-13 14:45:38.662] [decrypt-channel-decrypted] compare.stem.conv1 channel=31/64 decrypt_ms=84
+[2026-07-13 14:45:39.774] [decrypt-channel-done] compare.stem.conv1 channel=31/64 decode_copy_ms=1111 total_ms=1196
+[2026-07-13 14:45:39.774] [decrypt-channel-start] compare.stem.conv1 channel=32/64
+[2026-07-13 14:45:39.862] [decrypt-channel-decrypted] compare.stem.conv1 channel=32/64 decrypt_ms=87
+[2026-07-13 14:45:40.877] [decrypt-channel-done] compare.stem.conv1 channel=32/64 decode_copy_ms=1015 total_ms=1102
+[2026-07-13 14:45:40.877] [decrypt-channel-start] compare.stem.conv1 channel=33/64
+[2026-07-13 14:45:40.928] [decrypt-channel-decrypted] compare.stem.conv1 channel=33/64 decrypt_ms=51
+[2026-07-13 14:45:41.906] [decrypt-channel-done] compare.stem.conv1 channel=33/64 decode_copy_ms=977 total_ms=1028
+[2026-07-13 14:45:41.906] [decrypt-channel-start] compare.stem.conv1 channel=34/64
+[2026-07-13 14:45:41.973] [decrypt-channel-decrypted] compare.stem.conv1 channel=34/64 decrypt_ms=67
+[2026-07-13 14:45:43.061] [decrypt-channel-done] compare.stem.conv1 channel=34/64 decode_copy_ms=1087 total_ms=1154
+[2026-07-13 14:45:43.061] [decrypt-channel-start] compare.stem.conv1 channel=35/64
+[2026-07-13 14:45:43.136] [decrypt-channel-decrypted] compare.stem.conv1 channel=35/64 decrypt_ms=75
+[2026-07-13 14:45:44.188] [decrypt-channel-done] compare.stem.conv1 channel=35/64 decode_copy_ms=1051 total_ms=1127
+[2026-07-13 14:45:44.188] [decrypt-channel-start] compare.stem.conv1 channel=36/64
+[2026-07-13 14:45:44.260] [decrypt-channel-decrypted] compare.stem.conv1 channel=36/64 decrypt_ms=71
+[2026-07-13 14:45:45.261] [decrypt-channel-done] compare.stem.conv1 channel=36/64 decode_copy_ms=1000 total_ms=1072
+[2026-07-13 14:45:45.261] [decrypt-channel-start] compare.stem.conv1 channel=37/64
+[2026-07-13 14:45:45.333] [decrypt-channel-decrypted] compare.stem.conv1 channel=37/64 decrypt_ms=71
+[2026-07-13 14:45:46.297] [decrypt-channel-done] compare.stem.conv1 channel=37/64 decode_copy_ms=963 total_ms=1035
+[2026-07-13 14:45:46.297] [decrypt-channel-start] compare.stem.conv1 channel=38/64
+[2026-07-13 14:45:46.353] [decrypt-channel-decrypted] compare.stem.conv1 channel=38/64 decrypt_ms=56
+[2026-07-13 14:45:47.443] [decrypt-channel-done] compare.stem.conv1 channel=38/64 decode_copy_ms=1090 total_ms=1146
+[2026-07-13 14:45:47.443] [decrypt-channel-start] compare.stem.conv1 channel=39/64
+[2026-07-13 14:45:47.522] [decrypt-channel-decrypted] compare.stem.conv1 channel=39/64 decrypt_ms=78
+[2026-07-13 14:45:48.544] [decrypt-channel-done] compare.stem.conv1 channel=39/64 decode_copy_ms=1021 total_ms=1100
+[2026-07-13 14:45:48.544] [decrypt-channel-start] compare.stem.conv1 channel=40/64
+[2026-07-13 14:45:48.627] [decrypt-channel-decrypted] compare.stem.conv1 channel=40/64 decrypt_ms=83
+[2026-07-13 14:45:49.672] [decrypt-channel-done] compare.stem.conv1 channel=40/64 decode_copy_ms=1044 total_ms=1127
+[2026-07-13 14:45:49.672] [decrypt-channel-start] compare.stem.conv1 channel=41/64
+[2026-07-13 14:45:49.722] [decrypt-channel-decrypted] compare.stem.conv1 channel=41/64 decrypt_ms=49
+[2026-07-13 14:45:50.659] [decrypt-channel-done] compare.stem.conv1 channel=41/64 decode_copy_ms=936 total_ms=986
+[2026-07-13 14:45:50.659] [decrypt-channel-start] compare.stem.conv1 channel=42/64
+[2026-07-13 14:45:50.726] [decrypt-channel-decrypted] compare.stem.conv1 channel=42/64 decrypt_ms=67
+[2026-07-13 14:45:51.735] [decrypt-channel-done] compare.stem.conv1 channel=42/64 decode_copy_ms=1009 total_ms=1076
+[2026-07-13 14:45:51.735] [decrypt-channel-start] compare.stem.conv1 channel=43/64
+[2026-07-13 14:45:51.802] [decrypt-channel-decrypted] compare.stem.conv1 channel=43/64 decrypt_ms=67
+[2026-07-13 14:45:52.871] [decrypt-channel-done] compare.stem.conv1 channel=43/64 decode_copy_ms=1068 total_ms=1135
+[2026-07-13 14:45:52.871] [decrypt-channel-start] compare.stem.conv1 channel=44/64
+[2026-07-13 14:45:52.922] [decrypt-channel-decrypted] compare.stem.conv1 channel=44/64 decrypt_ms=51
+[2026-07-13 14:45:53.874] [decrypt-channel-done] compare.stem.conv1 channel=44/64 decode_copy_ms=951 total_ms=1002
+[2026-07-13 14:45:53.874] [decrypt-channel-start] compare.stem.conv1 channel=45/64
+[2026-07-13 14:45:53.951] [decrypt-channel-decrypted] compare.stem.conv1 channel=45/64 decrypt_ms=77
+[2026-07-13 14:45:54.915] [decrypt-channel-done] compare.stem.conv1 channel=45/64 decode_copy_ms=963 total_ms=1040
+[2026-07-13 14:45:54.915] [decrypt-channel-start] compare.stem.conv1 channel=46/64
+[2026-07-13 14:45:54.963] [decrypt-channel-decrypted] compare.stem.conv1 channel=46/64 decrypt_ms=48
+[2026-07-13 14:45:55.988] [decrypt-channel-done] compare.stem.conv1 channel=46/64 decode_copy_ms=1024 total_ms=1073
+[2026-07-13 14:45:55.988] [decrypt-channel-start] compare.stem.conv1 channel=47/64
+[2026-07-13 14:45:56.076] [decrypt-channel-decrypted] compare.stem.conv1 channel=47/64 decrypt_ms=87
+[2026-07-13 14:45:57.249] [decrypt-channel-done] compare.stem.conv1 channel=47/64 decode_copy_ms=1173 total_ms=1260
+[2026-07-13 14:45:57.250] [decrypt-channel-start] compare.stem.conv1 channel=48/64
+[2026-07-13 14:45:57.300] [decrypt-channel-decrypted] compare.stem.conv1 channel=48/64 decrypt_ms=50
+[2026-07-13 14:45:58.294] [decrypt-channel-done] compare.stem.conv1 channel=48/64 decode_copy_ms=994 total_ms=1044
+[2026-07-13 14:45:58.295] [decrypt-channel-start] compare.stem.conv1 channel=49/64
+[2026-07-13 14:45:58.344] [decrypt-channel-decrypted] compare.stem.conv1 channel=49/64 decrypt_ms=49
+[2026-07-13 14:45:59.532] [decrypt-channel-done] compare.stem.conv1 channel=49/64 decode_copy_ms=1188 total_ms=1237
+[2026-07-13 14:45:59.532] [decrypt-channel-start] compare.stem.conv1 channel=50/64
+[2026-07-13 14:45:59.580] [decrypt-channel-decrypted] compare.stem.conv1 channel=50/64 decrypt_ms=47
+[2026-07-13 14:46:00.545] [decrypt-channel-done] compare.stem.conv1 channel=50/64 decode_copy_ms=965 total_ms=1012
+[2026-07-13 14:46:00.545] [decrypt-channel-start] compare.stem.conv1 channel=51/64
+[2026-07-13 14:46:00.588] [decrypt-channel-decrypted] compare.stem.conv1 channel=51/64 decrypt_ms=42
+[2026-07-13 14:46:01.711] [decrypt-channel-done] compare.stem.conv1 channel=51/64 decode_copy_ms=1122 total_ms=1164
+[2026-07-13 14:46:01.711] [decrypt-channel-start] compare.stem.conv1 channel=52/64
+[2026-07-13 14:46:01.807] [decrypt-channel-decrypted] compare.stem.conv1 channel=52/64 decrypt_ms=95
+[2026-07-13 14:46:02.861] [decrypt-channel-done] compare.stem.conv1 channel=52/64 decode_copy_ms=1054 total_ms=1150
+[2026-07-13 14:46:02.861] [decrypt-channel-start] compare.stem.conv1 channel=53/64
+[2026-07-13 14:46:02.898] [decrypt-channel-decrypted] compare.stem.conv1 channel=53/64 decrypt_ms=37
+[2026-07-13 14:46:03.927] [decrypt-channel-done] compare.stem.conv1 channel=53/64 decode_copy_ms=1028 total_ms=1065
+[2026-07-13 14:46:03.927] [decrypt-channel-start] compare.stem.conv1 channel=54/64
+[2026-07-13 14:46:03.992] [decrypt-channel-decrypted] compare.stem.conv1 channel=54/64 decrypt_ms=64
+[2026-07-13 14:46:05.015] [decrypt-channel-done] compare.stem.conv1 channel=54/64 decode_copy_ms=1023 total_ms=1088
+[2026-07-13 14:46:05.016] [decrypt-channel-start] compare.stem.conv1 channel=55/64
+[2026-07-13 14:46:05.100] [decrypt-channel-decrypted] compare.stem.conv1 channel=55/64 decrypt_ms=84
+[2026-07-13 14:46:06.171] [decrypt-channel-done] compare.stem.conv1 channel=55/64 decode_copy_ms=1070 total_ms=1155
+[2026-07-13 14:46:06.171] [decrypt-channel-start] compare.stem.conv1 channel=56/64
+[2026-07-13 14:46:06.243] [decrypt-channel-decrypted] compare.stem.conv1 channel=56/64 decrypt_ms=71
+[2026-07-13 14:46:07.313] [decrypt-channel-done] compare.stem.conv1 channel=56/64 decode_copy_ms=1069 total_ms=1141
+[2026-07-13 14:46:07.313] [decrypt-channel-start] compare.stem.conv1 channel=57/64
+[2026-07-13 14:46:07.360] [decrypt-channel-decrypted] compare.stem.conv1 channel=57/64 decrypt_ms=46
+[2026-07-13 14:46:08.348] [decrypt-channel-done] compare.stem.conv1 channel=57/64 decode_copy_ms=988 total_ms=1035
+[2026-07-13 14:46:08.348] [decrypt-channel-start] compare.stem.conv1 channel=58/64
+[2026-07-13 14:46:08.403] [decrypt-channel-decrypted] compare.stem.conv1 channel=58/64 decrypt_ms=55
+[2026-07-13 14:46:09.427] [decrypt-channel-done] compare.stem.conv1 channel=58/64 decode_copy_ms=1023 total_ms=1079
+[2026-07-13 14:46:09.428] [decrypt-channel-start] compare.stem.conv1 channel=59/64
+[2026-07-13 14:46:09.477] [decrypt-channel-decrypted] compare.stem.conv1 channel=59/64 decrypt_ms=49
+[2026-07-13 14:46:10.547] [decrypt-channel-done] compare.stem.conv1 channel=59/64 decode_copy_ms=1069 total_ms=1119
+[2026-07-13 14:46:10.547] [decrypt-channel-start] compare.stem.conv1 channel=60/64
+[2026-07-13 14:46:10.626] [decrypt-channel-decrypted] compare.stem.conv1 channel=60/64 decrypt_ms=78
+[2026-07-13 14:46:11.634] [decrypt-channel-done] compare.stem.conv1 channel=60/64 decode_copy_ms=1007 total_ms=1086
+[2026-07-13 14:46:11.634] [decrypt-channel-start] compare.stem.conv1 channel=61/64
+[2026-07-13 14:46:11.669] [decrypt-channel-decrypted] compare.stem.conv1 channel=61/64 decrypt_ms=34
+[2026-07-13 14:46:12.787] [decrypt-channel-done] compare.stem.conv1 channel=61/64 decode_copy_ms=1118 total_ms=1153
+[2026-07-13 14:46:12.787] [decrypt-channel-start] compare.stem.conv1 channel=62/64
+[2026-07-13 14:46:12.850] [decrypt-channel-decrypted] compare.stem.conv1 channel=62/64 decrypt_ms=62
+[2026-07-13 14:46:13.991] [decrypt-channel-done] compare.stem.conv1 channel=62/64 decode_copy_ms=1141 total_ms=1203
+[2026-07-13 14:46:13.991] [decrypt-channel-start] compare.stem.conv1 channel=63/64
+[2026-07-13 14:46:14.049] [decrypt-channel-decrypted] compare.stem.conv1 channel=63/64 decrypt_ms=57
+[2026-07-13 14:46:15.046] [decrypt-channel-done] compare.stem.conv1 channel=63/64 decode_copy_ms=996 total_ms=1054
+[2026-07-13 14:46:15.046] [decrypt-channel-start] compare.stem.conv1 channel=64/64
+[2026-07-13 14:46:15.110] [decrypt-channel-decrypted] compare.stem.conv1 channel=64/64 decrypt_ms=64
+[2026-07-13 14:46:16.112] [decrypt-channel-done] compare.stem.conv1 channel=64/64 decode_copy_ms=1001 total_ms=1065
+[2026-07-13 14:46:16.112] [decrypt-done] compare.stem.conv1 channels=64 total_ms=69823
+[compare] stem.conv1 shape=112x112x64 values=802816 max_abs_error=1.40354e-07 mean_abs_error=4.90715e-09 max_cipher_imag=1.61428e-07 max_plain_abs=0.120199 max_cipher_abs=0.120199
+[value-dump] stem.conv1 plain_first16=0.0218236 0.000387144 0.0010839 0.00973738 0.00495294 0.00892687 -0.00237798 -0.0265193 -0.00166771 -0.00483552 0.000356353 0.00833085 -0.00865331 -0.00245444 0.00237102 0.000140197
+[value-dump] stem.conv1 cipher_real_first16=0.0218236 0.000387141 0.0010839 0.00973738 0.00495294 0.00892685 -0.002378 -0.0265193 -0.00166771 -0.00483553 0.000356351 0.00833088 -0.00865327 -0.00245444 0.002371 0.000140227
+[value-dump] stem.conv1 cipher_imag_first16=-3.63274e-09 -5.16898e-09 6.91525e-10 1.97974e-08 -2.11837e-09 1.95435e-08 2.08413e-08 -1.88323e-08 -2.33921e-08 2.05965e-09 -2.05559e-09 2.71366e-08 -9.05201e-09 5.95506e-09 6.6229e-09 3.88422e-08
+[2026-07-13 14:46:16.125] [compare-done] stem.conv1 total_ms=69836
+[2026-07-13 14:47:11.209] [compare-start] stem.pack_k1 layout=multiplexed shape=112x112x64 k=1 packs=32
+[compare] stem.pack_k1 layout=multiplexed shape=112x112x64 k=1 packs=32 values=802816 max_abs_error=1.41302e-06 mean_abs_error=6.24041e-09 max_cipher_imag=1.08861e-06 max_plain_abs=0.120199 max_cipher_abs=0.120199
+[value-dump] stem.pack_k1 plain_first16=0.0218236 0.000387144 0.0010839 0.00973738 0.00495294 0.00892687 -0.00237798 -0.0265193 -0.00166771 -0.00483552 0.000356353 0.00833085 -0.00865331 -0.00245444 0.00237102 0.000140197
+[value-dump] stem.pack_k1 cipher_real_first16=0.0218236 0.000387141 0.0010839 0.00973738 0.00495294 0.00892685 -0.002378 -0.0265193 -0.00166771 -0.00483553 0.000356351 0.00833088 -0.00865327 -0.00245444 0.002371 0.000140227
+[value-dump] stem.pack_k1 cipher_imag_first16=-3.62627e-09 -5.16829e-09 6.89832e-10 1.97954e-08 -2.12083e-09 1.95457e-08 2.08437e-08 -1.88292e-08 -2.33962e-08 2.06123e-09 -2.04913e-09 2.71329e-08 -9.04994e-09 5.95527e-09 6.62435e-09 3.88441e-08
+[2026-07-13 14:47:42.854] [compare-done] stem.pack_k1 layout=multiplexed total_ms=31645
+[2026-07-13 14:47:42.857] [cipher-state] multiplexed_batch_norm input: shape(h=112, w=112, c=64, k=1), page_size=12544, pages_per_cipher=2, ciphertexts=32, active_slots_per_cipher<= 25088, chain_index(first/min/max)=38/38/38, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-07-13 14:47:44.558] [cipher-state] multiplexed_batch_norm output: shape(h=112, w=112, c=64, k=1), page_size=12544, pages_per_cipher=2, ciphertexts=32, active_slots_per_cipher<= 25088, chain_index(first/min/max)=38/38/38, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-07-13 14:47:44.571] [compare-start] stem.bn1 layout=multiplexed shape=112x112x64 k=1 packs=32
+[compare] stem.bn1 layout=multiplexed shape=112x112x64 k=1 packs=32 values=802816 max_abs_error=1.41302e-06 mean_abs_error=6.24042e-09 max_cipher_imag=1.08861e-06 max_plain_abs=0.268763 max_cipher_abs=0.268763
+[value-dump] stem.bn1 plain_first16=0.0475369 0.0261005 0.0267972 0.0354507 0.0306663 0.0346402 0.0233353 -0.000805929 0.0240456 0.0208778 0.0260697 0.0340442 0.01706 0.0232589 0.0280843 0.0258535
+[value-dump] stem.bn1 cipher_real_first16=0.0475369 0.0261005 0.0267972 0.0354507 0.0306663 0.0346402 0.0233353 -0.000805956 0.0240456 0.0208778 0.0260697 0.0340442 0.0170601 0.0232589 0.0280843 0.0258536
+[value-dump] stem.bn1 cipher_imag_first16=-3.62627e-09 -5.16829e-09 6.89832e-10 1.97954e-08 -2.12083e-09 1.95457e-08 2.08437e-08 -1.88292e-08 -2.33962e-08 2.06123e-09 -2.04913e-09 2.71329e-08 -9.04994e-09 5.95527e-09 6.62435e-09 3.88441e-08
+[2026-07-13 14:48:16.382] [compare-done] stem.bn1 layout=multiplexed total_ms=31810
+[2026-07-13 14:48:19.168] [cipher-state] stem.relu1 mock ReLU input: shape(h=112, w=112, c=64, k=1), page_size=12544, pages_per_cipher=2, ciphertexts=32, active_slots_per_cipher<= 25088, chain_index(first/min/max)=38/38/38, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-07-13 14:48:53.213] stem.relu1 ReLU MOCK decrypt-polynomial-reencrypt evaluation
+[2026-07-13 14:49:10.512] stem.relu1 ReLU MOCK drop trailing 51-bit primes after reencrypt: 19
+[2026-07-13 14:49:10.512] [cipher-state] stem.relu1 mock ReLU output: shape(h=112, w=112, c=64, k=1), page_size=12544, pages_per_cipher=2, ciphertexts=32, active_slots_per_cipher<= 25088, chain_index(first/min/max)=22/22/22, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-07-13 14:49:10.512] [compare-start] stem.relu1 layout=multiplexed shape=112x112x64 k=1 packs=32
+[compare] stem.relu1 layout=multiplexed shape=112x112x64 k=1 packs=32 values=802816 max_abs_error=1.42818e-06 mean_abs_error=6.11247e-09 max_cipher_imag=1.66614e-08 max_plain_abs=0.268755 max_cipher_abs=0.268755
+[value-dump] stem.relu1 plain_first16=0.0475389 0.0260992 0.0267967 0.0354525 0.0306678 0.0346389 0.0233343 -9.17217e-05 0.024046 0.0208771 0.0260684 0.0340431 0.0170607 0.0232577 0.0280855 0.0258526
+[value-dump] stem.relu1 cipher_real_first16=0.0475389 0.0260992 0.0267967 0.0354525 0.0306678 0.0346389 0.0233342 -9.17151e-05 0.024046 0.0208771 0.0260684 0.0340432 0.0170608 0.0232577 0.0280855 0.0258526
+[value-dump] stem.relu1 cipher_imag_first16=-7.52026e-11 4.39849e-11 -3.33254e-10 1.45878e-10 1.78877e-11 6.81757e-10 -4.54889e-10 9.37824e-10 1.71147e-11 5.66415e-10 1.96523e-10 -1.92182e-10 -2.38477e-09 -2.41017e-09 -1.3874e-09 -8.01781e-10
+[2026-07-13 14:49:22.087] [compare-done] stem.relu1 layout=multiplexed total_ms=11575
+[2026-07-13 14:49:22.093] [cipher-state] multiplexed avgpool input: shape(h=112, w=112, c=64, k=1), page_size=12544, pages_per_cipher=2, ciphertexts=32, active_slots_per_cipher<= 25088, chain_index(first/min/max)=22/22/22, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-07-13 14:49:22.093] multiplexed avgpool encrypted pack parallel threads: 8
+[2026-07-13 14:49:22.093] multiplexed avgpool pack start: pack=1/8, input_chain_index=22, next_prime_bits=46
+[2026-07-13 14:49:22.093] multiplexed avgpool pack start: pack=0/8, input_chain_index=22, next_prime_bits=46
+[2026-07-13 14:49:22.093] multiplexed avgpool pack start: pack=3/8, input_chain_index=22, next_prime_bits=46
+[2026-07-13 14:49:22.093] multiplexed avgpool pack start: pack=4/8, input_chain_index=22, next_prime_bits=46
+[2026-07-13 14:49:22.093] multiplexed avgpool pack start: pack=5/8, input_chain_index=22, next_prime_bits=46
+[2026-07-13 14:49:22.093] multiplexed avgpool pack start: pack=5/8, input_chain_index=22, next_prime_bits=46
+multiplexed avgpool pack start: pack=6/8, input_chain_index=22, next_prime_bits=46
+[2026-07-13 14:49:22.093] multiplexed avgpool pack start: pack=7/8, input_chain_index=22, next_prime_bits=46
+[2026-07-13 14:57:54.230] multiplexed avgpool pack done: 1/8, pack=2, output_chain_index=20, elapsed_ms=512137
+[2026-07-13 14:57:54.923] multiplexed avgpool pack done: 2/8, pack=0, output_chain_index=20, elapsed_ms=512830
+[2026-07-13 14:57:57.328] multiplexed avgpool pack done: 3/8, pack=6, output_chain_index=20, elapsed_ms=515234
+[2026-07-13 14:58:05.417] multiplexed avgpool pack done: 4/8, pack=5, output_chain_index=20, elapsed_ms=523323
+[2026-07-13 14:58:22.740] multiplexed avgpool pack done: 5/8, pack=4, output_chain_index=20, elapsed_ms=540646
+[2026-07-13 14:58:28.101] multiplexed avgpool pack done: 6/8, pack=1, output_chain_index=20, elapsed_ms=546008
+[2026-07-13 14:58:30.367] multiplexed avgpool pack done: 7/8, pack=7, output_chain_index=20, elapsed_ms=548273
+[2026-07-13 14:58:33.856] multiplexed avgpool pack done: 8/8, pack=3, output_chain_index=20, elapsed_ms=551763
+[2026-07-13 14:58:33.861] [cipher-state] multiplexed avgpool output: shape(h=56, w=56, c=64, k=2), page_size=12544, pages_per_cipher=2, ciphertexts=8, active_slots_per_cipher<= 25088, chain_index(first/min/max)=20/20/20, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-07-13 14:58:33.861] [compare-start] stem.avgpool layout=multiplexed shape=56x56x64 k=2 packs=8
+[compare] stem.avgpool layout=multiplexed shape=56x56x64 k=2 packs=8 values=200704 max_abs_error=1.53837e-07 mean_abs_error=3.11499e-09 max_cipher_imag=5.00255e-08 max_plain_abs=0.250873 max_cipher_abs=0.250873
+[value-dump] stem.avgpool plain_first16=0.0129757 0.0161945 0.0173521 0.0156052 0.0154441 0.0169968 0.0163447 0.0163218 0.0165974 0.017059 0.0168974 0.0167643 0.0167261 0.0164741 0.0170684 0.0169826
+[value-dump] stem.avgpool cipher_real_first16=0.0129757 0.0161945 0.0173521 0.0156052 0.0154441 0.0169968 0.0163447 0.0163218 0.0165974 0.017059 0.0168974 0.0167643 0.0167261 0.0164741 0.0170684 0.0169826
+[value-dump] stem.avgpool cipher_imag_first16=6.62903e-09 3.04715e-09 9.23345e-10 2.11413e-10 9.74955e-10 6.95146e-10 -2.30698e-10 -4.24059e-10 -1.735e-10 -3.45289e-10 -2.76146e-10 8.25293e-11 2.70297e-10 1.19219e-10 -4.31066e-10 2.4367e-11
+[2026-07-13 14:58:36.671] [compare-done] stem.avgpool layout=multiplexed total_ms=2810
+[2026-07-13 14:58:36.789] [cipher-state] multiplexed_dense_conv2d_all_channels input: shape(h=56, w=56, c=64, k=2), page_size=12544, pages_per_cipher=2, ciphertexts=8, active_slots_per_cipher<= 25088, chain_index(first/min/max)=20/20/20, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-07-13 14:58:36.789] multiplexed dense conv compact-vector output pack threads: 8
+[2026-07-13 14:58:36.789] multiplexed dense conv compact-vector estimate: output_packs=8, input_packs=8, max_output_channels_per_pack=8, spatial_rotations_per_pack<=8, plaintext_vector_multiplies_per_pack<=128
