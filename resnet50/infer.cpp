@@ -4,6 +4,7 @@
 #include "encrypted_ops.h"
 #include "infer_config.h"
 #include "infer_runtime.h"
+#include "multiplexed_ops.h"
 #include "parallel_utils.h"
 #include "parameter_loader.h"
 #include "plain_cnn.h"
@@ -184,9 +185,350 @@ double max_abs_error(const vector<double> &lhs, const vector<double> &rhs)
     return error;
 }
 
+vector<complex<double>> decrypt_channel_group_complex(const ChannelCipherGroup &group,
+                                                      PoseidonRuntime &runtime,
+                                                      const string &label = "channel_group")
+{
+    const auto group_start = chrono::steady_clock::now();
+    resnet18_progress_log() << "[decrypt-start] " << label
+                            << " shape=" << group.h << 'x' << group.w << 'x' << group.c
+                            << " channels=" << group.channels.size()
+                            << " spatial_per_channel=" << group.h * group.w << endl;
+    vector<complex<double>> values(static_cast<size_t>(group.c) *
+                                       static_cast<size_t>(group.h * group.w),
+                                   complex<double>(0.0, 0.0));
+    const size_t spatial_count = static_cast<size_t>(group.h * group.w);
+    for (int channel = 0; channel < group.c; ++channel)
+    {
+        const auto channel_start = chrono::steady_clock::now();
+        resnet18_progress_log() << "[decrypt-channel-start] " << label << " channel="
+                                << channel + 1 << '/' << group.c << endl;
+        Plaintext plain;
+        runtime.decryptor.decrypt(group.channels.at(static_cast<size_t>(channel)), plain);
+        const auto decrypt_end = chrono::steady_clock::now();
+        resnet18_progress_log() << "[decrypt-channel-decrypted] " << label << " channel="
+                                << channel + 1 << '/' << group.c << " decrypt_ms="
+                                << chrono::duration_cast<chrono::milliseconds>(decrypt_end -
+                                                                               channel_start)
+                                       .count()
+                                << endl;
+        vector<complex<double>> decoded;
+        runtime.encoder.decode(plain, decoded);
+        const auto decode_end = chrono::steady_clock::now();
+        for (size_t i = 0; i < spatial_count; ++i)
+        {
+            values[static_cast<size_t>(channel) * spatial_count + i] = decoded.at(i);
+        }
+        resnet18_progress_log() << "[decrypt-channel-done] " << label << " channel="
+                                << channel + 1 << '/' << group.c << " decode_copy_ms="
+                                << chrono::duration_cast<chrono::milliseconds>(decode_end -
+                                                                               decrypt_end)
+                                       .count()
+                                << " total_ms="
+                                << chrono::duration_cast<chrono::milliseconds>(decode_end -
+                                                                               channel_start)
+                                       .count()
+                                << endl;
+    }
+    resnet18_progress_log() << "[decrypt-done] " << label << " channels=" << group.c
+                            << " total_ms="
+                            << chrono::duration_cast<chrono::milliseconds>(
+                                   chrono::steady_clock::now() - group_start)
+                                   .count()
+                            << endl;
+    return values;
+}
+
+void write_double_preview(ostream &out, const vector<double> &values, size_t limit)
+{
+    const size_t count = min(limit, values.size());
+    for (size_t i = 0; i < count; ++i)
+    {
+        if (i != 0)
+        {
+            out << ' ';
+        }
+        out << values.at(i);
+    }
+}
+
+void write_real_preview(ostream &out, const vector<complex<double>> &values, size_t limit)
+{
+    const size_t count = min(limit, values.size());
+    for (size_t i = 0; i < count; ++i)
+    {
+        if (i != 0)
+        {
+            out << ' ';
+        }
+        out << values.at(i).real();
+    }
+}
+
+void write_imag_preview(ostream &out, const vector<complex<double>> &values, size_t limit)
+{
+    const size_t count = min(limit, values.size());
+    for (size_t i = 0; i < count; ++i)
+    {
+        if (i != 0)
+        {
+            out << ' ';
+        }
+        out << values.at(i).imag();
+    }
+}
+
+void log_channel_compare(const string &label, const ChannelCipherGroup &encrypted,
+                         const PlainTensor &plain, PoseidonRuntime &runtime, ostream &out,
+                         size_t preview_limit = 16)
+{
+    if (encrypted.h != plain.h || encrypted.w != plain.w || encrypted.c != plain.c)
+    {
+        throw invalid_argument("channel/plain tensor shape mismatch at " + label);
+    }
+
+    const auto compare_start = chrono::steady_clock::now();
+    resnet18_progress_log() << "[compare-start] " << label
+                            << " shape=" << encrypted.h << 'x' << encrypted.w << 'x'
+                            << encrypted.c << " values=" << plain.values.size() << endl;
+    const vector<complex<double>> decrypted =
+        decrypt_channel_group_complex(encrypted, runtime, "compare." + label);
+    if (decrypted.size() != plain.values.size())
+    {
+        throw invalid_argument("channel/plain tensor value count mismatch at " + label);
+    }
+
+    double max_error = 0.0;
+    double sum_error = 0.0;
+    double max_imag = 0.0;
+    double max_plain_abs = 0.0;
+    double max_cipher_abs = 0.0;
+    for (size_t i = 0; i < decrypted.size(); ++i)
+    {
+        const double plain_value = plain.values.at(i);
+        const double cipher_real = decrypted.at(i).real();
+        const double error = fabs(cipher_real - plain_value);
+        max_error = max(max_error, error);
+        sum_error += error;
+        max_imag = max(max_imag, fabs(decrypted.at(i).imag()));
+        max_plain_abs = max(max_plain_abs, fabs(plain_value));
+        max_cipher_abs = max(max_cipher_abs, fabs(cipher_real));
+    }
+
+    const double mean_error =
+        decrypted.empty() ? 0.0 : sum_error / static_cast<double>(decrypted.size());
+    out << "[compare] " << label
+        << " shape=" << encrypted.h << 'x' << encrypted.w << 'x' << encrypted.c
+        << " values=" << decrypted.size()
+        << " max_abs_error=" << max_error
+        << " mean_abs_error=" << mean_error
+        << " max_cipher_imag=" << max_imag
+        << " max_plain_abs=" << max_plain_abs
+        << " max_cipher_abs=" << max_cipher_abs << '\n';
+    out << "[value-dump] " << label << " plain_first" << preview_limit << '=';
+    write_double_preview(out, plain.values, preview_limit);
+    out << '\n';
+    out << "[value-dump] " << label << " cipher_real_first" << preview_limit << '=';
+    write_real_preview(out, decrypted, preview_limit);
+    out << '\n';
+    out << "[value-dump] " << label << " cipher_imag_first" << preview_limit << '=';
+    write_imag_preview(out, decrypted, preview_limit);
+    out << '\n';
+    out.flush();
+    resnet18_progress_log() << "[compare-done] " << label << " total_ms="
+                            << chrono::duration_cast<chrono::milliseconds>(
+                                   chrono::steady_clock::now() - compare_start)
+                                   .count()
+                            << endl;
+}
+
+void log_multiplexed_compare(const string &label,
+                             const MultiplexedCipherGroup &encrypted,
+                             const PlainTensor &plain, PoseidonRuntime &runtime,
+                             ostream &out, size_t preview_limit = 16)
+{
+    if (encrypted.h != plain.h || encrypted.w != plain.w || encrypted.c != plain.c)
+    {
+        throw invalid_argument("multiplexed/plain tensor shape mismatch at " + label);
+    }
+
+    const auto start = chrono::steady_clock::now();
+    resnet18_progress_log() << "[compare-start] " << label << " layout=multiplexed"
+                            << " shape=" << encrypted.h << 'x' << encrypted.w << 'x'
+                            << encrypted.c << " k=" << encrypted.k
+                            << " packs=" << encrypted.packs.size() << endl;
+    const vector<complex<double>> decrypted =
+        decrypt_multiplexed_group_complex(encrypted, runtime);
+    if (decrypted.size() != plain.values.size())
+    {
+        throw invalid_argument("multiplexed/plain tensor value count mismatch at " + label);
+    }
+
+    double max_error = 0.0;
+    double sum_error = 0.0;
+    double max_imag = 0.0;
+    double max_plain_abs = 0.0;
+    double max_cipher_abs = 0.0;
+    for (size_t i = 0; i < decrypted.size(); ++i)
+    {
+        const double plain_value = plain.values.at(i);
+        const double cipher_real = decrypted.at(i).real();
+        const double error = fabs(cipher_real - plain_value);
+        max_error = max(max_error, error);
+        sum_error += error;
+        max_imag = max(max_imag, fabs(decrypted.at(i).imag()));
+        max_plain_abs = max(max_plain_abs, fabs(plain_value));
+        max_cipher_abs = max(max_cipher_abs, fabs(cipher_real));
+    }
+
+    const double mean_error = decrypted.empty()
+                                  ? 0.0
+                                  : sum_error / static_cast<double>(decrypted.size());
+    out << "[compare] " << label << " layout=multiplexed"
+        << " shape=" << encrypted.h << 'x' << encrypted.w << 'x' << encrypted.c
+        << " k=" << encrypted.k << " packs=" << encrypted.packs.size()
+        << " values=" << decrypted.size() << " max_abs_error=" << max_error
+        << " mean_abs_error=" << mean_error << " max_cipher_imag=" << max_imag
+        << " max_plain_abs=" << max_plain_abs << " max_cipher_abs=" << max_cipher_abs
+        << '\n';
+    out << "[value-dump] " << label << " plain_first" << preview_limit << '=';
+    write_double_preview(out, plain.values, preview_limit);
+    out << '\n';
+    out << "[value-dump] " << label << " cipher_real_first" << preview_limit << '=';
+    write_real_preview(out, decrypted, preview_limit);
+    out << '\n';
+    out << "[value-dump] " << label << " cipher_imag_first" << preview_limit << '=';
+    write_imag_preview(out, decrypted, preview_limit);
+    out << '\n';
+    out.flush();
+    resnet18_progress_log() << "[compare-done] " << label << " layout=multiplexed total_ms="
+                            << chrono::duration_cast<chrono::milliseconds>(
+                                   chrono::steady_clock::now() - start)
+                                   .count()
+                            << endl;
+}
+
+vector<complex<double>> decrypt_slot0_complex_values(const vector<Ciphertext> &ciphers,
+                                                     PoseidonRuntime &runtime,
+                                                     const string &label = "slot0")
+{
+    const auto start = chrono::steady_clock::now();
+    resnet18_progress_log() << "[slot0-decrypt-start] " << label
+                            << " ciphertexts=" << ciphers.size() << endl;
+    vector<complex<double>> values(ciphers.size(), {0.0, 0.0});
+    for (size_t i = 0; i < ciphers.size(); ++i)
+    {
+        Plaintext plain;
+        runtime.decryptor.decrypt(ciphers[i], plain);
+        vector<complex<double>> decoded;
+        runtime.encoder.decode(plain, decoded);
+        values[i] = decoded.at(0);
+        if ((i + 1) % 10 == 0 || i + 1 == ciphers.size())
+        {
+            resnet18_progress_log() << "[slot0-decrypt-progress] " << label << ' ' << i + 1
+                                    << '/' << ciphers.size() << endl;
+        }
+    }
+    resnet18_progress_log() << "[slot0-decrypt-done] " << label << " total_ms="
+                            << chrono::duration_cast<chrono::milliseconds>(
+                                   chrono::steady_clock::now() - start)
+                                   .count()
+                            << endl;
+    return values;
+}
+
+vector<double> real_values(const vector<complex<double>> &values)
+{
+    vector<double> real(values.size(), 0.0);
+    for (size_t i = 0; i < values.size(); ++i)
+    {
+        real[i] = values[i].real();
+    }
+    return real;
+}
+
+void log_logits_compare(const string &label, const vector<double> &plain,
+                        const vector<complex<double>> &encrypted, ostream &out,
+                        size_t preview_limit = 16)
+{
+    if (plain.size() != encrypted.size())
+    {
+        throw invalid_argument("logit vector size mismatch at " + label);
+    }
+
+    double max_error = 0.0;
+    double sum_error = 0.0;
+    double max_imag = 0.0;
+    for (size_t i = 0; i < plain.size(); ++i)
+    {
+        const double error = fabs(encrypted.at(i).real() - plain.at(i));
+        max_error = max(max_error, error);
+        sum_error += error;
+        max_imag = max(max_imag, fabs(encrypted.at(i).imag()));
+    }
+    const double mean_error =
+        plain.empty() ? 0.0 : sum_error / static_cast<double>(plain.size());
+    out << "[compare] " << label
+        << " values=" << plain.size()
+        << " max_abs_error=" << max_error
+        << " mean_abs_error=" << mean_error
+        << " max_cipher_imag=" << max_imag << '\n';
+    out << "[value-dump] " << label << " plain_first" << preview_limit << '=';
+    write_double_preview(out, plain, preview_limit);
+    out << '\n';
+    out << "[value-dump] " << label << " cipher_real_first" << preview_limit << '=';
+    write_real_preview(out, encrypted, preview_limit);
+    out << '\n';
+    out << "[value-dump] " << label << " cipher_imag_first" << preview_limit << '=';
+    write_imag_preview(out, encrypted, preview_limit);
+    out << '\n';
+}
+
+void log_packed_feature_compare(const string &label, const PlainTensor &plain,
+                                const Ciphertext &encrypted, PoseidonRuntime &runtime,
+                                ostream &out, size_t preview_limit = 16)
+{
+    Plaintext encoded;
+    runtime.decryptor.decrypt(encrypted, encoded);
+    vector<complex<double>> decoded;
+    runtime.encoder.decode(encoded, decoded);
+    if (plain.values.size() > decoded.size())
+    {
+        throw invalid_argument("packed feature/plain value count mismatch at " + label);
+    }
+    vector<complex<double>> features(decoded.begin(),
+                                     decoded.begin() + static_cast<ptrdiff_t>(plain.values.size()));
+    double max_error = 0.0;
+    double sum_error = 0.0;
+    double max_imag = 0.0;
+    for (size_t i = 0; i < plain.values.size(); ++i)
+    {
+        const double error = fabs(features[i].real() - plain.values[i]);
+        max_error = max(max_error, error);
+        sum_error += error;
+        max_imag = max(max_imag, fabs(features[i].imag()));
+    }
+    out << "[compare] " << label << " layout=multiplexed-packed values="
+        << plain.values.size() << " max_abs_error=" << max_error
+        << " mean_abs_error="
+        << (plain.values.empty() ? 0.0
+                                 : sum_error / static_cast<double>(plain.values.size()))
+        << " max_cipher_imag=" << max_imag << '\n';
+    out << "[value-dump] " << label << " plain_first" << preview_limit << '=';
+    write_double_preview(out, plain.values, preview_limit);
+    out << '\n';
+    out << "[value-dump] " << label << " cipher_real_first" << preview_limit << '=';
+    write_real_preview(out, features, preview_limit);
+    out << '\n';
+    out.flush();
+}
+
 ChannelCipherGroup encrypt_channel_group_values(const PlainTensor &plain, PoseidonRuntime &runtime,
                                                 int logp)
 {
+    const auto start = chrono::steady_clock::now();
+    resnet18_progress_log() << "[encrypt-group-start] mock.refresh shape=" << plain.h << 'x'
+                            << plain.w << 'x' << plain.c << " logp=" << logp << endl;
     ChannelCipherGroup group;
     group.h = plain.h;
     group.w = plain.w;
@@ -209,8 +551,15 @@ ChannelCipherGroup encrypt_channel_group_values(const PlainTensor &plain, Poseid
         Plaintext encoded;
         runtime.encoder.encode(slots, pow(2.0, logp), encoded);
         runtime.encryptor.encrypt(encoded, group.channels[static_cast<size_t>(channel)]);
+        resnet18_progress_log() << "[encrypt-channel-done] mock.refresh channel=" << channel + 1
+                                << '/' << plain.c << endl;
     }
 
+    resnet18_progress_log() << "[encrypt-group-done] mock.refresh total_ms="
+                            << chrono::duration_cast<chrono::milliseconds>(
+                                   chrono::steady_clock::now() - start)
+                                   .count()
+                            << endl;
     return group;
 }
 
@@ -218,6 +567,19 @@ ChannelCipherGroup mock_refresh_from_plain(const PlainTensor &plain, PoseidonRun
                                            int logp)
 {
     return encrypt_channel_group_values(plain, runtime, logp);
+}
+
+PlainTensor decrypt_channel_group_to_plain_tensor(const ChannelCipherGroup &group,
+                                                  PoseidonRuntime &runtime)
+{
+    vector<complex<double>> decrypted =
+        decrypt_channel_group_complex(group, runtime, "mock.decrypt_input");
+    vector<double> values(decrypted.size(), 0.0);
+    for (size_t i = 0; i < decrypted.size(); ++i)
+    {
+        values[i] = decrypted[i].real();
+    }
+    return PlainTensor(group.h, group.w, group.c, std::move(values));
 }
 
 ChannelCipherGroup encrypted_channel_conv2d_compact(
@@ -422,9 +784,24 @@ ChannelCipherGroup channel_relu(const ChannelCipherGroup &input, const ReluConfi
                                 const PlainTensor &plain_output,
                                 const ExecutionOptions &options, PoseidonRuntime &runtime)
 {
+    const auto start = chrono::steady_clock::now();
+    resnet18_progress_log() << "[relu-start] mode=" << (options.mock_relu ? "mock" : "encrypted")
+                            << " shape=" << input.h << 'x' << input.w << 'x' << input.c
+                            << " threads="
+                            << resnet18_parallel_thread_count(input.channels.size()) << endl;
     if (options.mock_relu)
     {
-        return mock_refresh_from_plain(plain_output, runtime, runtime.scale > 0 ? 46 : 46);
+        (void)plain_output;
+        PlainTensor decrypted_input = decrypt_channel_group_to_plain_tensor(input, runtime);
+        PlainTensor relu_output =
+            plain_polynomial_relu_reference(decrypted_input, relu_config);
+        ChannelCipherGroup output = mock_refresh_from_plain(relu_output, runtime, 46);
+        resnet18_progress_log() << "[relu-done] mode=mock total_ms="
+                                << chrono::duration_cast<chrono::milliseconds>(
+                                       chrono::steady_clock::now() - start)
+                                       .count()
+                                << endl;
+        return output;
     }
 
     ChannelCipherGroup output = input;
@@ -438,15 +815,35 @@ ChannelCipherGroup channel_relu(const ChannelCipherGroup &input, const ReluConfi
              runtime.encoder, runtime.relin_keys, runtime.scale);
         output.channels[channel_index] = out.cipher();
     });
+    resnet18_progress_log() << "[relu-done] mode=encrypted channels=" << input.channels.size()
+                            << " total_ms="
+                            << chrono::duration_cast<chrono::milliseconds>(
+                                   chrono::steady_clock::now() - start)
+                                   .count()
+                            << endl;
     return output;
 }
 
 ChannelCipherGroup channel_bootstrap(const ChannelCipherGroup &input, const PlainTensor &plain,
                                      const ExecutionOptions &options, PoseidonRuntime &runtime)
 {
+    const auto start = chrono::steady_clock::now();
+    resnet18_progress_log() << "[bootstrap-start] mode="
+                            << (options.mock_bootstrap ? "mock" : "encrypted")
+                            << " shape=" << input.h << 'x' << input.w << 'x' << input.c
+                            << " threads="
+                            << resnet18_parallel_thread_count(input.channels.size()) << endl;
     if (options.mock_bootstrap)
     {
-        return mock_refresh_from_plain(plain, runtime, 46);
+        (void)plain;
+        PlainTensor decrypted_input = decrypt_channel_group_to_plain_tensor(input, runtime);
+        ChannelCipherGroup output = mock_refresh_from_plain(decrypted_input, runtime, 46);
+        resnet18_progress_log() << "[bootstrap-done] mode=mock total_ms="
+                                << chrono::duration_cast<chrono::milliseconds>(
+                                       chrono::steady_clock::now() - start)
+                                       .count()
+                                << endl;
+        return output;
     }
 
     PoseidonBootstrapContext bootstrapper;
@@ -464,6 +861,12 @@ ChannelCipherGroup channel_bootstrap(const ChannelCipherGroup &input, const Plai
         bootstrap_tensor(in, out, bootstrapper, runtime.encoder);
         output.channels[channel_index] = out.cipher();
     });
+    resnet18_progress_log() << "[bootstrap-done] mode=encrypted channels="
+                            << input.channels.size() << " total_ms="
+                            << chrono::duration_cast<chrono::milliseconds>(
+                                   chrono::steady_clock::now() - start)
+                                   .count()
+                            << endl;
     return output;
 }
 
@@ -589,9 +992,164 @@ ChannelCipherGroup encrypted_bottleneck_block(
     return channel_relu(out, relu_config, plain_output, options, runtime);
 }
 
+struct TracedBlockState
+{
+    PlainTensor plain;
+    MultiplexedCipherGroup encrypted;
+};
+
+TracedBlockState traced_bottleneck_block(
+    const PlainTensor &plain_input, const MultiplexedCipherGroup &encrypted_input,
+    const ModelWeights &weights, int stage, int block, size_t &conv_index, size_t &bn_index,
+    size_t ds_index, const ReluConfig &relu_config, const ExecutionOptions &options,
+    long logn, PoseidonRuntime &runtime, ostream &run_log)
+{
+    const int planes = kStagePlanes[stage - 1];
+    const int out_channels = kStageOutputChannels[stage - 1];
+    const int stride = (stage > 1 && block == 0) ? 2 : 1;
+    const string prefix = "layer" + to_string(stage) + ".block" + to_string(block);
+    const MultiplexedMockOptions mock_options{options.mock_relu, options.mock_bootstrap};
+
+    PlainTensor plain = plain_convolution(
+        plain_input, planes, 1, 1, 1, weights.conv_weight[conv_index],
+        weights.bn_running_var[bn_index], weights.bn_weight[bn_index], kBatchNormEpsilon);
+    MultiplexedCipherGroup encrypted = multiplexed_channel_conv2d_all_channels(
+        encrypted_input, planes, 1, 1, 1, weights.conv_weight[conv_index],
+        weights.bn_running_var[bn_index], weights.bn_weight[bn_index], kBatchNormEpsilon,
+        runtime);
+    log_multiplexed_compare(prefix + ".conv1", encrypted, plain, runtime, run_log);
+
+    plain = plain_batch_norm(plain, weights.bn_bias[bn_index],
+                             weights.bn_running_mean[bn_index],
+                             weights.bn_running_var[bn_index],
+                             weights.bn_weight[bn_index], kBatchNormEpsilon,
+                             kResNet50Boundary);
+    encrypted = multiplexed_channel_batch_norm(
+        encrypted, weights.bn_bias[bn_index], weights.bn_running_mean[bn_index],
+        weights.bn_running_var[bn_index], weights.bn_weight[bn_index],
+        kBatchNormEpsilon, kResNet50Boundary, runtime);
+    log_multiplexed_compare(prefix + ".bn1", encrypted, plain, runtime, run_log);
+    ++conv_index;
+    ++bn_index;
+
+    encrypted = multiplexed_channel_bootstrap(
+        encrypted, logn, runtime, prefix + ".bootstrap1", mock_options);
+    log_multiplexed_compare(prefix + ".bootstrap1", encrypted, plain, runtime, run_log);
+    plain = plain_polynomial_relu_reference(plain, relu_config);
+    encrypted = multiplexed_channel_homomorphic_relu(
+        encrypted, logn, relu_config, runtime, prefix + ".relu1", mock_options);
+    log_multiplexed_compare(prefix + ".relu1", encrypted, plain, runtime, run_log);
+
+    plain = plain_convolution(
+        plain, planes, stride, 3, 3, weights.conv_weight[conv_index],
+        weights.bn_running_var[bn_index], weights.bn_weight[bn_index], kBatchNormEpsilon);
+    encrypted = multiplexed_channel_conv2d_all_channels(
+        encrypted, planes, stride, 3, 3, weights.conv_weight[conv_index],
+        weights.bn_running_var[bn_index], weights.bn_weight[bn_index], kBatchNormEpsilon,
+        runtime);
+    log_multiplexed_compare(prefix + ".conv2", encrypted, plain, runtime, run_log);
+
+    plain = plain_batch_norm(plain, weights.bn_bias[bn_index],
+                             weights.bn_running_mean[bn_index],
+                             weights.bn_running_var[bn_index],
+                             weights.bn_weight[bn_index], kBatchNormEpsilon,
+                             kResNet50Boundary);
+    encrypted = multiplexed_channel_batch_norm(
+        encrypted, weights.bn_bias[bn_index], weights.bn_running_mean[bn_index],
+        weights.bn_running_var[bn_index], weights.bn_weight[bn_index],
+        kBatchNormEpsilon, kResNet50Boundary, runtime);
+    log_multiplexed_compare(prefix + ".bn2", encrypted, plain, runtime, run_log);
+    ++conv_index;
+    ++bn_index;
+
+    encrypted = multiplexed_channel_bootstrap(
+        encrypted, logn, runtime, prefix + ".bootstrap2", mock_options);
+    log_multiplexed_compare(prefix + ".bootstrap2", encrypted, plain, runtime, run_log);
+    plain = plain_polynomial_relu_reference(plain, relu_config);
+    encrypted = multiplexed_channel_homomorphic_relu(
+        encrypted, logn, relu_config, runtime, prefix + ".relu2", mock_options);
+    log_multiplexed_compare(prefix + ".relu2", encrypted, plain, runtime, run_log);
+
+    plain = plain_convolution(
+        plain, out_channels, 1, 1, 1, weights.conv_weight[conv_index],
+        weights.bn_running_var[bn_index], weights.bn_weight[bn_index], kBatchNormEpsilon);
+    encrypted = multiplexed_channel_conv2d_all_channels(
+        encrypted, out_channels, 1, 1, 1, weights.conv_weight[conv_index],
+        weights.bn_running_var[bn_index], weights.bn_weight[bn_index], kBatchNormEpsilon,
+        runtime);
+    log_multiplexed_compare(prefix + ".conv3", encrypted, plain, runtime, run_log);
+
+    plain = plain_batch_norm(plain, weights.bn_bias[bn_index],
+                             weights.bn_running_mean[bn_index],
+                             weights.bn_running_var[bn_index],
+                             weights.bn_weight[bn_index], kBatchNormEpsilon,
+                             kResNet50Boundary);
+    encrypted = multiplexed_channel_batch_norm(
+        encrypted, weights.bn_bias[bn_index], weights.bn_running_mean[bn_index],
+        weights.bn_running_var[bn_index], weights.bn_weight[bn_index],
+        kBatchNormEpsilon, kResNet50Boundary, runtime);
+    log_multiplexed_compare(prefix + ".bn3", encrypted, plain, runtime, run_log);
+    ++conv_index;
+    ++bn_index;
+
+    PlainTensor plain_shortcut = plain_input;
+    MultiplexedCipherGroup encrypted_shortcut = encrypted_input;
+    if (block == 0)
+    {
+        plain_shortcut = plain_convolution(
+            plain_input, out_channels, stride, 1, 1, weights.downsample_weight[ds_index],
+            weights.downsample_bn_running_var[ds_index],
+            weights.downsample_bn_weight[ds_index], kBatchNormEpsilon);
+        encrypted_shortcut = multiplexed_channel_conv2d_all_channels(
+            encrypted_input, out_channels, stride, 1, 1,
+            weights.downsample_weight[ds_index],
+            weights.downsample_bn_running_var[ds_index],
+            weights.downsample_bn_weight[ds_index], kBatchNormEpsilon, runtime);
+        log_multiplexed_compare(prefix + ".shortcut.conv", encrypted_shortcut,
+                                plain_shortcut, runtime, run_log);
+
+        plain_shortcut = plain_batch_norm(
+            plain_shortcut, weights.downsample_bn_bias[ds_index],
+            weights.downsample_bn_running_mean[ds_index],
+            weights.downsample_bn_running_var[ds_index],
+            weights.downsample_bn_weight[ds_index], kBatchNormEpsilon,
+            kResNet50Boundary);
+        encrypted_shortcut = multiplexed_channel_batch_norm(
+            encrypted_shortcut, weights.downsample_bn_bias[ds_index],
+            weights.downsample_bn_running_mean[ds_index],
+            weights.downsample_bn_running_var[ds_index],
+            weights.downsample_bn_weight[ds_index], kBatchNormEpsilon,
+            kResNet50Boundary, runtime);
+        log_multiplexed_compare(prefix + ".shortcut.bn", encrypted_shortcut,
+                                plain_shortcut, runtime, run_log);
+    }
+    else
+    {
+        log_multiplexed_compare(prefix + ".shortcut.identity", encrypted_shortcut,
+                                plain_shortcut, runtime, run_log);
+    }
+
+    plain = plain_add(plain, plain_shortcut);
+    encrypted = multiplexed_channel_add(encrypted, encrypted_shortcut, runtime);
+    log_multiplexed_compare(prefix + ".add", encrypted, plain, runtime, run_log);
+
+    encrypted = multiplexed_channel_bootstrap(
+        encrypted, logn, runtime, prefix + ".bootstrap3", mock_options);
+    log_multiplexed_compare(prefix + ".bootstrap3", encrypted, plain, runtime, run_log);
+    plain = plain_polynomial_relu_reference(plain, relu_config);
+    encrypted = multiplexed_channel_homomorphic_relu(
+        encrypted, logn, relu_config, runtime, prefix + ".relu3", mock_options);
+    log_multiplexed_compare(prefix + ".relu3", encrypted, plain, runtime, run_log);
+
+    return {std::move(plain), std::move(encrypted)};
+}
 ChannelCipherGroup encrypted_global_average_pool(const ChannelCipherGroup &input,
                                                  PoseidonRuntime &runtime)
 {
+    const auto start = chrono::steady_clock::now();
+    resnet18_progress_log() << "[global-avgpool-start] shape=" << input.h << 'x' << input.w
+                            << 'x' << input.c << " threads="
+                            << resnet18_parallel_thread_count(input.channels.size()) << endl;
     ChannelCipherGroup output;
     output.h = 1;
     output.w = 1;
@@ -617,6 +1175,12 @@ ChannelCipherGroup encrypted_global_average_pool(const ChannelCipherGroup &input
         output.channels[channel_index] =
             multiply_by_constant_scalar(masked, scale, runtime.encoder, *runtime.evaluator);
     });
+    resnet18_progress_log() << "[global-avgpool-done] channels=" << input.channels.size()
+                            << " total_ms="
+                            << chrono::duration_cast<chrono::milliseconds>(
+                                   chrono::steady_clock::now() - start)
+                                   .count()
+                            << endl;
     return output;
 }
 
@@ -625,6 +1189,10 @@ vector<Ciphertext> encrypted_fully_connected_slot0(const ChannelCipherGroup &fea
                                                    const vector<double> &bias,
                                                    PoseidonRuntime &runtime)
 {
+    const auto start = chrono::steady_clock::now();
+    resnet18_progress_log() << "[fully-connected-start] classes=" << kImageNetClassCount
+                            << " input_channels=" << features.c << " threads="
+                            << resnet18_parallel_thread_count(kImageNetClassCount) << endl;
     if (features.h != 1 || features.w != 1 || features.c != kResNet50FinalChannels)
     {
         throw invalid_argument("encrypted FC expects 1x1x2048 features");
@@ -670,6 +1238,12 @@ vector<Ciphertext> encrypted_fully_connected_slot0(const ChannelCipherGroup &fea
         add_slot0_constant_inplace(sum, bias[class_index], runtime);
         logits[class_index] = std::move(sum);
     });
+    resnet18_progress_log() << "[fully-connected-done] classes=" << logits.size()
+                            << " total_ms="
+                            << chrono::duration_cast<chrono::milliseconds>(
+                                   chrono::steady_clock::now() - start)
+                                   .count()
+                            << endl;
     return logits;
 }
 
@@ -701,11 +1275,15 @@ void ResNet50_imagenet_sparse(size_t start_image_id, size_t end_image_id)
     }
     ScopedProgressLogTarget progress_target(run_log);
 
+    resnet18_progress_log() << "[startup] build inference plan" << endl;
     const PoseidonInferPlan plan = default_poseidon_plan();
     ReluConfig relu_config = default_relu_config(plan);
     const ExecutionOptions options = read_execution_options();
+    resnet18_progress_log() << "[startup] load ResNet50 parameters" << endl;
     ModelWeights weights = load_resnet50_parameters();
+    resnet18_progress_log() << "[startup] create Poseidon runtime and keys" << endl;
     PoseidonRuntime runtime = make_poseidon_runtime(plan);
+    resnet18_progress_log() << "[startup] Poseidon runtime ready" << endl;
 
     run_log << "ResNet50 ImageNet encrypted inference\n";
     run_log << "images=" << start_image_id << ".." << end_image_id
@@ -720,47 +1298,59 @@ void ResNet50_imagenet_sparse(size_t start_image_id, size_t end_image_id)
         const PlainTensor plain_input =
             plain_input_tensor_from_image_slots(image_values);
 
-        size_t plain_conv_index = 0;
-        size_t plain_bn_index = 0;
+        size_t conv_index = 0;
+        size_t bn_index = 0;
         PlainTensor plain = plain_convolution(
-            plain_input, 64, 2, 7, 7, weights.conv_weight[plain_conv_index],
-            weights.bn_running_var[plain_bn_index], weights.bn_weight[plain_bn_index],
+            plain_input, 64, 2, 7, 7, weights.conv_weight[conv_index],
+            weights.bn_running_var[bn_index], weights.bn_weight[bn_index],
             kBatchNormEpsilon);
-        plain = plain_batch_norm(plain, weights.bn_bias[plain_bn_index],
-                                 weights.bn_running_mean[plain_bn_index],
-                                 weights.bn_running_var[plain_bn_index],
-                                 weights.bn_weight[plain_bn_index], kBatchNormEpsilon,
-                                 kResNet50Boundary);
-        plain = plain_polynomial_relu_reference(plain, relu_config);
-        plain = plain_average_pool2d(plain, 3, 2, 1);
-        ++plain_conv_index;
-        ++plain_bn_index;
-
         Im2ColCipherGroup conv1_im2col = encrypt_conv2d_im2col_patches(
             image_values, kImageNetInputHeight, kImageNetInputWidth, kImageNetInputChannels, 2,
             7, 7, runtime, plan.log_scale);
-        ChannelCipherGroup encrypted = encrypted_conv2d_im2col_all_channels(
+        ChannelCipherGroup encrypted_stem = encrypted_conv2d_im2col_all_channels(
             conv1_im2col, 64, weights.conv_weight[0], weights.bn_running_var[0],
             weights.bn_weight[0], kBatchNormEpsilon, runtime);
-        encrypted = encrypted_channel_batch_norm(
+        log_channel_compare("stem.conv1", encrypted_stem, plain, runtime, run_log);
+
+        MultiplexedCipherGroup encrypted =
+            pack_channel_group_as_multiplexed_k1(encrypted_stem, runtime);
+        log_multiplexed_compare("stem.pack_k1", encrypted, plain, runtime, run_log);
+
+        plain = plain_batch_norm(plain, weights.bn_bias[bn_index],
+                                 weights.bn_running_mean[bn_index],
+                                 weights.bn_running_var[bn_index],
+                                 weights.bn_weight[bn_index], kBatchNormEpsilon,
+                                 kResNet50Boundary);
+        encrypted = multiplexed_channel_batch_norm(
             encrypted, weights.bn_bias[0], weights.bn_running_mean[0],
             weights.bn_running_var[0], weights.bn_weight[0], kBatchNormEpsilon,
             kResNet50Boundary, runtime);
-        encrypted = channel_relu(encrypted, relu_config, plain, options, runtime);
-        encrypted = encrypted_average_pool2d_compact(encrypted, 3, 2, 1, runtime);
+        log_multiplexed_compare("stem.bn1", encrypted, plain, runtime, run_log);
 
-        size_t encrypted_conv_index = 1;
-        size_t encrypted_bn_index = 1;
+        ++conv_index;
+        ++bn_index;
+
+        plain = plain_polynomial_relu_reference(plain, relu_config);
+        encrypted = multiplexed_channel_homomorphic_relu(
+            encrypted, plan.logN, relu_config, runtime, "stem.relu1",
+            MultiplexedMockOptions{options.mock_relu, options.mock_bootstrap});
+        log_multiplexed_compare("stem.relu1", encrypted, plain, runtime, run_log);
+
+        plain = plain_average_pool2d(plain, 3, 2, 1);
+        encrypted = multiplexed_average_pool2d_stride2(
+            encrypted, plain.h, plain.w, encrypted.k * 2, runtime);
+        log_multiplexed_compare("stem.avgpool", encrypted, plain, runtime, run_log);
+
         for (int stage = 1; stage <= kResNet50StageCount; ++stage)
         {
             const size_t ds_index = static_cast<size_t>(stage - 1);
             for (int block = 0; block < kResNet50BlocksPerStage[stage - 1]; ++block)
             {
-                plain = plain_bottleneck_block(plain, weights, stage, block, plain_conv_index,
-                                               plain_bn_index, ds_index, relu_config);
-                encrypted = encrypted_bottleneck_block(
-                    encrypted, plain, weights, stage, block, encrypted_conv_index,
-                    encrypted_bn_index, ds_index, relu_config, options, runtime);
+                TracedBlockState state = traced_bottleneck_block(
+                    plain, encrypted, weights, stage, block, conv_index, bn_index, ds_index,
+                    relu_config, options, plan.logN, runtime, run_log);
+                plain = std::move(state.plain);
+                encrypted = std::move(state.encrypted);
                 run_log << "  stage=" << stage << " block=" << block
                         << " shape=" << encrypted.h << "x" << encrypted.w << "x"
                         << encrypted.c << '\n';
@@ -773,10 +1363,18 @@ void ResNet50_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             kResNet50FinalChannels);
         const int plain_pred = argmax_index(plain_logits);
 
-        ChannelCipherGroup encrypted_avg = encrypted_global_average_pool(encrypted, runtime);
-        vector<Ciphertext> encrypted_logits = encrypted_fully_connected_slot0(
-            encrypted_avg, weights.linear_weight, weights.linear_bias, runtime);
-        vector<double> decrypted_logits = decrypt_slot0_values(encrypted_logits, runtime);
+        Ciphertext encrypted_avg = multiplexed_global_average_pool_packed(
+            encrypted, kResNet50Boundary, runtime);
+        log_packed_feature_compare("head.avgpool", plain_avg, encrypted_avg, runtime,
+                                   run_log);
+
+        vector<Ciphertext> encrypted_logits = multiplexed_fully_connected_packed(
+            encrypted_avg, kResNet50FinalChannels, weights.linear_weight,
+            weights.linear_bias, kImageNetClassCount, runtime);
+        vector<complex<double>> decrypted_logits_complex =
+            decrypt_slot0_complex_values(encrypted_logits, runtime, "head.fc");
+        vector<double> decrypted_logits = real_values(decrypted_logits_complex);
+        log_logits_compare("head.fc", plain_logits, decrypted_logits_complex, run_log);
         const int encrypted_pred = argmax_index(decrypted_logits);
 
         run_log << "  true_label=" << true_label << ", plain_pred=" << plain_pred

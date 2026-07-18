@@ -1,5 +1,6 @@
 #include "poseidon/advance/homomorphic_dft.h"
 #include "poseidon/advance/homomorphic_mod.h"
+#include "poseidon/advance/mpcnn_bootstrap.h"
 #include "poseidon/ckks_encoder.h"
 #include "poseidon/decryptor.h"
 #include "poseidon/encryptor.h"
@@ -24,25 +25,43 @@ using namespace std;
 namespace
 {
 
+uint32_t read_env_u32(const char *name, uint32_t fallback);
+
 vector<uint32_t> logq_chain()
 {
-    uint32_t prefix_46_count = 3;
-    if (const char *value = std::getenv("BOOTSTRAP_PREFIX_46_COUNT"))
+    const bool mpcnn_bootstrap =
+        std::getenv("BOOTSTRAP_MPCNN_LT") && std::getenv("BOOTSTRAP_MPCNN_LT")[0] != '0';
+    uint32_t low_level_46_count = 2;
+    if (const char *value = std::getenv("BOOTSTRAP_LOW_LEVEL_46_COUNT"))
     {
         char *end = nullptr;
         const auto parsed = std::strtoul(value, &end, 10);
         if (end != value && *end == '\0')
         {
-            prefix_46_count = static_cast<uint32_t>(parsed);
+            low_level_46_count = static_cast<uint32_t>(parsed);
         }
     }
 
-    constexpr uint32_t total_prime_count = 21;
-    prefix_46_count = min(prefix_46_count, total_prime_count);
-    vector<uint32_t> chain(total_prime_count, 51);
-    for (uint32_t i = 0; i < prefix_46_count; ++i)
+    uint32_t total_prime_count = mpcnn_bootstrap ? 16 : 20;
+    if (const char *value = std::getenv("BOOTSTRAP_TOTAL_PRIME_COUNT"))
     {
-        chain[i] = 46;
+        char *end = nullptr;
+        const auto parsed = std::strtoul(value, &end, 10);
+        if (end != value && *end == '\0')
+        {
+            total_prime_count = static_cast<uint32_t>(parsed);
+        }
+    }
+    const uint32_t low_level_start = mpcnn_bootstrap ? 1 : 0;
+    low_level_46_count =
+        min(low_level_46_count, total_prime_count > low_level_start
+                                    ? total_prime_count - low_level_start
+                                    : 0);
+    const uint32_t bootstrap_prime_bits = read_env_u32("BOOTSTRAP_Q_BITS", 51);
+    vector<uint32_t> chain(total_prime_count, bootstrap_prime_bits);
+    for (uint32_t i = 0; i < low_level_46_count; ++i)
+    {
+        chain[low_level_start + i] = 46;
     }
     return chain;
 }
@@ -71,6 +90,22 @@ bool read_env_bool(const char *name, bool fallback = false)
         return fallback;
     }
     return value[0] != '0';
+}
+
+double read_env_double(const char *name, double fallback)
+{
+    const char *value = std::getenv(name);
+    if (!value || *value == '\0')
+    {
+        return fallback;
+    }
+    char *end = nullptr;
+    const auto parsed = std::strtod(value, &end);
+    if (end == value || *end != '\0')
+    {
+        throw invalid_argument(string("invalid floating-point environment variable: ") + name);
+    }
+    return parsed;
 }
 
 double chebyshev_eval(const Polynomial &poly, complex<double> x)
@@ -137,6 +172,7 @@ void print_cipher_state(const string &label, const PoseidonContext &context, con
     cout << "  remaining level : " << context_data->chain_index() << '\n';
     cout << "  coeff_modulus_size : " << cipher.coeff_modulus_size() << '\n';
     cout << "  scale : " << cipher.scale() << '\n';
+    cout << "  transparent : " << cipher.is_transparent() << '\n';
 }
 
 void print_plain_preview(const string &label, const vector<complex<double>> &values)
@@ -275,10 +311,22 @@ void run_manual_bootstrap(Ciphertext bootstrap_input, const vector<complex<doubl
 {
     const bool reencrypt_cts = read_env_bool("BOOTSTRAP_REENCRYPT_CTS");
     const bool reencrypt_evalmod = read_env_bool("BOOTSTRAP_REENCRYPT_EVALMOD");
+    const bool high_precision = read_env_bool("BOOTSTRAP_HIGH_PRECISION", true);
+    const bool level_efficient =
+        !read_env_bool("POSEIDON_BOOTSTRAP_DISABLE_LEVEL_EFFICIENT", false);
 
     cout << "manual bootstrap options:"
          << " reencrypt_cts=" << reencrypt_cts
-         << " reencrypt_evalmod=" << reencrypt_evalmod << '\n';
+         << " reencrypt_evalmod=" << reencrypt_evalmod
+         << " high_precision=" << high_precision
+         << " level_efficient=" << level_efficient << '\n';
+
+    if (level_efficient)
+    {
+        cout << "manual bootstrap is only available for the legacy step=2 C2S path; "
+             << "set POSEIDON_BOOTSTRAP_DISABLE_LEVEL_EFFICIENT=1 to use it." << '\n';
+        return;
+    }
 
     auto result = bootstrap_input;
     const auto bootstrap_ratio = eval_mod_poly.message_ratio();
@@ -308,6 +356,11 @@ void run_manual_bootstrap(Ciphertext bootstrap_input, const vector<complex<doubl
     Ciphertext ciph_raise;
     evaluator.read(result);
     evaluator.raise_modulus(result, ciph_raise);
+    if (high_precision)
+    {
+        auto first_context_data = context.crt_context()->first_context_data();
+        ciph_raise.scale() = static_cast<double>(first_context_data->coeff_modulus()[0].value());
+    }
     print_cipher_state("manual after raise_modulus", context, ciph_raise);
 
     auto scale_raise = eval_mod_poly.scaling_factor() / ciph_raise.scale();
@@ -330,7 +383,7 @@ void run_manual_bootstrap(Ciphertext bootstrap_input, const vector<complex<doubl
         static_cast<uint32_t>(context.parameters_literal()->q().size() - 1),
         vector<uint32_t>(3, 1), true, coeffs_to_slots_scaling, false, 1);
     LinearMatrixGroup coeff_to_slot_matrix;
-    coeff_to_slot_literal.create(coeff_to_slot_matrix, encoder, 2);
+    coeff_to_slot_literal.create(coeff_to_slot_matrix, encoder, level_efficient ? 1 : 2);
 
     Ciphertext ciph_real, ciph_imag;
     evaluator.coeff_to_slot(ciph_raise, coeff_to_slot_matrix, ciph_real, ciph_imag, rot_keys, encoder);
@@ -342,6 +395,63 @@ void run_manual_bootstrap(Ciphertext bootstrap_input, const vector<complex<doubl
     print_plain_preview("manual coeff_to_slot imag preview:", cts_imag_plain);
     print_value_stats("manual coeff_to_slot real stats:", cts_real_plain, &eval_mod_poly);
     print_value_stats("manual coeff_to_slot imag stats:", cts_imag_plain, &eval_mod_poly);
+
+    if (read_env_bool("BOOTSTRAP_COMPARE_CTS_ONLY"))
+    {
+        LinearMatrixGroup coeff_to_slot_matrix_reference;
+        coeff_to_slot_literal.create(coeff_to_slot_matrix_reference, encoder, 2);
+        Ciphertext ref_real, ref_imag;
+        evaluator.coeff_to_slot(ciph_raise, coeff_to_slot_matrix_reference, ref_real, ref_imag,
+                                rot_keys, encoder);
+        auto ref_real_plain = decrypt_and_decode(ref_real, decryptor, encoder);
+        auto ref_imag_plain = decrypt_and_decode(ref_imag, decryptor, encoder);
+        print_cipher_state("manual reference coeff_to_slot real", context, ref_real);
+        print_cipher_state("manual reference coeff_to_slot imag", context, ref_imag);
+        print_error_stats("manual coeff_to_slot real delta vs step2:",
+                          cts_real_plain, ref_real_plain);
+        print_error_stats("manual coeff_to_slot imag delta vs step2:",
+                          cts_imag_plain, ref_imag_plain);
+
+        EvalModPoly ref_eval_mod_poly = eval_mod_poly;
+        ref_eval_mod_poly.set_level_start(static_cast<uint32_t>(
+            context.crt_context()->get_context_data(ref_real.parms_id())->level()));
+        eval_mod_poly.set_level_start(static_cast<uint32_t>(
+            context.crt_context()->get_context_data(ciph_real.parms_id())->level()));
+
+        Ciphertext real_mod, imag_mod, ref_real_mod, ref_imag_mod;
+        if (high_precision)
+        {
+            evaluator.eval_mod_high_precision(ciph_real, real_mod, eval_mod_poly, relin_keys,
+                                              encoder);
+            evaluator.eval_mod_high_precision(ciph_imag, imag_mod, eval_mod_poly, relin_keys,
+                                              encoder);
+            evaluator.eval_mod_high_precision(ref_real, ref_real_mod, ref_eval_mod_poly,
+                                              relin_keys, encoder);
+            evaluator.eval_mod_high_precision(ref_imag, ref_imag_mod, ref_eval_mod_poly,
+                                              relin_keys, encoder);
+        }
+        else
+        {
+            evaluator.eval_mod(ciph_real, real_mod, eval_mod_poly, relin_keys, encoder);
+            evaluator.eval_mod(ciph_imag, imag_mod, eval_mod_poly, relin_keys, encoder);
+            evaluator.eval_mod(ref_real, ref_real_mod, ref_eval_mod_poly, relin_keys, encoder);
+            evaluator.eval_mod(ref_imag, ref_imag_mod, ref_eval_mod_poly, relin_keys, encoder);
+        }
+
+        auto real_mod_plain = decrypt_and_decode(real_mod, decryptor, encoder);
+        auto imag_mod_plain = decrypt_and_decode(imag_mod, decryptor, encoder);
+        auto ref_real_mod_plain = decrypt_and_decode(ref_real_mod, decryptor, encoder);
+        auto ref_imag_mod_plain = decrypt_and_decode(ref_imag_mod, decryptor, encoder);
+        print_cipher_state("manual eval_mod real step1", context, real_mod);
+        print_cipher_state("manual eval_mod imag step1", context, imag_mod);
+        print_cipher_state("manual eval_mod real step2", context, ref_real_mod);
+        print_cipher_state("manual eval_mod imag step2", context, ref_imag_mod);
+        print_error_stats("manual eval_mod real delta vs step2:",
+                          real_mod_plain, ref_real_mod_plain);
+        print_error_stats("manual eval_mod imag delta vs step2:",
+                          imag_mod_plain, ref_imag_mod_plain);
+        return;
+    }
 
     if (reencrypt_cts)
     {
@@ -356,8 +466,18 @@ void run_manual_bootstrap(Ciphertext bootstrap_input, const vector<complex<doubl
     eval_mod_poly.set_level_start(static_cast<uint32_t>(
         context.crt_context()->get_context_data(ciph_real.parms_id())->level()));
     Ciphertext ciph_real_mod, ciph_imag_mod;
-    evaluator.eval_mod(ciph_imag, ciph_imag_mod, eval_mod_poly, relin_keys, encoder);
-    evaluator.eval_mod(ciph_real, ciph_real_mod, eval_mod_poly, relin_keys, encoder);
+    if (high_precision)
+    {
+        evaluator.eval_mod_high_precision(ciph_imag, ciph_imag_mod, eval_mod_poly, relin_keys,
+                                          encoder);
+        evaluator.eval_mod_high_precision(ciph_real, ciph_real_mod, eval_mod_poly, relin_keys,
+                                          encoder);
+    }
+    else
+    {
+        evaluator.eval_mod(ciph_imag, ciph_imag_mod, eval_mod_poly, relin_keys, encoder);
+        evaluator.eval_mod(ciph_real, ciph_real_mod, eval_mod_poly, relin_keys, encoder);
+    }
     print_cipher_state("manual after eval_mod imag", context, ciph_imag_mod);
     print_cipher_state("manual after eval_mod real", context, ciph_real_mod);
     auto evalmod_real_plain = decrypt_and_decode(ciph_real_mod, decryptor, encoder);
@@ -407,6 +527,200 @@ void run_manual_bootstrap(Ciphertext bootstrap_input, const vector<complex<doubl
     print_error_stats("manual bootstrap output error vs source:", decoded, message);
 }
 
+void run_mpcnn_lt_bootstrap(Ciphertext bootstrap_input, const vector<complex<double>> &message,
+                            const PoseidonContext &context, EvaluatorCkksBase &evaluator,
+                            const RelinKeys &relin_keys, const GaloisKeys &rot_keys,
+                            CKKSEncoder &encoder, Encryptor &encryptor, Decryptor &decryptor,
+                            EvalModPoly &eval_mod_poly)
+{
+    auto result = bootstrap_input;
+    const bool fhe_evalmod = read_env_bool("BOOTSTRAP_MPCNN_FHE_EVALMOD");
+    const auto bootstrap_ratio = eval_mod_poly.message_ratio();
+    auto input_context_data = context.crt_context()->get_context_data(result.parms_id());
+    const auto q0_level = input_context_data->parms().q0_level();
+    auto q0_over_message_ratio = context.crt_context()->q0();
+    q0_over_message_ratio =
+        exp2(round(log2(q0_over_message_ratio / static_cast<double>(bootstrap_ratio))));
+
+    auto level = result.level();
+    auto level_diff = level - q0_level;
+    if (level_diff > 1)
+    {
+        auto parms_id = context.crt_context()->parms_id_map().at(q0_level + 1);
+        evaluator.drop_modulus(result, result, parms_id);
+    }
+
+    auto scale = round(q0_over_message_ratio / result.scale());
+    if (scale > 1)
+    {
+        auto remaining_scale = scale;
+        while (remaining_scale > 1)
+        {
+            double factor = remaining_scale;
+            if (factor > static_cast<double>(0x7FFFFFFF))
+            {
+                factor = static_cast<double>(1ULL << 30);
+            }
+            factor = round(factor);
+            evaluator.multiply_const_direct(result, static_cast<int>(factor), result, encoder);
+            result.scale() *= factor;
+            remaining_scale = round(remaining_scale / factor);
+        }
+    }
+
+    auto parms_id = context.crt_context()->parms_id_map().at(q0_level);
+    evaluator.drop_modulus(result, result, parms_id);
+
+    const auto total_k =
+        static_cast<long>(llround(eval_mod_poly.k() * eval_mod_poly.sc_fac()));
+    const auto cts_boundary_k =
+        static_cast<long>(read_env_u32("BOOTSTRAP_MPCNN_BOUNDARY_K",
+                                       fhe_evalmod ? 25U : static_cast<uint32_t>(total_k)));
+    cout << "mpcnn c2s boundary_k: " << cts_boundary_k
+         << " fhe_evalmod=" << fhe_evalmod << '\n';
+    const auto c2s_levels = read_env_u32("BOOTSTRAP_MPCNN_C2S_LEVELS", 3);
+    cout << "mpcnn coeff_to_slot levels: " << c2s_levels << '\n';
+    MpcnnBootstrapper bootstrapper(context, evaluator, encoder,
+                                   context.parameters_literal()->log_slots(), cts_boundary_k,
+                                   bootstrap_input.scale(), context.parameters_literal()->scale(),
+                                   c2s_levels);
+    bootstrapper.generate_linear_coefficients();
+
+    Ciphertext ciph_raise;
+    bootstrapper.mod_raise(result, ciph_raise);
+    auto first_context_data = context.crt_context()->first_context_data();
+    ciph_raise.scale() = static_cast<double>(first_context_data->coeff_modulus()[0].value());
+    print_cipher_state("mpcnn after raise_modulus", context, ciph_raise);
+
+    auto scale_raise = eval_mod_poly.scaling_factor() / ciph_raise.scale();
+    scale_raise /= eval_mod_poly.message_ratio();
+    if (scale_raise > 1 && scale_raise < 0x7FFFFFFF)
+    {
+        evaluator.multiply_const_direct(ciph_raise, static_cast<int>(scale_raise), ciph_raise,
+                                        encoder);
+        ciph_raise.scale() *= scale_raise;
+    }
+    else if (scale_raise > 0x7FFFFFFF)
+    {
+        evaluator.multiply_const(ciph_raise, 1.0, scale_raise, ciph_raise, encoder);
+    }
+
+    Ciphertext ciph_real, ciph_imag;
+    bootstrapper.coeff_to_slot(ciph_raise, ciph_real, ciph_imag, rot_keys);
+    const auto eval_mod_input_scale = eval_mod_poly.scaling_factor();
+    const auto real_scale_adjust = eval_mod_input_scale / ciph_real.scale();
+    const auto imag_scale_adjust = eval_mod_input_scale / ciph_imag.scale();
+    if (read_env_bool("BOOTSTRAP_MPCNN_FORCE_SCALE_ALIGN") ||
+        std::abs(real_scale_adjust - 1.0) > 1e-6 ||
+        std::abs(imag_scale_adjust - 1.0) > 1e-6)
+    {
+        evaluator.multiply_const(ciph_real, real_scale_adjust, eval_mod_input_scale, ciph_real,
+                                 encoder);
+        evaluator.multiply_const(ciph_imag, imag_scale_adjust, eval_mod_input_scale, ciph_imag,
+                                 encoder);
+        evaluator.rescale(ciph_real, ciph_real);
+        evaluator.rescale(ciph_imag, ciph_imag);
+        ciph_real.scale() = eval_mod_input_scale;
+        ciph_imag.scale() = eval_mod_input_scale;
+    }
+    print_cipher_state("mpcnn after coeff_to_slot real", context, ciph_real);
+    print_cipher_state("mpcnn after coeff_to_slot imag", context, ciph_imag);
+    auto cts_real_plain = decrypt_and_decode(ciph_real, decryptor, encoder);
+    auto cts_imag_plain = decrypt_and_decode(ciph_imag, decryptor, encoder);
+    print_plain_preview("mpcnn coeff_to_slot real preview:", cts_real_plain);
+    print_plain_preview("mpcnn coeff_to_slot imag preview:", cts_imag_plain);
+    print_value_stats("mpcnn coeff_to_slot real stats:", cts_real_plain, &eval_mod_poly);
+    print_value_stats("mpcnn coeff_to_slot imag stats:", cts_imag_plain, &eval_mod_poly);
+
+    eval_mod_poly.set_level_start(static_cast<uint32_t>(
+        context.crt_context()->get_context_data(ciph_real.parms_id())->level()));
+    Ciphertext ciph_real_mod, ciph_imag_mod;
+    if (fhe_evalmod)
+    {
+        const auto derived_inverse_coeff =
+            bootstrapper.fhe_inverse_coeff(eval_mod_poly.double_angle());
+        const auto inverse_coeff = read_env_double("BOOTSTRAP_MPCNN_INVERSE_COEFF",
+                                                   derived_inverse_coeff);
+        cout << "mpcnn FHE heap evalmod: inverse_coeff=" << inverse_coeff
+             << " derived_inverse_coeff=" << derived_inverse_coeff
+             << " double_angle=" << eval_mod_poly.double_angle() << '\n';
+        bootstrapper.eval_mod_fhe_heap(ciph_imag, ciph_imag_mod, relin_keys,
+                                       eval_mod_poly.double_angle(), inverse_coeff,
+                                       eval_mod_input_scale);
+        bootstrapper.eval_mod_fhe_heap(ciph_real, ciph_real_mod, relin_keys,
+                                       eval_mod_poly.double_angle(), inverse_coeff,
+                                       eval_mod_input_scale);
+
+        vector<complex<double>> expected_real(cts_real_plain.size());
+        vector<complex<double>> expected_imag(cts_imag_plain.size());
+        for (size_t i = 0; i < expected_real.size(); ++i)
+        {
+            expected_real[i] = bootstrapper.eval_mod_fhe_plain(
+                cts_real_plain[i], eval_mod_poly.double_angle(), inverse_coeff);
+            expected_imag[i] = bootstrapper.eval_mod_fhe_plain(
+                cts_imag_plain[i], eval_mod_poly.double_angle(), inverse_coeff);
+        }
+
+        const auto actual_real = decrypt_and_decode(ciph_real_mod, decryptor, encoder);
+        const auto actual_imag = decrypt_and_decode(ciph_imag_mod, decryptor, encoder);
+        print_error_stats("mpcnn eval_mod real error vs FHE plain polynomial:", actual_real,
+                          expected_real);
+        print_error_stats("mpcnn eval_mod imag error vs FHE plain polynomial:", actual_imag,
+                          expected_imag);
+    }
+    else
+    {
+        evaluator.eval_mod_high_precision(ciph_imag, ciph_imag_mod, eval_mod_poly, relin_keys,
+                                          encoder);
+        evaluator.eval_mod_high_precision(ciph_real, ciph_real_mod, eval_mod_poly, relin_keys,
+                                          encoder);
+    }
+    print_cipher_state("mpcnn after eval_mod imag", context, ciph_imag_mod);
+    print_cipher_state("mpcnn after eval_mod real", context, ciph_real_mod);
+    auto eval_real_plain = decrypt_and_decode(ciph_real_mod, decryptor, encoder);
+    auto eval_imag_plain = decrypt_and_decode(ciph_imag_mod, decryptor, encoder);
+    print_plain_preview("mpcnn eval_mod real preview:", eval_real_plain);
+    print_plain_preview("mpcnn eval_mod imag preview:", eval_imag_plain);
+    print_value_stats("mpcnn eval_mod real stats:", eval_real_plain);
+    print_value_stats("mpcnn eval_mod imag stats:", eval_imag_plain);
+
+    if (read_env_bool("BOOTSTRAP_REENCRYPT_EVALMOD"))
+    {
+        ciph_real_mod = reencrypt_like(ciph_real_mod, decryptor, encoder, encryptor);
+        ciph_imag_mod = reencrypt_like(ciph_imag_mod, decryptor, encoder, encryptor);
+        print_cipher_state("mpcnn after eval_mod reencrypt real", context, ciph_real_mod);
+        print_cipher_state("mpcnn after eval_mod reencrypt imag", context, ciph_imag_mod);
+    }
+
+    if (const auto stc_scale_log = read_env_u32("BOOTSTRAP_MPCNN_STC_SCALE_LOG", 0);
+        stc_scale_log != 0)
+    {
+        const auto stc_scale = ldexp(1.0, static_cast<int>(stc_scale_log));
+        ciph_imag_mod.scale() = stc_scale;
+        ciph_real_mod.scale() = stc_scale;
+        cout << "mpcnn slot_to_coeff input scale override: 2^" << stc_scale_log << '\n';
+    }
+
+    Ciphertext output;
+    bootstrapper.slot_to_coeff(ciph_real_mod, ciph_imag_mod, output, rot_keys);
+    const auto output_ratio = read_env_u32("BOOTSTRAP_MPCNN_OUTPUT_RATIO", 32);
+    const bool project_real = read_env_bool("BOOTSTRAP_MPCNN_PROJECT_REAL", fhe_evalmod);
+    if (project_real)
+    {
+        Ciphertext output_conj;
+        evaluator.conjugate(output, rot_keys, output_conj);
+        evaluator.add(output, output_conj, output);
+    }
+    const auto effective_output_ratio = project_real ? (output_ratio / 2) : output_ratio;
+    evaluator.multiply_const_direct(output, static_cast<int>(effective_output_ratio), output,
+                                    encoder);
+    print_cipher_state("mpcnn bootstrap output", context, output);
+    auto decoded = decrypt_and_decode(output, decryptor, encoder);
+    print_plain_preview("mpcnn bootstrap output decrypt preview:", decoded);
+    print_value_stats("mpcnn bootstrap output stats:", decoded);
+    print_error_stats("mpcnn bootstrap output error vs source:", decoded, message);
+}
+
 } // namespace
 
 int main(int argc, char **argv)
@@ -414,16 +728,23 @@ int main(int argc, char **argv)
     (void)argc;
     (void)argv;
 
-    ParametersLiteral ckks_param_literal{CKKS, 16, 16 - 1, 46, 5, 1, 0, {}, {}};
+    const uint32_t log_n = read_env_u32("BOOTSTRAP_LOG_N", 16);
+    const uint32_t q0_level =
+        read_env_u32("BOOTSTRAP_Q0_LEVEL", read_env_bool("BOOTSTRAP_MPCNN_LT") ? 0 : 1);
+    ParametersLiteral ckks_param_literal{CKKS, log_n, log_n - 1, 46, 5, q0_level, 0, {}, {}};
     const auto q_chain = logq_chain();
-    ckks_param_literal.set_log_modulus(q_chain, {51});
-    size_t prefix_46_count = 0;
-    while (prefix_46_count < q_chain.size() && q_chain[prefix_46_count] == 46)
+    const uint32_t special_prime_bits = read_env_u32("BOOTSTRAP_P_BITS", 51);
+    ckks_param_literal.set_log_modulus(q_chain, {special_prime_bits});
+    size_t low_level_46_count = 0;
+    for (auto bits : q_chain)
     {
-        ++prefix_46_count;
+        low_level_46_count += bits == 46;
     }
     cout << "logq chain summary: total=" << q_chain.size()
-         << " prefix_46_count=" << prefix_46_count << '\n';
+         << " q0_bits=" << (q_chain.empty() ? 0 : q_chain.front())
+         << " low_level_46_count=" << low_level_46_count
+         << " bootstrap_q_bits=" << read_env_u32("BOOTSTRAP_Q_BITS", 51)
+         << " special_p_bits=" << special_prime_bits << '\n';
 
     PoseidonFactory::get_instance()->set_device_type(DEVICE_SOFTWARE);
     auto context = PoseidonFactory::get_instance()->create_poseidon_context(ckks_param_literal);
@@ -468,16 +789,25 @@ int main(int argc, char **argv)
     print_plain_preview("bootstrap input decrypt preview:", before_bootstrap);
     print_error_stats("bootstrap input error vs source:", before_bootstrap, message);
 
-    const bool high_precision = read_env_bool("BOOTSTRAP_HIGH_PRECISION");
+    const bool high_precision = read_env_bool("BOOTSTRAP_HIGH_PRECISION", true);
+    const bool level_efficient =
+        !read_env_bool("POSEIDON_BOOTSTRAP_DISABLE_LEVEL_EFFICIENT", false);
+    const bool fhe_evalmod = read_env_bool("BOOTSTRAP_MPCNN_FHE_EVALMOD");
     const uint32_t log_message_ratio =
-        read_env_u32("BOOTSTRAP_LOG_MESSAGE_RATIO", high_precision ? 10 : 16);
-    const uint32_t double_angle = read_env_u32("BOOTSTRAP_DOUBLE_ANGLE", 3);
-    const uint32_t k = read_env_u32("BOOTSTRAP_K", high_precision ? 25 : 16);
+        read_env_u32("BOOTSTRAP_LOG_MESSAGE_RATIO",
+                     fhe_evalmod ? 5 : (level_efficient ? 5 : (high_precision ? 10 : 16)));
+    const uint32_t double_angle =
+        read_env_u32("BOOTSTRAP_DOUBLE_ANGLE", fhe_evalmod ? 2 : (level_efficient ? 2 : 3));
+    const uint32_t k =
+        read_env_u32("BOOTSTRAP_K", fhe_evalmod ? 25 : (level_efficient ? 7 : (high_precision ? 25 : 16)));
     const uint32_t arcsine_degree = read_env_u32("BOOTSTRAP_ARCSINE_DEGREE", 0);
     const uint32_t sine_degree = read_env_u32("BOOTSTRAP_SINE_DEGREE", 59);
-    const uint32_t scaling_log = read_env_u32("BOOTSTRAP_SCALING_LOG", 51);
+    const uint32_t scaling_log = read_env_u32(
+        "BOOTSTRAP_SCALING_LOG", read_env_u32("BOOTSTRAP_Q_BITS", 51));
     cout << "bootstrap polynomial params:"
          << " high_precision=" << high_precision
+         << " level_efficient=" << level_efficient
+         << " fhe_evalmod=" << fhe_evalmod
          << " log_message_ratio=" << log_message_ratio
          << " double_angle=" << double_angle
          << " k=" << k
@@ -487,6 +817,18 @@ int main(int argc, char **argv)
 
     EvalModPoly eval_mod_poly(context, CosDiscrete, ldexp(1.0, static_cast<int>(scaling_log)), 1,
                               log_message_ratio, double_angle, k, arcsine_degree, sine_degree);
+
+    if (read_env_bool("BOOTSTRAP_MPCNN_LT"))
+    {
+        const auto time_start = chrono::high_resolution_clock::now();
+        run_mpcnn_lt_bootstrap(bootstrap_input, message, context, *ckks_eva, relin_keys,
+                               rot_keys, encoder, encryptor, decryptor, eval_mod_poly);
+        const auto time_end = chrono::high_resolution_clock::now();
+        cout << "mpcnn bootstrap time (ms) : "
+             << chrono::duration_cast<chrono::milliseconds>(time_end - time_start).count()
+             << '\n';
+        return 0;
+    }
 
     if (read_env_bool("BOOTSTRAP_MANUAL"))
     {
@@ -516,6 +858,14 @@ int main(int argc, char **argv)
     const size_t level_after = chain_index_or_throw(context, bootstrap_input);
 
     print_cipher_state("bootstrap output", context, bootstrap_input);
+    if (read_env_bool("BOOTSTRAP_DROP_OUTPUT_TO_LEVEL1"))
+    {
+        while (chain_index_or_throw(context, bootstrap_input) > 1)
+        {
+            ckks_eva->drop_modulus_to_next(bootstrap_input, bootstrap_input);
+        }
+        print_cipher_state("bootstrap output after drop to level 1", context, bootstrap_input);
+    }
     cout << "bootstrap time (ms) : "
          << chrono::duration_cast<chrono::milliseconds>(time_end - time_start).count() << '\n';
     cout << "level delta : " << static_cast<long long>(level_after) - static_cast<long long>(level_before)

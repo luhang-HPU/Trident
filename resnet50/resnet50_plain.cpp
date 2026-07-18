@@ -4,12 +4,14 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -42,6 +44,7 @@ constexpr int kStageOutputChannels[kResNet50StageCount] = {256, 512, 1024, 2048}
 {
     cerr << "Usage: " << argv0
          << " START_IMAGE_ID END_IMAGE_ID [avgpool|maxpool] [relu|polyrelu]" << endl;
+    cerr << "Defaults: avgpool polyrelu" << endl;
     exit(1);
 }
 
@@ -161,6 +164,77 @@ struct PlainInferenceState
     size_t bn_idx = 0;
 };
 
+struct TensorStats
+{
+    size_t total = 0;
+    size_t finite = 0;
+    size_t nan = 0;
+    size_t inf = 0;
+    double min = numeric_limits<double>::infinity();
+    double max = -numeric_limits<double>::infinity();
+    double mean = 0.0;
+    double max_abs = 0.0;
+};
+
+TensorStats tensor_stats(const PlainTensor &tensor)
+{
+    TensorStats stats;
+    stats.total = tensor.values.size();
+    double sum = 0.0;
+    for (double value : tensor.values)
+    {
+        if (isnan(value))
+        {
+            ++stats.nan;
+            continue;
+        }
+        if (isinf(value))
+        {
+            ++stats.inf;
+            continue;
+        }
+        if (!isfinite(value))
+        {
+            continue;
+        }
+        ++stats.finite;
+        stats.min = min(stats.min, value);
+        stats.max = max(stats.max, value);
+        stats.max_abs = max(stats.max_abs, fabs(value));
+        sum += value;
+    }
+    if (stats.finite > 0)
+    {
+        stats.mean = sum / static_cast<double>(stats.finite);
+    }
+    else
+    {
+        stats.min = numeric_limits<double>::quiet_NaN();
+        stats.max = numeric_limits<double>::quiet_NaN();
+        stats.mean = numeric_limits<double>::quiet_NaN();
+        stats.max_abs = numeric_limits<double>::quiet_NaN();
+    }
+    return stats;
+}
+
+void log_tensor_diagnostics(const string &label, const PlainTensor &tensor, ostream &log,
+                            size_t preview_count = 16)
+{
+    const TensorStats stats = tensor_stats(tensor);
+    log << "  " << label << ": shape(h=" << tensor.h << ",w=" << tensor.w
+        << ",c=" << tensor.c << "), values=" << stats.total
+        << ", finite=" << stats.finite << ", nan=" << stats.nan
+        << ", inf=" << stats.inf << ", min=" << stats.min << ", max=" << stats.max
+        << ", mean=" << stats.mean << ", max_abs=" << stats.max_abs << '\n';
+    log << "  " << label << " preview:";
+    const size_t count = min(preview_count, tensor.values.size());
+    for (size_t i = 0; i < count; ++i)
+    {
+        log << ' ' << tensor.values[i];
+    }
+    log << '\n';
+}
+
 PlainTensor apply_conv_bn(const PlainTensor &input, int out_channels, int stride, int fh, int fw,
                           const vector<double> &conv_weight, const vector<double> &bn_bias,
                           const vector<double> &bn_running_mean,
@@ -173,6 +247,30 @@ PlainTensor apply_conv_bn(const PlainTensor &input, int out_channels, int stride
                             kBatchNormEpsilon, kResNet50Boundary);
 }
 
+PlainTensor apply_conv_bn_logged(const PlainTensor &input, int out_channels, int stride, int fh,
+                                 int fw, const vector<double> &conv_weight,
+                                 const vector<double> &bn_bias,
+                                 const vector<double> &bn_running_mean,
+                                 const vector<double> &bn_running_var,
+                                 const vector<double> &bn_weight, size_t conv_idx,
+                                 size_t bn_idx, const string &label, ostream &log)
+{
+    log << "\n-- " << label << " --\n";
+    log << "  conv_idx=" << conv_idx << ", bn_idx=" << bn_idx
+        << ", out_channels=" << out_channels << ", stride=" << stride
+        << ", kernel=" << fh << "x" << fw << '\n';
+    log_tensor_diagnostics(label + " input", input, log);
+
+    PlainTensor conv = plain_convolution(input, out_channels, stride, fh, fw, conv_weight,
+                                         bn_running_var, bn_weight, kBatchNormEpsilon);
+    log_tensor_diagnostics(label + " conv_folded_scale_output", conv, log);
+
+    PlainTensor bn = plain_batch_norm(conv, bn_bias, bn_running_mean, bn_running_var, bn_weight,
+                                      kBatchNormEpsilon, kResNet50Boundary);
+    log_tensor_diagnostics(label + " bn_output", bn, log);
+    return bn;
+}
+
 PlainTensor apply_plain_relu(const PlainTensor &input, const ReluConfig &relu_config,
                              PlainReluMode relu_mode)
 {
@@ -183,32 +281,76 @@ PlainTensor apply_plain_relu(const PlainTensor &input, const ReluConfig &relu_co
     return plain_relu_reference(input);
 }
 
+PlainTensor apply_plain_relu_logged(const PlainTensor &input, const ReluConfig &relu_config,
+                                    PlainReluMode relu_mode, const string &label, ostream &log)
+{
+    log << "\n-- " << label << " --\n";
+    log << "  mode=" << plain_relu_mode_name(relu_mode);
+    if (relu_mode == PlainReluMode::PolynomialRelu)
+    {
+        log << ", deg=";
+        for (size_t i = 0; i < relu_config.deg.size(); ++i)
+        {
+            if (i != 0)
+            {
+                log << ',';
+            }
+            log << relu_config.deg[i];
+        }
+        log << ", alpha=" << relu_config.alpha
+            << ", scaled_val=" << relu_config.scaled_val;
+    }
+    log << '\n';
+    log_tensor_diagnostics(label + " input", input, log);
+    PlainTensor output = apply_plain_relu(input, relu_config, relu_mode);
+    log_tensor_diagnostics(label + " output", output, log);
+
+    const TensorStats in_stats = tensor_stats(input);
+    const TensorStats out_stats = tensor_stats(output);
+    if (in_stats.nan == 0 && in_stats.inf == 0 && (out_stats.nan != 0 || out_stats.inf != 0))
+    {
+        log << "  [warning] non-finite values first appeared in " << label << '\n';
+    }
+    if (relu_mode == PlainReluMode::PolynomialRelu &&
+        in_stats.finite > 0 && in_stats.max_abs > relu_config.scaled_val)
+    {
+        log << "  [warning] polyrelu input max_abs=" << in_stats.max_abs
+            << " exceeds scaled_val=" << relu_config.scaled_val << '\n';
+    }
+    return output;
+}
+
 void run_stem(PlainInferenceState &state, const ModelWeights &weights,
               const ReluConfig &relu_config, ostream &log, StemPoolMode stem_pool_mode,
               PlainReluMode relu_mode)
 {
     log << "\n========== Stem ==========\n";
-    PlainTensor stem = apply_conv_bn(state.tensor, 64, 2, 7, 7,
-                                     weights.conv_weight.at(state.conv_idx),
-                                     weights.bn_bias.at(state.bn_idx),
-                                     weights.bn_running_mean.at(state.bn_idx),
-                                     weights.bn_running_var.at(state.bn_idx),
-                                     weights.bn_weight.at(state.bn_idx));
+    PlainTensor stem = apply_conv_bn_logged(
+        state.tensor, 64, 2, 7, 7, weights.conv_weight.at(state.conv_idx),
+        weights.bn_bias.at(state.bn_idx), weights.bn_running_mean.at(state.bn_idx),
+        weights.bn_running_var.at(state.bn_idx), weights.bn_weight.at(state.bn_idx),
+        state.conv_idx, state.bn_idx, "stem.conv1_bn1", log);
     ++state.conv_idx;
     ++state.bn_idx;
 
-    stem = apply_plain_relu(stem, relu_config, relu_mode);
+    stem = apply_plain_relu_logged(stem, relu_config, relu_mode, "stem.relu", log);
     if (stem_pool_mode == StemPoolMode::MaxPool)
     {
+        log << "\n-- stem.maxpool --\n";
+        log_tensor_diagnostics("stem.maxpool input", stem, log);
         stem = plain_max_pool2d(stem, 3, 2, 1);
+        log_tensor_diagnostics("stem.maxpool output", stem, log);
     }
     else
     {
+        log << "\n-- stem.avgpool --\n";
+        log_tensor_diagnostics("stem.avgpool input", stem, log);
         stem = plain_average_pool2d(stem, 3, 2, 1);
+        log_tensor_diagnostics("stem.avgpool output", stem, log);
     }
 
     log << "stem pool mode: " << stem_pool_mode_name(stem_pool_mode) << '\n';
-    log_plain_tensor("plain stem output", stem, log);
+    log_tensor_diagnostics("plain stem output", stem, log);
     state.tensor = std::move(stem);
 }
 
@@ -226,48 +368,63 @@ void run_bottleneck_block(PlainInferenceState &state, const ModelWeights &weight
 
     PlainTensor shortcut = state.tensor;
 
-    PlainTensor branch = apply_conv_bn(state.tensor, planes, 1, 1, 1,
-                                       weights.conv_weight.at(state.conv_idx),
-                                       weights.bn_bias.at(state.bn_idx),
-                                       weights.bn_running_mean.at(state.bn_idx),
-                                       weights.bn_running_var.at(state.bn_idx),
-                                       weights.bn_weight.at(state.bn_idx));
+    const string block_label =
+        "layer" + to_string(stage_index + 1) + ".block" + to_string(block_index);
+
+    PlainTensor branch = apply_conv_bn_logged(
+        state.tensor, planes, 1, 1, 1, weights.conv_weight.at(state.conv_idx),
+        weights.bn_bias.at(state.bn_idx), weights.bn_running_mean.at(state.bn_idx),
+        weights.bn_running_var.at(state.bn_idx), weights.bn_weight.at(state.bn_idx),
+        state.conv_idx, state.bn_idx, block_label + ".conv1_bn1", log);
     ++state.conv_idx;
     ++state.bn_idx;
-    branch = apply_plain_relu(branch, relu_config, relu_mode);
+    branch = apply_plain_relu_logged(branch, relu_config, relu_mode,
+                                     block_label + ".relu1", log);
 
-    branch = apply_conv_bn(branch, planes, stride, 3, 3, weights.conv_weight.at(state.conv_idx),
-                           weights.bn_bias.at(state.bn_idx),
-                           weights.bn_running_mean.at(state.bn_idx),
-                           weights.bn_running_var.at(state.bn_idx),
-                           weights.bn_weight.at(state.bn_idx));
+    branch = apply_conv_bn_logged(
+        branch, planes, stride, 3, 3, weights.conv_weight.at(state.conv_idx),
+        weights.bn_bias.at(state.bn_idx), weights.bn_running_mean.at(state.bn_idx),
+        weights.bn_running_var.at(state.bn_idx), weights.bn_weight.at(state.bn_idx),
+        state.conv_idx, state.bn_idx, block_label + ".conv2_bn2", log);
     ++state.conv_idx;
     ++state.bn_idx;
-    branch = apply_plain_relu(branch, relu_config, relu_mode);
+    branch = apply_plain_relu_logged(branch, relu_config, relu_mode,
+                                     block_label + ".relu2", log);
 
-    branch = apply_conv_bn(branch, out_channels, 1, 1, 1,
-                           weights.conv_weight.at(state.conv_idx),
-                           weights.bn_bias.at(state.bn_idx),
-                           weights.bn_running_mean.at(state.bn_idx),
-                           weights.bn_running_var.at(state.bn_idx),
-                           weights.bn_weight.at(state.bn_idx));
+    branch = apply_conv_bn_logged(
+        branch, out_channels, 1, 1, 1, weights.conv_weight.at(state.conv_idx),
+        weights.bn_bias.at(state.bn_idx), weights.bn_running_mean.at(state.bn_idx),
+        weights.bn_running_var.at(state.bn_idx), weights.bn_weight.at(state.bn_idx),
+        state.conv_idx, state.bn_idx, block_label + ".conv3_bn3", log);
     ++state.conv_idx;
     ++state.bn_idx;
 
     if (block_index == 0)
     {
         const size_t downsample_index = static_cast<size_t>(stage_index);
-        shortcut = apply_conv_bn(shortcut, out_channels, stride, 1, 1,
-                                 weights.downsample_weight.at(downsample_index),
-                                 weights.downsample_bn_bias.at(downsample_index),
-                                 weights.downsample_bn_running_mean.at(downsample_index),
-                                 weights.downsample_bn_running_var.at(downsample_index),
-                                 weights.downsample_bn_weight.at(downsample_index));
+        shortcut = apply_conv_bn_logged(
+            shortcut, out_channels, stride, 1, 1,
+            weights.downsample_weight.at(downsample_index),
+            weights.downsample_bn_bias.at(downsample_index),
+            weights.downsample_bn_running_mean.at(downsample_index),
+            weights.downsample_bn_running_var.at(downsample_index),
+            weights.downsample_bn_weight.at(downsample_index), downsample_index,
+            downsample_index, block_label + ".downsample", log);
+    }
+    else
+    {
+        log_tensor_diagnostics(block_label + ".shortcut_identity", shortcut, log);
     }
 
+    log << "\n-- " << block_label << ".add --\n";
+    log_tensor_diagnostics(block_label + ".add branch", branch, log);
+    log_tensor_diagnostics(block_label + ".add shortcut", shortcut, log);
     PlainTensor output = plain_add(branch, shortcut);
-    output = apply_plain_relu(output, relu_config, relu_mode);
-    log_plain_tensor("plain block output", output, log);
+    log_tensor_diagnostics(block_label + ".add output", output, log);
+
+    output = apply_plain_relu_logged(output, relu_config, relu_mode,
+                                     block_label + ".relu3", log);
+    log_tensor_diagnostics("plain block output", output, log);
     state.tensor = std::move(output);
 }
 
@@ -279,7 +436,7 @@ vector<double> run_plain_resnet50_for_image(size_t image_id, const ModelWeights 
     const ReluConfig relu_config = default_relu_config(default_poseidon_plan());
     state.tensor = PlainTensor(kImageNetInputHeight, kImageNetInputWidth, kImageNetInputChannels,
                                read_plain_image_values(image_id, kResNet50Boundary));
-    log_plain_tensor("plain input", state.tensor, log);
+    log_tensor_diagnostics("plain input", state.tensor, log);
 
     run_stem(state, weights, relu_config, log, stem_pool_mode, relu_mode);
     for (int stage = 0; stage < kResNet50StageCount; ++stage)
@@ -291,7 +448,7 @@ vector<double> run_plain_resnet50_for_image(size_t image_id, const ModelWeights 
     }
 
     PlainTensor pooled = plain_average_pool(state.tensor, kResNet50Boundary);
-    log_plain_tensor("plain average pool output", pooled, log);
+    log_tensor_diagnostics("plain average pool output", pooled, log);
     return plain_fully_connected(pooled, weights.linear_weight, weights.linear_bias,
                                  kImageNetClassCount, kResNet50FinalChannels);
 }
@@ -388,7 +545,7 @@ int main(int argc, char **argv)
             throw invalid_argument("start_image_id must be <= end_image_id");
         }
         StemPoolMode stem_pool_mode = StemPoolMode::AvgPool;
-        PlainReluMode relu_mode = PlainReluMode::Relu;
+        PlainReluMode relu_mode = PlainReluMode::PolynomialRelu;
         for (int arg_index = 3; arg_index < argc; ++arg_index)
         {
             if (!try_parse_optional_mode(argv[arg_index], stem_pool_mode, relu_mode))

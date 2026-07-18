@@ -4,6 +4,7 @@
 #include <ctime>
 #include <iomanip>
 #include <iostream>
+#include <mutex>
 #include <ostream>
 #include <sstream>
 #include <streambuf>
@@ -45,6 +46,30 @@ public:
 protected:
     int overflow(int ch) override
     {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return write_char(ch);
+    }
+
+    std::streamsize xsputn(const char *s, std::streamsize count) override
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (std::streamsize i = 0; i < count; ++i)
+        {
+            write_char(static_cast<unsigned char>(s[i]));
+        }
+        return count;
+    }
+
+    int sync() override
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        target_.flush();
+        return 0;
+    }
+
+private:
+    int write_char(int ch)
+    {
         if (ch == traits_type::eof())
         {
             return traits_type::not_eof(ch);
@@ -65,25 +90,9 @@ protected:
         }
         return ch;
     }
-
-    std::streamsize xsputn(const char *s, std::streamsize count) override
-    {
-        for (std::streamsize i = 0; i < count; ++i)
-        {
-            overflow(static_cast<unsigned char>(s[i]));
-        }
-        return count;
-    }
-
-    int sync() override
-    {
-        target_.flush();
-        return 0;
-    }
-
-private:
     std::ostream &target_;
     bool at_line_start_ = true;
+    std::mutex mutex_;
 };
 
 } // namespace
