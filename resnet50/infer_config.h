@@ -47,7 +47,7 @@ struct PoseidonInferPlan
     std::vector<std::uint32_t> logq_chain;
 };
 
-std::filesystem::path resnet18_root();
+std::filesystem::path resnet50_root();
 std::filesystem::path weights_root();
 std::filesystem::path data_root();
 std::filesystem::path relu_param_root();

@@ -14,9 +14,9 @@ python3 export_torchvision_resnet50_txt.py \
 When `--input` is omitted, the exporter tries common local torchvision filenames
 such as `resnet50-11ad3fa6.pth` and `resnet50-0676ba61.pth`.
 
-The ImageNet test subset and ReLU approximation parameters fall back to
-`../resnet18/testFile` and `../resnet18/relu_param` when local copies are not
-present.
+The ImageNet test subset is loaded from this package's `testFile` directory.
+ReLU approximation parameters still fall back to `../resnet18/relu_param` when
+a local `relu_param` directory is not present.
 
 For a fast smoke path that refreshes ciphertexts from the synchronized plain
 reference at nonlinear refresh points:
