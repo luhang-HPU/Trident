@@ -69,3 +69,19 @@ target_include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR})
 
 target_link_libraries(resnet50_check_polyrelu_range poseidon_shared)
+
+add_executable(
+  resnet50_test_bootstrap_scale
+  infer_config.cpp
+  infer_runtime.cpp
+  tensor_cipher.cpp
+  relu_approx.cpp
+  encrypted_ops.cpp
+)
+
+target_include_directories(
+  resnet50_test_bootstrap_scale
+  PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR})
+
+target_link_libraries(resnet50_test_bootstrap_scale poseidon_shared)

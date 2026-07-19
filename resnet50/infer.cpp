@@ -852,13 +852,13 @@ ChannelCipherGroup channel_bootstrap(const ChannelCipherGroup &input, const Plai
     bootstrapper.encoder = &runtime.encoder;
     bootstrapper.relin_keys = &runtime.relin_keys;
     bootstrapper.galois_keys = &runtime.galois_keys;
-    bootstrapper.bootstrap_poly = runtime.bootstrap_poly.get();
+    bootstrapper.bootstrap_config = &runtime.bootstrap_config;
 
     ChannelCipherGroup output = input;
     resnet18_parallel_for(input.channels.size(), [&](size_t channel_index) {
         TensorCipher in(16, 1, input.h, input.w, 1, 1, 1, input.channels[channel_index]);
         TensorCipher out;
-        bootstrap_tensor(in, out, bootstrapper, runtime.encoder);
+        bootstrap_tensor(in, out, bootstrapper);
         output.channels[channel_index] = out.cipher();
     });
     resnet18_progress_log() << "[bootstrap-done] mode=encrypted channels="

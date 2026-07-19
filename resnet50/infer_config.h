@@ -22,12 +22,8 @@ constexpr double kResNet18Boundary = kResNet50Boundary;
 constexpr double kBatchNormEpsilon = 1.0e-5;
 constexpr bool kEnableHomomorphicRelu = true;
 constexpr bool kBootstrapBeforeReluExceptFirst = true;
-constexpr int kResNet18BootstrapLogMessageRatio = 10;
-constexpr int kResNet18BootstrapDoubleAngle = 3;
-constexpr int kResNet18BootstrapK = 25;
-constexpr int kResNet18BootstrapArcsineDegree = 0;
-constexpr int kResNet18BootstrapSineDegree = 59;
-constexpr int kResNet18BootstrapScalingLog = 51;
+constexpr std::uint32_t kResNet50BootstrapQ0Level = 0;
+constexpr std::uint32_t kResNet50BootstrapPrimeBits = 51;
 
 struct ReluConfig
 {

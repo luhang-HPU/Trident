@@ -894,7 +894,7 @@ PoseidonBootstrapContext make_resnet18_bootstrap_context(PoseidonRuntime &runtim
     bootstrap_ctx.encoder = &runtime.encoder;
     bootstrap_ctx.relin_keys = &runtime.relin_keys;
     bootstrap_ctx.galois_keys = &runtime.galois_keys;
-    bootstrap_ctx.bootstrap_poly = runtime.bootstrap_poly.get();
+    bootstrap_ctx.bootstrap_config = &runtime.bootstrap_config;
     return bootstrap_ctx;
 }
 
@@ -929,17 +929,23 @@ MultiplexedCipherGroup multiplexed_channel_bootstrap(
     }
     else
     {
-        PoseidonBootstrapContext bootstrap_ctx = make_resnet18_bootstrap_context(runtime);
-        for (size_t pack_index = 0; pack_index < input.packs.size(); ++pack_index)
-        {
+        const size_t thread_count = resnet18_parallel_thread_count(input.packs.size());
+        atomic<size_t> completed_packs{0};
+        resnet18_progress_log() << label << " bootstrap ciphertext parallel threads: "
+                                << thread_count << endl;
+        resnet18_parallel_for(input.packs.size(), [&](size_t pack_index) {
+            PoseidonBootstrapContext bootstrap_ctx =
+                make_resnet18_bootstrap_context(runtime);
             TensorCipher tensor_in(static_cast<int>(logn), input.k, input.h, input.w, input.c,
                                    1, input.pages_per_cipher, input.packs.at(pack_index));
             TensorCipher tensor_out;
-            bootstrap_tensor(tensor_in, tensor_out, bootstrap_ctx, runtime.encoder);
+            bootstrap_tensor(tensor_in, tensor_out, bootstrap_ctx);
             output.packs.at(pack_index) = tensor_out.cipher();
+            const size_t done = completed_packs.fetch_add(1) + 1;
             resnet18_progress_log() << label << " bootstrap ciphertext progress: "
-                                    << (pack_index + 1) << "/" << input.packs.size() << endl;
-        }
+                                    << done << "/" << input.packs.size()
+                                    << ", pack=" << pack_index << endl;
+        });
     }
     log_multiplexed_group_cipher_state(label + " bootstrap output", output, runtime);
     const vector<complex<double>> bootstrap_output_values =
@@ -1001,8 +1007,12 @@ MultiplexedCipherGroup multiplexed_channel_homomorphic_relu(
     }
     else
     {
-        for (size_t pack_index = 0; pack_index < relu_input.packs.size(); ++pack_index)
-        {
+        const size_t thread_count =
+            resnet18_parallel_thread_count(relu_input.packs.size());
+        atomic<size_t> completed_packs{0};
+        resnet18_progress_log() << label << " homomorphic ReLU parallel threads: "
+                                << thread_count << endl;
+        resnet18_parallel_for(relu_input.packs.size(), [&](size_t pack_index) {
             TensorCipher tensor_in(static_cast<int>(logn), relu_input.k, relu_input.h,
                                    relu_input.w, relu_input.c, 1,
                                    relu_input.pages_per_cipher,
@@ -1013,10 +1023,11 @@ MultiplexedCipherGroup multiplexed_channel_homomorphic_relu(
                  runtime.encryptor, *runtime.evaluator, runtime.encoder, runtime.relin_keys,
                  runtime.scale);
             output.packs.at(pack_index) = tensor_out.cipher();
+            const size_t done = completed_packs.fetch_add(1) + 1;
             resnet18_progress_log() << label << " homomorphic ReLU ciphertext progress: "
-                                    << (pack_index + 1) << "/" << relu_input.packs.size()
-                                    << endl;
-        }
+                                    << done << "/" << relu_input.packs.size()
+                                    << ", pack=" << pack_index << endl;
+        });
     }
     log_multiplexed_group_cipher_state(
         label + (mock_options.mock_relu ? " mock ReLU output" : " homomorphic ReLU output"),

@@ -154,7 +154,7 @@ void bootstrap_print(const TensorCipher &cnn_in, TensorCipher &cnn_out,
     print_stage_banner("bootstrap stage " + to_string(stage), output);
     log_labeled_tensor_state("input", cnn_in, context, output);
     const auto time_start = chrono::high_resolution_clock::now();
-    bootstrap_tensor(cnn_in, cnn_out, bootstrapper, encoder);
+    bootstrap_tensor(cnn_in, cnn_out, bootstrapper);
     const auto time_end = chrono::high_resolution_clock::now();
 
     output << "  time_ms: "

@@ -24,7 +24,7 @@ struct PoseidonBootstrapContext
     poseidon::CKKSEncoder *encoder = nullptr;
     const poseidon::RelinKeys *relin_keys = nullptr;
     const poseidon::GaloisKeys *galois_keys = nullptr;
-    poseidon::EvalModPoly *bootstrap_poly = nullptr;
+    const poseidon::BootstrapConfig *bootstrap_config = nullptr;
 };
 
 void multiplexed_convolution_print(
@@ -59,7 +59,10 @@ void approx_relu_print(
     poseidon::PoseidonContext &context, std::size_t stage);
 
 void bootstrap_tensor(const TensorCipher &cnn_in, TensorCipher &cnn_out,
-                      PoseidonBootstrapContext &bootstrapper, poseidon::CKKSEncoder &encoder);
+                      PoseidonBootstrapContext &bootstrapper);
+
+void normalize_bootstrap_output_scale(poseidon::Ciphertext &cipher,
+                                      PoseidonBootstrapContext &bootstrapper);
 
 void bootstrap_print(const TensorCipher &cnn_in, TensorCipher &cnn_out,
                      PoseidonBootstrapContext &bootstrapper, std::ostream &output,

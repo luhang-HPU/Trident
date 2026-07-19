@@ -16,7 +16,7 @@ inline std::size_t resnet18_parallel_thread_count(std::size_t work_items)
     }
 
     std::size_t requested = 0;
-    if (const char *env = std::getenv("RESNET18_THREADS"))
+    if (const char *env = std::getenv("RESNET50_THREADS"))
     {
         try
         {
