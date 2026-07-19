@@ -97,6 +97,45 @@ void log_channel_group_cipher_state(const string &label, const ChannelCipherGrou
                             << "/" << max_scale << endl;
 }
 
+void log_im2col_cipher_state(const string &label, const Im2ColCipherGroup &im2col,
+                             PoseidonRuntime &runtime)
+{
+    if (im2col.patches.empty())
+    {
+        resnet18_progress_log() << "[cipher-state] " << label
+                                << ": empty im2col patch group" << endl;
+        return;
+    }
+
+    const size_t first_chain = cipher_chain_index(runtime, im2col.patches.front());
+    size_t min_chain = first_chain;
+    size_t max_chain = first_chain;
+    const double first_scale = im2col.patches.front().scale();
+    double min_scale = first_scale;
+    double max_scale = first_scale;
+    for (const Ciphertext &cipher : im2col.patches)
+    {
+        const size_t chain = cipher_chain_index(runtime, cipher);
+        min_chain = min(min_chain, chain);
+        max_chain = max(max_chain, chain);
+        min_scale = min(min_scale, cipher.scale());
+        max_scale = max(max_scale, cipher.scale());
+    }
+
+    resnet18_progress_log()
+        << "[cipher-state] " << label
+        << ": input_shape(h=" << im2col.input_h << ", w=" << im2col.input_w
+        << ", c=" << im2col.input_c << "), output_shape(h=" << im2col.out_h
+        << ", w=" << im2col.out_w << "), kernel=" << im2col.fh << "x" << im2col.fw
+        << ", stride=" << im2col.stride << ", patches=" << im2col.patches.size()
+        << ", slots_per_cipher=" << im2col.slot_count
+        << ", chain_index(first/min/max)=" << first_chain << "/" << min_chain << "/"
+        << max_chain << ", q_count(first/min/max)=" << first_chain + 1 << "/"
+        << min_chain + 1 << "/" << max_chain + 1
+        << ", scale(first/min/max)=" << first_scale << "/" << min_scale << "/"
+        << max_scale << endl;
+}
+
 Ciphertext multiply_by_binary_mask(const Ciphertext &input, const vector<double> &mask,
                                    CKKSEncoder &encoder, EvaluatorCkksBase &evaluator)
 {
@@ -305,6 +344,7 @@ ChannelCipherGroup encrypted_conv2d_im2col_all_channels(
     PoseidonRuntime &runtime)
 {
     ScopedDurationLog duration("conv_im2col_all_channels");
+    log_im2col_cipher_state("conv_im2col_all_channels input", im2col, runtime);
     ChannelCipherGroup group;
     group.h = im2col.out_h;
     group.w = im2col.out_w;

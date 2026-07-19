@@ -22,6 +22,46 @@
 using namespace std;
 using namespace poseidon;
 
+namespace
+{
+
+void log_head_cipher_chain_state(const string &label, const Ciphertext &cipher,
+                                 PoseidonRuntime &runtime)
+{
+    resnet18_progress_log() << "[head-chain] " << label
+                            << ": chain_index=" << cipher_chain_index(runtime, cipher)
+                            << ", scale=" << cipher.scale() << endl;
+}
+
+void log_head_chain_index_range(const string &label, const vector<size_t> &chain_indexes)
+{
+    if (chain_indexes.empty())
+    {
+        resnet18_progress_log() << "[head-chain] " << label << ": empty" << endl;
+        return;
+    }
+
+    const auto bounds = minmax_element(chain_indexes.begin(), chain_indexes.end());
+    resnet18_progress_log() << "[head-chain] " << label
+                            << ": ciphertexts=" << chain_indexes.size()
+                            << ", chain_index(first/min/max)=" << chain_indexes.front()
+                            << "/" << *bounds.first << "/" << *bounds.second << endl;
+}
+
+void log_head_cipher_chain_range(const string &label, const vector<Ciphertext> &ciphers,
+                                 PoseidonRuntime &runtime)
+{
+    vector<size_t> chain_indexes;
+    chain_indexes.reserve(ciphers.size());
+    for (const Ciphertext &cipher : ciphers)
+    {
+        chain_indexes.push_back(cipher_chain_index(runtime, cipher));
+    }
+    log_head_chain_index_range(label, chain_indexes);
+}
+
+} // namespace
+
 size_t ceil_div_size(size_t value, size_t divisor)
 {
     return (value + divisor - 1) / divisor;
@@ -1246,6 +1286,10 @@ Ciphertext multiplexed_global_average_pool_packed(
     }
     const auto start = chrono::steady_clock::now();
     log_multiplexed_group_cipher_state("head avgpool multiplexed input", input, runtime);
+    resnet18_progress_log()
+        << "[head-chain] global_avgpool plan: column_mask=-1, row_mask=-1, "
+           "channel_compact_mask=-1, average_multiply=-1"
+        << endl;
 
     vector<double> column_mask(input.slot_count, 0.0);
     vector<double> channel_base_mask(input.slot_count, 0.0);
@@ -1259,6 +1303,8 @@ Ciphertext multiplexed_global_average_pool_packed(
     }
 
     vector<Ciphertext> spatial_sums(input.packs.size());
+    vector<size_t> column_chain_indexes(input.packs.size(), 0);
+    vector<size_t> spatial_chain_indexes(input.packs.size(), 0);
     resnet18_parallel_for(input.packs.size(), [&](size_t pack_index) {
         Ciphertext column_sum;
         bool has_column_sum = false;
@@ -1278,6 +1324,7 @@ Ciphertext multiplexed_global_average_pool_packed(
                 runtime.evaluator->add_dynamic(column_sum, term, column_sum, runtime.encoder);
             }
         }
+        column_chain_indexes.at(pack_index) = cipher_chain_index(runtime, column_sum);
 
         Ciphertext spatial_sum;
         bool has_spatial_sum = false;
@@ -1298,13 +1345,16 @@ Ciphertext multiplexed_global_average_pool_packed(
             else
             {
                 runtime.evaluator->add_dynamic(spatial_sum, term, spatial_sum,
-                                               runtime.encoder);
+                runtime.encoder);
             }
         }
+        spatial_chain_indexes.at(pack_index) = cipher_chain_index(runtime, spatial_sum);
         spatial_sums.at(pack_index) = std::move(spatial_sum);
         resnet18_progress_log() << "head avgpool spatial pack done: " << pack_index + 1
                                 << '/' << input.packs.size() << endl;
     });
+    log_head_chain_index_range("global_avgpool after column mask", column_chain_indexes);
+    log_head_chain_index_range("global_avgpool after row mask", spatial_chain_indexes);
 
     Ciphertext compacted;
     bool has_compacted = false;
@@ -1335,9 +1385,12 @@ Ciphertext multiplexed_global_average_pool_packed(
                                     << channel + 1 << '/' << input.c << endl;
         }
     }
+    log_head_cipher_chain_state("global_avgpool after channel compact mask", compacted,
+                                runtime);
 
     Ciphertext averaged = multiply_constant_scalar_rescale(
         compacted, boundary / static_cast<double>(input.h * input.w), runtime);
+    log_head_cipher_chain_state("global_avgpool after average multiply", averaged, runtime);
     resnet18_progress_log() << "[duration] head multiplexed avgpool: "
                             << chrono::duration_cast<chrono::milliseconds>(
                                    chrono::steady_clock::now() - start)
@@ -1359,6 +1412,17 @@ vector<Ciphertext> multiplexed_fully_connected_packed(
     const auto start = chrono::steady_clock::now();
     resnet18_progress_log() << "[fully-connected-start] layout=multiplexed-packed classes="
                             << class_count << " features=" << feature_count << endl;
+    const size_t input_chain = cipher_chain_index(runtime, features);
+    log_head_cipher_chain_state("fully_connected input", features, runtime);
+    resnet18_progress_log() << "[head-chain] fully_connected required_levels=1, available_levels="
+                            << input_chain << endl;
+    if (input_chain == 0)
+    {
+        resnet18_progress_log()
+            << "[head-chain] WARNING: fully_connected weight multiply requires one rescale, "
+               "but the input is already at chain_index=0"
+            << endl;
+    }
     vector<Ciphertext> logits(static_cast<size_t>(class_count));
     atomic<size_t> completed{0};
     resnet18_parallel_for(static_cast<size_t>(class_count), [&](size_t class_index) {
@@ -1386,6 +1450,8 @@ vector<Ciphertext> multiplexed_fully_connected_packed(
                                     << class_count << endl;
         }
     });
+    log_head_cipher_chain_range("fully_connected output after weight/sum/bias", logits,
+                                runtime);
     resnet18_progress_log() << "[fully-connected-done] layout=multiplexed-packed total_ms="
                             << chrono::duration_cast<chrono::milliseconds>(
                                    chrono::steady_clock::now() - start)

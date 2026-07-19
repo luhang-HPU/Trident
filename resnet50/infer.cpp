@@ -423,11 +423,6 @@ vector<complex<double>> decrypt_slot0_complex_values(const vector<Ciphertext> &c
         vector<complex<double>> decoded;
         runtime.encoder.decode(plain, decoded);
         values[i] = decoded.at(0);
-        if ((i + 1) % 10 == 0 || i + 1 == ciphers.size())
-        {
-            resnet18_progress_log() << "[slot0-decrypt-progress] " << label << ' ' << i + 1
-                                    << '/' << ciphers.size() << endl;
-        }
     }
     resnet18_progress_log() << "[slot0-decrypt-done] " << label << " total_ms="
                             << chrono::duration_cast<chrono::milliseconds>(
@@ -1363,6 +1358,8 @@ void ResNet50_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             kResNet50FinalChannels);
         const int plain_pred = argmax_index(plain_logits);
 
+        log_multiplexed_group_cipher_state("head entry after layer4.block2.relu3", encrypted,
+                                           runtime);
         Ciphertext encrypted_avg = multiplexed_global_average_pool_packed(
             encrypted, kResNet50Boundary, runtime);
         log_packed_feature_compare("head.avgpool", plain_avg, encrypted_avg, runtime,
