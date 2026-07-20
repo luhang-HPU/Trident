@@ -3,11 +3,13 @@
 #include <chrono>
 #include <ctime>
 #include <iomanip>
+#include <fstream>
 #include <iostream>
 #include <mutex>
 #include <ostream>
 #include <sstream>
 #include <streambuf>
+#include <string>
 
 namespace
 {
@@ -100,6 +102,104 @@ private:
 std::ostream &resnet18_progress_log()
 {
     return *g_progress_log;
+}
+
+ProcessMemorySnapshot capture_process_memory()
+{
+    ProcessMemorySnapshot snapshot;
+    std::ifstream status("/proc/self/status");
+    if (!status.is_open())
+    {
+        return snapshot;
+    }
+
+    std::string line;
+    while (std::getline(status, line))
+    {
+        std::istringstream fields(line);
+        std::string key;
+        std::uint64_t value = 0;
+        fields >> key >> value;
+        if (key == "VmRSS:")
+        {
+            snapshot.rss_kb = value;
+        }
+        else if (key == "VmHWM:")
+        {
+            snapshot.peak_rss_kb = value;
+        }
+        else if (key == "VmSize:")
+        {
+            snapshot.virtual_kb = value;
+        }
+    }
+    snapshot.available = snapshot.rss_kb != 0 || snapshot.peak_rss_kb != 0 ||
+                         snapshot.virtual_kb != 0;
+    return snapshot;
+}
+
+void log_process_memory_snapshot(const std::string &label,
+                                 const ProcessMemorySnapshot &snapshot)
+{
+    if (!snapshot.available)
+    {
+        resnet18_progress_log() << "[memory] " << label << ": unavailable" << std::endl;
+        return;
+    }
+    resnet18_progress_log() << "[memory] " << label << ": rss_kb=" << snapshot.rss_kb
+                            << ", peak_rss_kb=" << snapshot.peak_rss_kb
+                            << ", virtual_kb=" << snapshot.virtual_kb << std::endl;
+}
+
+void log_process_memory_change(const std::string &label,
+                               const ProcessMemorySnapshot &before,
+                               const ProcessMemorySnapshot &after)
+{
+    if (!before.available || !after.available)
+    {
+        resnet18_progress_log() << "[memory] " << label << ": unavailable" << std::endl;
+        return;
+    }
+    const auto rss_delta = static_cast<std::int64_t>(after.rss_kb) -
+                           static_cast<std::int64_t>(before.rss_kb);
+    const auto peak_delta = static_cast<std::int64_t>(after.peak_rss_kb) -
+                            static_cast<std::int64_t>(before.peak_rss_kb);
+    const auto virtual_delta = static_cast<std::int64_t>(after.virtual_kb) -
+                               static_cast<std::int64_t>(before.virtual_kb);
+    resnet18_progress_log()
+        << "[memory] " << label << ": rss_before_kb=" << before.rss_kb
+        << ", rss_after_kb=" << after.rss_kb << ", rss_delta_kb=" << rss_delta
+        << ", peak_rss_before_kb=" << before.peak_rss_kb
+        << ", peak_rss_after_kb=" << after.peak_rss_kb
+        << ", peak_rss_delta_kb=" << peak_delta
+        << ", virtual_before_kb=" << before.virtual_kb
+        << ", virtual_after_kb=" << after.virtual_kb
+        << ", virtual_delta_kb=" << virtual_delta << std::endl;
+}
+
+ScopedOperationMetrics::ScopedOperationMetrics(std::string label)
+    : label_(std::move(label)), start_(std::chrono::steady_clock::now()),
+      memory_before_(capture_process_memory())
+{
+    resnet18_progress_log() << "[operation-start] " << label_ << std::endl;
+    log_process_memory_snapshot(label_ + " start", memory_before_);
+}
+
+ScopedOperationMetrics::~ScopedOperationMetrics()
+{
+    try
+    {
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::steady_clock::now() - start_)
+                                 .count();
+        const ProcessMemorySnapshot memory_after = capture_process_memory();
+        resnet18_progress_log() << "[duration] " << label_ << ": " << elapsed << " ms"
+                                << std::endl;
+        log_process_memory_change(label_, memory_before_, memory_after);
+    }
+    catch (...)
+    {
+    }
 }
 
 ScopedProgressLogTarget::ScopedProgressLogTarget(std::ostream &target)
