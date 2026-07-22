@@ -20,12 +20,11 @@ constexpr double kResNet18Boundary = 20.0;
 constexpr double kBatchNormEpsilon = 1.0e-5;
 constexpr bool kEnableHomomorphicRelu = true;
 constexpr bool kBootstrapBeforeReluExceptFirst = true;
-constexpr int kResNet18BootstrapLogMessageRatio = 5;
-constexpr int kResNet18BootstrapDoubleAngle = 2;
-constexpr int kResNet18BootstrapK = 7;
-constexpr int kResNet18BootstrapArcsineDegree = 0;
-constexpr int kResNet18BootstrapSineDegree = 59;
-constexpr int kResNet18BootstrapScalingLog = 51;
+constexpr std::uint32_t kResNet18BootstrapQ0Level = 0;
+constexpr std::uint32_t kResNet18BootstrapPrimeBits = 51;
+constexpr std::uint32_t kResNet18ComputePrimeBits = 46;
+constexpr std::size_t kResNet18ComputePrimeCount = 20;
+constexpr std::size_t kResNet18BootstrapPrimeCount = 14;
 
 struct ReluConfig
 {
@@ -43,9 +42,8 @@ struct PoseidonInferPlan
     long logN = 16;
     long log_slots = 15;
     long init_p = 8;
-    int log_scale = 46;
-    int remaining_level = 16;
-    int boot_level = 14;
+    int log_scale = static_cast<int>(kResNet18ComputePrimeBits);
+    int boot_level = static_cast<int>(kResNet18BootstrapPrimeCount);
     std::vector<std::uint32_t> logq_chain;
 };
 

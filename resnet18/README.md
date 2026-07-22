@@ -1,7 +1,10 @@
 # ResNet18 ImageNet Poseidon Inference
 
-这个目录实现 ImageNet 版 ResNet-18 的 Poseidon CKKS 密文推理骨架，输入尺寸为
+这个目录实现 ImageNet 版 ResNet-18 的 Poseidon CKKS 密态推理，输入尺寸为
 `224x224x3`，输出为 `1000` 类 logits。
+
+完整的密文布局、同态算子、Bootstrap、模数链和逐层执行说明见
+[`ENCRYPTED_INFERENCE.md`](ENCRYPTED_INFERENCE.md)。
 
 ## Build
 
@@ -20,16 +23,18 @@ ciphertext 只有 `32768` slots，而一张 ImageNet 输入有 `224*224*3=150528
 ./Trident/build/resnet18/resnet18 START_IMAGE_ID END_IMAGE_ID
 ```
 
-当前密文入口会完成：
+当前密文入口会完成整张 ResNet-18 网络：
 
 ```text
 ImageNet input -> 6 ciphertext TensorCipherGroup
-conv1 output[0..3] encrypted dot-product preview
-conv1 im2col packing -> encrypted conv1 output channel 0
+-> conv1 + bn + polynomial relu + average pool
+-> layer1 + layer2 + layer3 + layer4
+-> global average pool -> encrypted fc(512, 1000)
+-> decrypt logits -> argmax
 ```
 
-`conv1` 的前几个输出和完整输出通道 0 都会和明文 conv1 对照误差。完整 64
-个输出通道封装成 conv1 output group 仍是下一步。
+程序会在各层同步计算明文参考结果，记录密文明文误差、模数链、耗时、真实标签
+和最终预测标签。密态推理日志写入 `resnet18/result/`。
 
 纯明文验证入口：
 
@@ -49,7 +54,7 @@ conv1 im2col packing -> encrypted conv1 output channel 0
 
 ```text
 7x7 stride-2 conv -> bn -> relu
-3x3 stride-2 maxpool in the plain reference path
+3x3 stride-2 average pool
 layer1: 2 BasicBlock, 64 channels
 layer2: 2 BasicBlock, 128 channels, first block stride 2 + projection shortcut
 layer3: 2 BasicBlock, 256 channels, first block stride 2 + projection shortcut
@@ -57,9 +62,9 @@ layer4: 2 BasicBlock, 512 channels, first block stride 2 + projection shortcut
 global average pool -> fc(512, 1000)
 ```
 
-标准 torchvision ResNet-18 的 stem 使用 `maxpool`。当前密文验证路径为了先打通
-packed 主链路，stem 使用 HE 友好的 `3x3 stride-2 padding-1 average pool`，
-并且明文参考路径同步使用同一个 average pool 进行误差比较。
+标准 torchvision ResNet-18 的 stem 使用 `maxpool`。密态路径使用 HE 友好的
+`3x3 stride-2 padding-1 average pool`，明文参考路径默认使用相同的 average pool
+进行逐层误差比较。`resnet18_plain` 可追加 `maxpool` 参数，用于单独对照标准 stem。
 
 ## Parameters
 
@@ -135,5 +140,6 @@ image_id 999 -> ILSVRC2012_val_00001000.JPEG
 对应关系会写到 `test_manifest.txt`。如果只想先准备少量图片，可以使用
 `--limit N`。
 
-当前配置使用 `logN=21`、`log_slots=20`、`init_p=1`，以容纳 ImageNet stem
-之后的 packed tensor。完整密文推理会非常重，建议先只跑单张图片。
+当前配置使用 `logN=16`、`log_slots=15`、`init_p=8`。一张输入包含 150528
+个数，因此入口按通道拆成 6 个密文；进入 stem 后再转换为通道组和 multiplexed
+packed 布局。完整密文推理计算量很大，建议先只跑单张图片。

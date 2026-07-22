@@ -10,8 +10,6 @@
 #include "progress_log.h"
 #include "tensor_cipher_group.h"
 
-#include "poseidon/advance/homomorphic_dft.h"
-
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -24,12 +22,10 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
-#include <numeric>
 #include <set>
 #include <stdexcept>
 #include <sstream>
 #include <string>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -582,16 +578,6 @@ int normalize_rotation_step(long long step, size_t slot_count)
         normalized += static_cast<long long>(slot_count);
     }
     return static_cast<int>(normalized);
-}
-
-vector<int> power_of_two_rotation_steps(size_t slot_count)
-{
-    vector<int> steps;
-    for (size_t step = 1; step < slot_count; step <<= 1)
-    {
-        steps.push_back(static_cast<int>(step));
-    }
-    return steps;
 }
 
 void rotate_with_power_of_two_keys(const Ciphertext &input, Ciphertext &output,
@@ -1502,7 +1488,7 @@ PoseidonBootstrapContext make_resnet18_bootstrap_context(PoseidonRuntime &runtim
     bootstrap_ctx.encoder = &runtime.encoder;
     bootstrap_ctx.relin_keys = &runtime.relin_keys;
     bootstrap_ctx.galois_keys = &runtime.galois_keys;
-    bootstrap_ctx.bootstrap_poly = runtime.bootstrap_poly.get();
+    bootstrap_ctx.bootstrap_config = &runtime.bootstrap_config;
     return bootstrap_ctx;
 }
 
@@ -1543,7 +1529,7 @@ MultiplexedCipherGroup multiplexed_channel_bootstrap(
             TensorCipher tensor_in(static_cast<int>(logn), input.k, input.h, input.w, input.c,
                                    1, input.pages_per_cipher, input.packs.at(pack_index));
             TensorCipher tensor_out;
-            bootstrap_tensor(tensor_in, tensor_out, bootstrap_ctx, runtime.encoder);
+            bootstrap_tensor(tensor_in, tensor_out, bootstrap_ctx);
             output.packs.at(pack_index) = tensor_out.cipher();
             resnet18_progress_log() << label << " bootstrap ciphertext progress: "
                                     << (pack_index + 1) << "/" << input.packs.size() << endl;
@@ -1928,37 +1914,6 @@ vector<int> packed_sparse_stride_conv2d_rotation_steps(
                     }
                 }
             }
-        }
-    }
-    return vector<int>(steps.begin(), steps.end());
-}
-
-vector<int> packed_sparse_stride_compact_rotation_steps(
-    int input_channels_per_cipher, int output_channels_per_cipher, int out_channels,
-    int sparse_h, int sparse_w, int dense_h, int dense_w, size_t sparse_channel_stride,
-    size_t dense_channel_stride)
-{
-    set<int> steps;
-    for (int ow = 1; ow < dense_w; ++ow)
-    {
-        steps.insert(ow);
-    }
-    for (int oh = 1; oh < dense_h; ++oh)
-    {
-        steps.insert(oh * (2 * sparse_w - dense_w));
-    }
-    for (int channel = 0; channel < out_channels; ++channel)
-    {
-        const int source_local = channel % input_channels_per_cipher;
-        const int target_local = channel % output_channels_per_cipher;
-        const long long step =
-            static_cast<long long>(static_cast<size_t>(source_local) *
-                                   sparse_channel_stride) -
-            static_cast<long long>(static_cast<size_t>(target_local) *
-                                   dense_channel_stride);
-        if (step != 0)
-        {
-            steps.insert(static_cast<int>(step));
         }
     }
     return vector<int>(steps.begin(), steps.end());
@@ -2966,119 +2921,18 @@ vector<int> fully_connected_rotation_steps(int q, int r)
     return vector<int>(steps.begin(), steps.end());
 }
 
-PackedChannelCipherGroup make_packed_shape_for_key_plan(
-    int h, int w, int c, int channels_per_cipher, size_t slot_count)
-{
-    PackedChannelCipherGroup group;
-    group.h = h;
-    group.w = w;
-    group.c = c;
-    group.channels_per_cipher = channels_per_cipher;
-    group.channel_stride = static_cast<size_t>(h * w);
-    group.slot_count = slot_count;
-    group.packs.resize((static_cast<size_t>(c) +
-                        static_cast<size_t>(channels_per_cipher) - 1) /
-                       static_cast<size_t>(channels_per_cipher));
-    return group;
-}
-
-void insert_rotation_steps_allow_zero(set<int> &target, const vector<int> &steps)
-{
-    for (int step : steps)
-    {
-        target.insert(step);
-    }
-}
-
-vector<int> collect_resnet18_multiplexed_rotation_steps(size_t slot_count)
-{
-    vector<int> steps = power_of_two_rotation_steps(slot_count);
-    steps.push_back(-static_cast<int>(112 * 112));
-    steps.push_back(static_cast<int>(112 * 112));
-    sort(steps.begin(), steps.end());
-    steps.erase(unique(steps.begin(), steps.end()), steps.end());
-    return steps;
-}
-
-void insert_dft_rotation_steps(HomomorphicDFTMatrixLiteral &literal, set<int> &target)
-{
-    const int slots = 1 << literal.get_log_slots();
-    vector<int> dft_steps;
-    auto matrices = literal.gen_matrices();
-    for (auto &matrix : matrices)
-    {
-        const int n1 = find_best_bsgs_ratio(matrix, slots, literal.get_log_bsgs_ratio());
-        add_matrix_rot_to_list(matrix, dft_steps, n1, slots, false);
-    }
-    insert_rotation_steps_allow_zero(target, dft_steps);
-}
-
-vector<int> collect_resnet18_bootstrap_rotation_steps(PoseidonRuntime &runtime)
-{
-    set<int> unique_steps;
-    unique_steps.insert(0); // CKKS conjugation key, used by bootstrap real projection.
-
-    const auto params_literal = runtime.context.parameters_literal();
-    const uint32_t logn = params_literal->log_n();
-    const uint32_t log_slots = params_literal->log_slots();
-    const uint32_t top_level = static_cast<uint32_t>(params_literal->q().size() - 1);
-
-    HomomorphicDFTMatrixLiteral coeff_to_slot_literal(
-        encode, logn, log_slots, top_level, vector<uint32_t>(3, 1), true, 1.0, false, 1);
-    insert_dft_rotation_steps(coeff_to_slot_literal, unique_steps);
-
-    HomomorphicDFTMatrixLiteral slot_to_coeff_literal(
-        decode, logn, log_slots, top_level, vector<uint32_t>(3, 1), true, 1.0, false, 1);
-    insert_dft_rotation_steps(slot_to_coeff_literal, unique_steps);
-
-    return vector<int>(unique_steps.begin(), unique_steps.end());
-}
-
-void prepare_resnet18_rotation_keys(PoseidonRuntime &runtime, ofstream &output,
-                                    const MockExecutionOptions &mock_options)
+void prepare_resnet18_evaluation_keys(PoseidonRuntime &runtime, ofstream &output)
 {
     const auto key_time_start = chrono::steady_clock::now();
 
-    set<int> all_steps;
-    const vector<int> network_steps =
-        collect_resnet18_multiplexed_rotation_steps(runtime.slot_count);
-    insert_rotation_steps_allow_zero(all_steps, network_steps);
-
-    vector<int> bootstrap_steps;
-    if (kEnableHomomorphicRelu && kBootstrapBeforeReluExceptFirst &&
-        !mock_options.mock_bootstrap)
-    {
-        bootstrap_steps = collect_resnet18_bootstrap_rotation_steps(runtime);
-        insert_rotation_steps_allow_zero(all_steps, bootstrap_steps);
-    }
-
-    vector<int> steps(all_steps.begin(), all_steps.end());
-    output << "prepare evaluation keys: network_rotation_key_count="
-           << network_steps.size()
-           << ", bootstrap_rotation_key_count=" << bootstrap_steps.size()
-           << ", merged_galois_key_count=" << steps.size() << '\n';
-    output << "prepare galois keys: steps";
-    for (int step : steps)
-    {
-        output << ' ' << step;
-    }
-    output << '\n';
-    resnet18_progress_log()
-        << "prepare evaluation keys merged galois key count: " << steps.size() << endl;
-
     KeyGenerator keygen(runtime.context, runtime.secret_key);
     keygen.create_relin_keys(runtime.relin_keys);
-    if (kEnableHomomorphicRelu && kBootstrapBeforeReluExceptFirst &&
-        !mock_options.mock_bootstrap)
-    {
-        runtime.bootstrap_poly = std::make_unique<EvalModPoly>(
-            runtime.context, CosDiscrete,
-            static_cast<std::uint64_t>(1) << kResNet18BootstrapScalingLog, 1,
-            kResNet18BootstrapLogMessageRatio, kResNet18BootstrapDoubleAngle,
-            kResNet18BootstrapK, kResNet18BootstrapArcsineDegree,
-            kResNet18BootstrapSineDegree);
-    }
-    keygen.create_galois_keys(steps, runtime.galois_keys);
+    keygen.create_galois_keys(runtime.galois_keys);
+
+    output << "prepare evaluation keys: galois_key_mode="
+              "power_of_two_rotations_and_conjugation\n";
+    resnet18_progress_log()
+        << "prepare evaluation keys: power-of-two rotations and conjugation" << endl;
 
     const auto elapsed = chrono::duration_cast<chrono::milliseconds>(
                              chrono::steady_clock::now() - key_time_start)
@@ -3131,7 +2985,7 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             << ", mock_bootstrap=" << (mock_options.mock_bootstrap ? 1 : 0)
             << ", run_timestamp=" << run_timestamp
             << ", log_file=" << run_result_path << '\n';
-    prepare_resnet18_rotation_keys(runtime, out_log, mock_options);
+    prepare_resnet18_evaluation_keys(runtime, out_log);
 
     const auto all_time_start = chrono::high_resolution_clock::now();
     for (size_t image_id = start_image_id; image_id <= end_image_id; ++image_id)
@@ -4772,11 +4626,10 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             TensorCipher encrypted_head_logits;
             {
                 ScopedDurationLog duration("head fully connected");
-                fully_connected_print(
+                matrix_multiplication(
                     encrypted_head_pooled, encrypted_head_logits, weights.linear_weight,
                     weights.linear_bias, kImageNetClassCount, kResNet18FinalChannels,
-                    *runtime.evaluator, runtime.galois_keys, output, runtime.decryptor,
-                    runtime.encoder, runtime.context);
+                    *runtime.evaluator, runtime.galois_keys, runtime.encoder);
             }
             log_tensor_cipher_state("head fully connected logits output", encrypted_head_logits,
                                     runtime);

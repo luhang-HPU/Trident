@@ -29,13 +29,12 @@ fs::path result_dir()
 
 std::vector<std::uint32_t> logq_chain()
 {
-    return {
-        46, 46, 46, 46, 46, 46, 46, 46, 46,
-        46, 46, 46, 46, 46, 46, 46, 46, 46,
-        46, 46, 46, 46, 46, 
-        51, 51, 51, 51, 51, 51, 51, 51, 51, 51,
-        51, 51, 51, 51, 51, 51, 51, 51, 51,
-    };
+    std::vector<std::uint32_t> chain;
+    chain.reserve(1 + kResNet18ComputePrimeCount + kResNet18BootstrapPrimeCount);
+    chain.push_back(kResNet18BootstrapPrimeBits);
+    chain.insert(chain.end(), kResNet18ComputePrimeCount, kResNet18ComputePrimeBits);
+    chain.insert(chain.end(), kResNet18BootstrapPrimeCount, kResNet18BootstrapPrimeBits);
+    return chain;
 }
 
 std::vector<std::uint32_t> logp_chain()
