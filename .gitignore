@@ -3,5 +3,5 @@ build*
 *.log
 resnet20/result/
 resnet18/result/
+resnet50/result/
 bash.txt
-resnet18/testFile/test_values.txt
