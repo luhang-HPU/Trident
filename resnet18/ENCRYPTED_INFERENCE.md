@@ -213,24 +213,33 @@ q0:                   1 × 51-bit prime
 Bootstrap 专用尾部: 14 × 51-bit primes
 ```
 
-也就是 Q 一共 35 个素数。这里“14 个 51-bit 模数”专指 Bootstrap 消耗的尾部
+也就是 Q 一共 35 个素数。这里“14 个 51-bit 模数”专指 Bootstrap 使用的尾部
 模数；新 Bootstrap 还要求一个独立的 51-bit `q0`，所以若按整个 Q 链统计，51-bit
 条目总数是 15 个。`q0` 是自举输入基准层，不属于 14-level 自举预算。
 
-20 个 46-bit 模数不是沿用旧值，而是根据当前 ResNet-18 最长的两次 Bootstrap 间隔
-重新计算的。最紧张的是从初始计算区顶部到第一次 Bootstrap：
+ResNet-18 的首段现在与 ResNet-50 使用相同的 level 策略：新密文不立即丢弃顶部
+14 个 51-bit 模数，而是先让 stem 卷积和 multiplexed 重排消耗其中 3 层。到第一
+个 ReLU 前，`drop_trailing_51_bit_primes()` 再丢弃剩余的 11 个连续 51-bit
+模数，使密文落到 46-bit 常规计算区顶部。
+
+第一次 Bootstrap 前的实际 level 变化如下：
 
 ```text
-stem 7×7 conv              约 1 level
-stem 复合多项式 ReLU       约 14 levels
-stem 3×3 average-pool       2 levels
-layer1 block0 conv1 + BN    2 levels
-合计                        19 levels
+新加密的 stem im2col 密文                 chain_index 34
+stem 7×7 conv（消耗顶部 51-bit 模数）    34 -> 33
+stem 输出重排为 multiplexed k=1（2 层）   33 -> 31
+ReLU 前丢弃剩余 11 个 51-bit 模数          31 -> 20
+stem 复合多项式 ReLU（14 层）              20 -> 6
+stem 3×3 average-pool（2 层）               6 -> 4
+layer1 block0 conv1（含 BN scale，2 层）     4 -> 2
+第一次 Bootstrap 输入                       chain_index 2
 ```
 
-从 `chain_index=20` 开始消耗 19 层后，密文落在 `chain_index=1`；最新 Bootstrap
-使用这一层完成进入 `q0` 前的准备。因此常规计算区需要 20 个 46-bit 素数，不能只
-按后续 BasicBlock 的较短间隔配置。
+因此首段虽然在第一次 Bootstrap 前总共发生 21 次 rescale，但其中最前面的 3 次
+由 Bootstrap 尾部的 51-bit 模数承担；46-bit 常规计算区只需 20 个模数，并且在
+第一次 Bootstrap 前仍保留到 `chain_index=2`。这比“输入阶段立即丢弃全部 51-bit
+尾部”的方案节省了一个 46-bit 模数，同时避免 layer1 block0 conv1 在 q0 上编码
+明文时出现 `scale out of bounds`。
 
 特殊模数 P 为：
 
@@ -238,10 +247,9 @@ layer1 block0 conv1 + BN    2 levels
 1 × 51-bit prime
 ```
 
-新加密的输入位于模数链顶部。普通卷积和 ReLU 进入常规计算前，
-`drop_trailing_51_bit_primes()` 会跳过当前尾部连续的 51-bit 素数，使后续 rescale
-与 `2^46` 常规 scale 匹配。Bootstrap 会把密文刷新回较高层级，随后 ReLU 再执行
-相同的 51-bit 尾部处理。
+新加密的输入位于模数链顶部。首段特意保留 51-bit 尾部供 stem 卷积和重排使用，
+在第一个 ReLU 前才调用 `drop_trailing_51_bit_primes()`。Bootstrap 会把密文刷新
+回较高层级，后续 ReLU 仍会执行相同的 51-bit 尾部处理。
 
 每次密文乘明文权重或密文乘密文后都要结合 rescale 管理 scale；纯加法、rotation
 和使用 scale 对齐的 `add_plain` 不消耗相同的乘法深度。

@@ -3010,12 +3010,10 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
         TensorCipherGroup input_group(static_cast<int>(plan.logN), kImageNetInputHeight,
                                       kImageNetInputWidth, kImageNetInputChannels, image_values,
                                       runtime.encryptor, runtime.encoder, plan.log_scale);
-        const size_t input_dropped_51 =
-            drop_trailing_51_bit_primes(input_group.chunks(), runtime);
-        output << "input drop trailing 51-bit primes: " << input_dropped_51 << '\n';
+        output << "input bootstrap tail retained for stem computation\n";
         resnet18_progress_log()
-            << "input drop trailing 51-bit primes: " << input_dropped_51 << endl;
-        log_cipher_vector_level_summary("input chunks after 51-bit drop",
+            << "input bootstrap tail retained for stem computation" << endl;
+        log_cipher_vector_level_summary("input chunks with bootstrap tail retained",
                                         input_group.chunks(), runtime);
         input_group.print_summary(output);
 
@@ -3043,14 +3041,10 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
         Im2ColCipherGroup conv1_im2col = encrypt_conv2d_im2col_patches(
             image_values, kImageNetInputHeight, kImageNetInputWidth, kImageNetInputChannels, 2, 7,
             7, runtime, plan.log_scale);
-        const size_t conv1_im2col_dropped_51 =
-            drop_trailing_51_bit_primes(conv1_im2col.patches, runtime);
-        output << "conv1 im2col drop trailing 51-bit primes: "
-               << conv1_im2col_dropped_51 << '\n';
+        output << "conv1 im2col bootstrap tail retained for stem computation\n";
         resnet18_progress_log()
-            << "conv1 im2col drop trailing 51-bit primes: "
-            << conv1_im2col_dropped_51 << endl;
-        log_cipher_vector_level_summary("conv1 im2col patches after 51-bit drop",
+            << "conv1 im2col bootstrap tail retained for stem computation" << endl;
+        log_cipher_vector_level_summary("conv1 im2col patches with bootstrap tail retained",
                                         conv1_im2col.patches, runtime);
         output << "conv1 im2col patches: " << conv1_im2col.patches.size()
                << ", spatial_count=" << conv1_im2col.spatial_count << '\n';
