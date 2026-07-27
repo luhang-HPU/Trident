@@ -9,7 +9,6 @@ add_executable(
   progress_log.cpp
   infer.cpp
   tensor_cipher.cpp
-  tensor_cipher_group.cpp
   encrypted_group_ops.cpp
   relu_approx.cpp
   encrypted_ops.cpp

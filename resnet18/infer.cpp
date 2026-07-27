@@ -8,7 +8,6 @@
 #include "parameter_loader.h"
 #include "plain_cnn.h"
 #include "progress_log.h"
-#include "tensor_cipher_group.h"
 
 #include <algorithm>
 #include <atomic>
@@ -707,26 +706,6 @@ vector<double> decrypt_multiplexed_group(const MultiplexedCipherGroup &group,
                     decoded.at(pack_index).at(slot).real();
             }
         }
-    }
-    return values;
-}
-
-vector<complex<double>> decrypt_tensor_cipher_group_complex(
-    const TensorCipherGroup &group, PoseidonRuntime &runtime)
-{
-    vector<complex<double>> values(group.value_count(), complex<double>(0.0, 0.0));
-    vector<vector<complex<double>>> decoded(group.chunk_count());
-    for (size_t chunk_index = 0; chunk_index < group.chunk_count(); ++chunk_index)
-    {
-        Plaintext plain;
-        runtime.decryptor.decrypt(group.chunks().at(chunk_index), plain);
-        runtime.encoder.decode(plain, decoded.at(chunk_index));
-    }
-    for (size_t value_index = 0; value_index < group.value_count(); ++value_index)
-    {
-        const size_t chunk_index = group.chunk_index_for_value(value_index);
-        const size_t slot_index = group.slot_index_for_value(value_index);
-        values.at(value_index) = decoded.at(chunk_index).at(slot_index);
     }
     return values;
 }
@@ -2949,13 +2928,6 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
     const PoseidonInferPlan plan = default_poseidon_plan();
     const size_t image_value_count =
         static_cast<size_t>(kImageNetInputHeight * kImageNetInputWidth * kImageNetInputChannels);
-    const size_t slot_count = static_cast<size_t>(1) << plan.log_slots;
-    const size_t input_channel_value_count =
-        static_cast<size_t>(kImageNetInputHeight * kImageNetInputWidth);
-    const size_t input_chunks_per_channel =
-        (input_channel_value_count + slot_count - 1) / slot_count;
-    const size_t input_chunk_count =
-        static_cast<size_t>(kImageNetInputChannels) * input_chunks_per_channel;
     const string run_timestamp = make_run_timestamp();
     ReluConfig relu_config = default_relu_config(plan);
     const MockExecutionOptions mock_options = read_mock_execution_options();
@@ -2975,8 +2947,7 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
     PoseidonRuntime runtime = make_poseidon_runtime(plan, false);
     resnet18_progress_log() << "Poseidon slot count: " << runtime.slot_count << endl;
     resnet18_progress_log() << "Poseidon scale: " << runtime.scale << endl;
-    resnet18_progress_log() << "ImageNet input values: " << image_value_count
-         << ", encrypted input chunks: " << input_chunk_count << endl;
+    resnet18_progress_log() << "ImageNet input values: " << image_value_count << endl;
 
     out_log << "run_start: start_image_id=" << start_image_id
             << ", end_image_id=" << end_image_id
@@ -3004,30 +2975,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
         const int image_label = read_image_label(image_id);
 
         output << "runtime: poseidon ready\n";
-        output << "input values=" << image_values.size() << ", slot_count=" << slot_count
-               << ", input_chunk_count=" << input_chunk_count << '\n';
-
-        TensorCipherGroup input_group(static_cast<int>(plan.logN), kImageNetInputHeight,
-                                      kImageNetInputWidth, kImageNetInputChannels, image_values,
-                                      runtime.encryptor, runtime.encoder, plan.log_scale);
-        output << "input bootstrap tail retained for stem computation\n";
-        resnet18_progress_log()
-            << "input bootstrap tail retained for stem computation" << endl;
-        log_cipher_vector_level_summary("input chunks with bootstrap tail retained",
-                                        input_group.chunks(), runtime);
-        input_group.print_summary(output);
-
-        vector<double> decrypted_input = input_group.decrypt_values(runtime.decryptor,
-                                                                    runtime.encoder);
-        double max_abs_error = 0.0;
-        for (size_t i = 0; i < min(image_values.size(), decrypted_input.size()); ++i)
-        {
-            max_abs_error = max(max_abs_error, abs(image_values[i] - decrypted_input[i]));
-        }
-        dump_plain_cipher_preview(
-            "input", image_values,
-            decrypt_tensor_cipher_group_complex(input_group, runtime), output);
-        output << "input decrypt max_abs_error: " << max_abs_error << '\n';
+        output << "input values=" << image_values.size()
+               << ", slot_count=" << runtime.slot_count << '\n';
 
         ModelWeights weights = load_resnet18_parameters();
         PlainTensor plain_input(kImageNetInputHeight, kImageNetInputWidth, kImageNetInputChannels,
@@ -4672,8 +4621,6 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
         output << "image time : " << image_time_diff.count() << " ms" << endl;
 
         out_log << "image_id: " << image_id << ", image label: " << image_label
-                  << ", encrypted_input_chunks: " << input_group.chunk_count()
-                  << ", input_decrypt_max_abs_error: " << max_abs_error
                   << ", stem_conv1_all_max_abs_error: "
                   << stem_conv1_all_max_abs_error
                   << ", stem_bn_all_max_abs_error: " << stem_bn_all_max_abs_error
@@ -4806,8 +4753,6 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
                   << ", encrypted_predicted_label: " << encrypted_predicted_label
                   << ", image time : " << image_time_diff.count() << " ms" << endl;
         resnet18_progress_log() << "image_id: " << image_id << ", image label: " << image_label
-             << ", encrypted_input_chunks: " << input_group.chunk_count()
-             << ", input_decrypt_max_abs_error: " << max_abs_error
              << ", stem_conv1_all_max_abs_error: "
              << stem_conv1_all_max_abs_error
              << ", stem_bn_all_max_abs_error: " << stem_bn_all_max_abs_error
@@ -4941,8 +4886,6 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
              << ", image time : " << image_time_diff.count() << " ms" << endl;
         out_log << "image_done: " << image_id
                    << ", image label: " << image_label
-                   << ", encrypted_input_chunks=" << input_group.chunk_count()
-                   << ", input_decrypt_max_abs_error=" << max_abs_error
                    << ", stem_conv1_all_max_abs_error="
                    << stem_conv1_all_max_abs_error
                    << ", stem_bn_all_max_abs_error=" << stem_bn_all_max_abs_error
