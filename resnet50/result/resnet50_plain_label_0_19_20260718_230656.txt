@@ -1,0 +1,27 @@
+image_id: 0, image label: 65, plain predicted label: 62, correct: 0, image time : 31865 ms
+image_id: 1, image label: 970, plain predicted label: 795, correct: 0, image time : 31391 ms
+image_id: 2, image label: 230, plain predicted label: 231, correct: 0, image time : 31140 ms
+image_id: 3, image label: 809, plain predicted label: 969, correct: 0, image time : 31432 ms
+image_id: 4, image label: 516, plain predicted label: 431, correct: 0, image time : 31311 ms
+image_id: 5, image label: 57, plain predicted label: 53, correct: 0, image time : 31296 ms
+image_id: 6, image label: 334, plain predicted label: 68, correct: 0, image time : 31607 ms
+image_id: 7, image label: 415, plain predicted label: 767, correct: 0, image time : 31666 ms
+image_id: 8, image label: 674, plain predicted label: 674, correct: 1, image time : 31585 ms
+image_id: 9, image label: 332, plain predicted label: 333, correct: 0, image time : 31879 ms
+image_id: 10, image label: 109, plain predicted label: 109, correct: 1, image time : 32075 ms
+image_id: 11, image label: 286, plain predicted label: 286, correct: 1, image time : 31647 ms
+image_id: 12, image label: 370, plain predicted label: 371, correct: 0, image time : 31714 ms
+image_id: 13, image label: 757, plain predicted label: 757, correct: 1, image time : 31481 ms
+image_id: 14, image label: 595, plain predicted label: 856, correct: 0, image time : 31966 ms
+image_id: 15, image label: 147, plain predicted label: 147, correct: 1, image time : 31884 ms
+image_id: 16, image label: 108, plain predicted label: 108, correct: 1, image time : 32199 ms
+image_id: 17, image label: 23, plain predicted label: 128, correct: 0, image time : 31711 ms
+image_id: 18, image label: 478, plain predicted label: 478, correct: 1, image time : 31743 ms
+image_id: 19, image label: 517, plain predicted label: 517, correct: 1, image time : 31721 ms
+
+plain total time : 633334 ms
+plain accuracy : 8/20 = 0.4
+
+
+stem pool mode: avgpool
+plain relu mode: polyrelu

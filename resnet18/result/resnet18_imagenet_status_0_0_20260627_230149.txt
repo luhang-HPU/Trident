@@ -1,0 +1,4 @@
+run_start: start_image_id=0, end_image_id=0, run_timestamp=20260627_230149
+image_start: 0
+image_done: 0, image label: 65, encrypted_input_chunks=5, input_decrypt_max_abs_error=1.47302e-08, conv1_preview_max_abs_error=-1, conv1_channel0_max_abs_error=7.23488e-09, conv1_all_max_abs_error=-1, conv1_bn_max_abs_error=-1, conv1_bn_channel0_max_abs_error=7.23487e-09, conv1_relu_channel0_max_abs_error=0.000115172, conv1_relu_bootstrap_channel0_max_abs_error=0.000115174, conv1_maxpool_channel0_preview_max_abs_error=-1, conv1_maxpool_channel0_sparse_max_abs_error=0.0398264, stem_conv1_all_max_abs_error=1.34897e-08, stem_bn_all_max_abs_error=1.34897e-08, stem_relu_refresh_all_max_abs_error=0.000115179, stem_sparse_maxpool_all_max_abs_error=0.0571705, image_time_ms=1759663
+run_done: total_time_ms=1759704

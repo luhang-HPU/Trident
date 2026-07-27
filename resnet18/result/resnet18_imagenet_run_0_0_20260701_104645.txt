@@ -1,0 +1,122 @@
+[2026-07-01 10:46:45.399] Setting Poseidon Parameters
+[2026-07-01 10:46:52.143] Poseidon slot count: 32768
+[2026-07-01 10:46:52.143] Poseidon scale: 7.03687e+13
+[2026-07-01 10:46:52.143] ImageNet input values: 150528, encrypted input chunks: 6
+run_start: start_image_id=0, end_image_id=0, run_timestamp=20260701_104645, log_file="/home/guoshuai/github/poseidon/Trident/resnet18/result/resnet18_imagenet_run_0_0_20260701_104645.txt"
+prepare evaluation keys: network_rotation_key_count=17, bootstrap_rotation_key_count=39, merged_galois_key_count=41
+prepare galois keys: steps -12544 0 1 2 3 4 5 6 7 8 16 24 32 64 96 128 160 192 224 256 512 768 1024 2048 3072 4096 5120 6144 7168 8192 12544 16384 24576 31744 32000 32256 32512 32736 32744 32752 32760
+[2026-07-01 10:46:52.737] prepare evaluation keys merged galois key count: 41
+prepare evaluation keys time: 397249 ms
+[2026-07-01 10:53:29.392] [duration] prepare evaluation keys: 397249 ms
+image_start: 0
+
+==================== run_start ====================
+image_id: 0
+run_timestamp: 20260701_104645
+log_file: "/home/guoshuai/github/poseidon/Trident/resnet18/result/resnet18_imagenet_run_0_0_20260701_104645.txt"
+runtime: poseidon ready
+input values=150528, slot_count=32768, input_chunk_count=6
+TensorCipherGroup(shape h=224, w=224, c=3, values=150528, slots_per_chunk=32768, chunks=6, layout=channel_split)
+input decrypt max_abs_error: 1.61272e-08
+conv1 im2col packing: encrypting 7x7x3 patch ciphertexts
+[2026-07-01 10:53:40.010] conv1 im2col encrypt patches
+conv1 im2col patches: 147, spatial_count=12544
+[2026-07-01 10:54:06.087] conv1 im2col patches: 147
+stem full 64-channel: encrypted conv1 evaluation
+[2026-07-01 10:54:06.106] stem full 64-channel conv1 encrypted evaluation
+[2026-07-01 10:54:06.106] [start] conv_im2col_all_channels
+[2026-07-01 10:54:06.106] conv im2col encrypted channel parallel threads: 16
+[2026-07-01 10:57:33.230] conv im2col encrypted channel progress: 64/64
+[2026-07-01 10:57:33.230] [cipher-state] conv_im2col_all_channels output: shape(h=112, w=112, c=64, spatial=12544), channels=64, chain_index(first/min/max)=37/37/37, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-07-01 10:57:33.230] [duration] conv_im2col_all_channels: 207124 ms
+stem conv1 all max_abs_error: 1.31784e-08
+[2026-07-01 10:58:21.361] stem conv1 all max_abs_error: 1.31784e-08
+stem conv1: pack output as multiplexed k=1
+[2026-07-01 10:58:21.361] stem conv1 pack output as multiplexed k=1
+[2026-07-01 10:59:07.082] [cipher-state] stem conv1 multiplexed k=1 output: shape(h=112, w=112, c=64, k=1), page_size=12544, pages_per_cipher=2, ciphertexts=32, active_slots_per_cipher<= 25088, chain_index(first/min/max)=35/35/35, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+stem conv1 multiplexed pack max_abs_error: 9.56083e-07
+[2026-07-01 10:59:28.404] stem conv1 multiplexed pack max_abs_error: 9.56083e-07
+stem conv1 multiplexed pack channel0 max_abs_error: 7.39002e-09
+stem conv1 multiplexed pack channel1 max_abs_error: 9.30511e-07
+stem conv1 multiplexed k=1 ciphertexts: 32, page_size=12544, active_slots_per_cipher<=25088
+stem multiplexed k=1: encrypted BN offset evaluation
+[2026-07-01 11:00:10.589] stem multiplexed k=1 BN encrypted evaluation
+[2026-07-01 11:00:10.589] [cipher-state] multiplexed_batch_norm input: shape(h=112, w=112, c=64, k=1), page_size=12544, pages_per_cipher=2, ciphertexts=32, active_slots_per_cipher<= 25088, chain_index(first/min/max)=35/35/35, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-07-01 11:00:11.807] [cipher-state] multiplexed_batch_norm output: shape(h=112, w=112, c=64, k=1), page_size=12544, pages_per_cipher=2, ciphertexts=32, active_slots_per_cipher<= 25088, chain_index(first/min/max)=35/35/35, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+stem BN all max_abs_error: 9.56083e-07
+[2026-07-01 11:00:32.731] stem BN all max_abs_error: 9.56083e-07
+stem multiplexed k=1: homomorphic ReLU evaluation (first ReLU, no bootstrap)
+[2026-07-01 11:00:32.731] stem multiplexed k=1 homomorphic ReLU evaluation (first ReLU, no bootstrap)
+[2026-07-01 11:00:33.634] [cipher-state] stem ReLU homomorphic ReLU input: shape(h=112, w=112, c=64, k=1), page_size=12544, pages_per_cipher=2, ciphertexts=32, active_slots_per_cipher<= 25088, chain_index(first/min/max)=35/35/35, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-07-01 11:00:50.628] stem ReLU homomorphic ReLU ciphertext progress: 1/32
+[2026-07-01 11:01:04.776] stem ReLU homomorphic ReLU ciphertext progress: 2/32
+[2026-07-01 11:01:18.792] stem ReLU homomorphic ReLU ciphertext progress: 3/32
+[2026-07-01 11:01:32.798] stem ReLU homomorphic ReLU ciphertext progress: 4/32
+[2026-07-01 11:01:46.727] stem ReLU homomorphic ReLU ciphertext progress: 5/32
+[2026-07-01 11:02:00.768] stem ReLU homomorphic ReLU ciphertext progress: 6/32
+[2026-07-01 11:02:14.774] stem ReLU homomorphic ReLU ciphertext progress: 7/32
+[2026-07-01 11:02:29.575] stem ReLU homomorphic ReLU ciphertext progress: 8/32
+[2026-07-01 11:02:43.522] stem ReLU homomorphic ReLU ciphertext progress: 9/32
+[2026-07-01 11:02:57.542] stem ReLU homomorphic ReLU ciphertext progress: 10/32
+[2026-07-01 11:03:11.504] stem ReLU homomorphic ReLU ciphertext progress: 11/32
+[2026-07-01 11:03:25.754] stem ReLU homomorphic ReLU ciphertext progress: 12/32
+[2026-07-01 11:03:39.369] stem ReLU homomorphic ReLU ciphertext progress: 13/32
+[2026-07-01 11:03:53.216] stem ReLU homomorphic ReLU ciphertext progress: 14/32
+[2026-07-01 11:04:07.278] stem ReLU homomorphic ReLU ciphertext progress: 15/32
+[2026-07-01 11:04:20.969] stem ReLU homomorphic ReLU ciphertext progress: 16/32
+[2026-07-01 11:04:35.134] stem ReLU homomorphic ReLU ciphertext progress: 17/32
+[2026-07-01 11:04:49.027] stem ReLU homomorphic ReLU ciphertext progress: 18/32
+[2026-07-01 11:05:03.151] stem ReLU homomorphic ReLU ciphertext progress: 19/32
+[2026-07-01 11:05:16.979] stem ReLU homomorphic ReLU ciphertext progress: 20/32
+[2026-07-01 11:05:31.034] stem ReLU homomorphic ReLU ciphertext progress: 21/32
+[2026-07-01 11:05:44.857] stem ReLU homomorphic ReLU ciphertext progress: 22/32
+[2026-07-01 11:05:58.240] stem ReLU homomorphic ReLU ciphertext progress: 23/32
+[2026-07-01 11:06:12.383] stem ReLU homomorphic ReLU ciphertext progress: 24/32
+[2026-07-01 11:06:26.579] stem ReLU homomorphic ReLU ciphertext progress: 25/32
+[2026-07-01 11:06:40.751] stem ReLU homomorphic ReLU ciphertext progress: 26/32
+[2026-07-01 11:06:54.683] stem ReLU homomorphic ReLU ciphertext progress: 27/32
+[2026-07-01 11:07:08.173] stem ReLU homomorphic ReLU ciphertext progress: 28/32
+[2026-07-01 11:07:21.835] stem ReLU homomorphic ReLU ciphertext progress: 29/32
+[2026-07-01 11:07:35.808] stem ReLU homomorphic ReLU ciphertext progress: 30/32
+[2026-07-01 11:07:49.652] stem ReLU homomorphic ReLU ciphertext progress: 31/32
+[2026-07-01 11:08:03.509] stem ReLU homomorphic ReLU ciphertext progress: 32/32
+[2026-07-01 11:08:03.509] [cipher-state] stem ReLU homomorphic ReLU output: shape(h=112, w=112, c=64, k=1), page_size=12544, pages_per_cipher=2, ciphertexts=32, active_slots_per_cipher<= 25088, chain_index(first/min/max)=21/21/21, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+stem homomorphic ReLU all max_abs_error: 0.0562772
+[2026-07-01 11:08:12.346] stem homomorphic ReLU all max_abs_error: 0.0562772
+[2026-07-01 11:08:12.346] [duration] stem homomorphic ReLU: 459615 ms
+stem multiplexed layout: avgpool k=1 -> k=2
+[2026-07-01 11:08:12.346] stem multiplexed avgpool k=1 -> k=2 encrypted evaluation
+[2026-07-01 11:08:12.346] [cipher-state] stem ReLU multiplexed k=1 input: shape(h=112, w=112, c=64, k=1), page_size=12544, pages_per_cipher=2, ciphertexts=32, active_slots_per_cipher<= 25088, chain_index(first/min/max)=21/21/21, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-07-01 11:08:12.346] [cipher-state] multiplexed avgpool input: shape(h=112, w=112, c=64, k=1), page_size=12544, pages_per_cipher=2, ciphertexts=32, active_slots_per_cipher<= 25088, chain_index(first/min/max)=21/21/21, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-07-01 11:08:12.346] multiplexed avgpool encrypted pack parallel threads: 8
+[2026-07-01 11:14:12.708] [cipher-state] multiplexed avgpool output: shape(h=56, w=56, c=64, k=2), page_size=12544, pages_per_cipher=2, ciphertexts=8, active_slots_per_cipher<= 25088, chain_index(first/min/max)=20/20/20, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+stem multiplexed avgpool k=2 ciphertexts: 8, page_size=12544, active_slots_per_cipher<=25088
+stem multiplexed avgpool all max_abs_error: 3.55535e+10
+[2026-07-01 11:14:14.852] stem multiplexed avgpool all max_abs_error: 3.55535e+10
+[2026-07-01 11:14:14.852] [duration] stem multiplexed avgpool: 362505 ms
+layer1 block0 conv1 multiplexed k=2: encrypted dense conv evaluation
+[2026-07-01 11:14:14.852] layer1 block0 conv1 multiplexed k=2 encrypted evaluation
+[2026-07-01 11:14:15.369] [cipher-state] multiplexed_dense_conv2d_all_channels input: shape(h=56, w=56, c=64, k=2), page_size=12544, pages_per_cipher=2, ciphertexts=8, active_slots_per_cipher<= 25088, chain_index(first/min/max)=20/20/20, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-07-01 11:14:15.369] multiplexed dense conv compact-vector output pack threads: 8
+[2026-07-01 11:14:15.369] multiplexed dense conv compact-vector estimate: output_packs=8, input_packs=8, max_output_channels_per_pack=8, spatial_rotations_per_pack<=72, plaintext_vector_multiplies_per_pack<=640
+[2026-07-01 11:29:43.349] multiplexed dense conv encrypted pack progress: 8/8
+[2026-07-01 11:29:43.350] [cipher-state] multiplexed_dense_conv2d_all_channels output: shape(h=56, w=56, c=64, k=2), page_size=12544, pages_per_cipher=2, ciphertexts=8, active_slots_per_cipher<= 25088, chain_index(first/min/max)=18/18/18, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+layer1 block0 conv1 multiplexed k=2 ciphertexts: 8, page_size=12544, active_slots_per_cipher<=25088
+layer1 block0 conv1 multiplexed all max_abs_error: 9.32868e+10
+[2026-07-01 11:29:45.081] layer1 block0 conv1 multiplexed all max_abs_error: 9.32868e+10
+[2026-07-01 11:29:45.081] [duration] layer1 block0 conv1 multiplexed: 930229 ms
+layer1 block0 bn1 multiplexed k=2: encrypted BN offset evaluation
+[2026-07-01 11:29:45.081] layer1 block0 bn1 multiplexed k=2 encrypted evaluation
+[2026-07-01 11:29:45.082] [cipher-state] multiplexed_batch_norm input: shape(h=56, w=56, c=64, k=2), page_size=12544, pages_per_cipher=2, ciphertexts=8, active_slots_per_cipher<= 25088, chain_index(first/min/max)=18/18/18, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-07-01 11:29:45.199] [cipher-state] multiplexed_batch_norm output: shape(h=56, w=56, c=64, k=2), page_size=12544, pages_per_cipher=2, ciphertexts=8, active_slots_per_cipher<= 25088, chain_index(first/min/max)=18/18/18, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+layer1 block0 bn1 multiplexed all max_abs_error: 9.32868e+10
+[2026-07-01 11:29:46.836] layer1 block0 bn1 multiplexed all max_abs_error: 9.32868e+10
+layer1 block0 relu1 multiplexed k=2: bootstrap + homomorphic ReLU evaluation
+[2026-07-01 11:29:46.836] layer1 block0 relu1 multiplexed k=2 bootstrap + homomorphic ReLU evaluation
+[2026-07-01 11:29:46.894] [cipher-state] layer1 block0 relu1 bootstrap input: shape(h=56, w=56, c=64, k=2), page_size=12544, pages_per_cipher=2, ciphertexts=8, active_slots_per_cipher<= 25088, chain_index(first/min/max)=18/18/18, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-07-01 11:31:15.727] layer1 block0 relu1 bootstrap ciphertext progress: 1/8
+[2026-07-01 11:32:38.889] layer1 block0 relu1 bootstrap ciphertext progress: 2/8
+[2026-07-01 11:34:01.557] layer1 block0 relu1 bootstrap ciphertext progress: 3/8
+[2026-07-01 11:35:26.590] layer1 block0 relu1 bootstrap ciphertext progress: 4/8
+[2026-07-01 11:36:52.220] layer1 block0 relu1 bootstrap ciphertext progress: 5/8
+[2026-07-01 11:38:16.451] layer1 block0 relu1 bootstrap ciphertext progress: 6/8

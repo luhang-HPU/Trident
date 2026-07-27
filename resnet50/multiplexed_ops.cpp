@@ -1,0 +1,1461 @@
+#include "multiplexed_ops.h"
+
+#include "encrypted_ops.h"
+#include "parallel_utils.h"
+#include "progress_log.h"
+#include "tensor_cipher.h"
+
+#include "poseidon/plaintext.h"
+
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cmath>
+#include <complex>
+#include <set>
+#include <stdexcept>
+#include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+
+using namespace std;
+using namespace poseidon;
+
+namespace
+{
+
+void log_head_cipher_chain_state(const string &label, const Ciphertext &cipher,
+                                 PoseidonRuntime &runtime)
+{
+    resnet18_progress_log() << "[head-chain] " << label
+                            << ": chain_index=" << cipher_chain_index(runtime, cipher)
+                            << ", scale=" << cipher.scale() << endl;
+}
+
+void log_head_chain_index_range(const string &label, const vector<size_t> &chain_indexes)
+{
+    if (chain_indexes.empty())
+    {
+        resnet18_progress_log() << "[head-chain] " << label << ": empty" << endl;
+        return;
+    }
+
+    const auto bounds = minmax_element(chain_indexes.begin(), chain_indexes.end());
+    resnet18_progress_log() << "[head-chain] " << label
+                            << ": ciphertexts=" << chain_indexes.size()
+                            << ", chain_index(first/min/max)=" << chain_indexes.front()
+                            << "/" << *bounds.first << "/" << *bounds.second << endl;
+}
+
+void log_head_cipher_chain_range(const string &label, const vector<Ciphertext> &ciphers,
+                                 PoseidonRuntime &runtime)
+{
+    vector<size_t> chain_indexes;
+    chain_indexes.reserve(ciphers.size());
+    for (const Ciphertext &cipher : ciphers)
+    {
+        chain_indexes.push_back(cipher_chain_index(runtime, cipher));
+    }
+    log_head_chain_index_range(label, chain_indexes);
+}
+
+} // namespace
+
+size_t ceil_div_size(size_t value, size_t divisor)
+{
+    return (value + divisor - 1) / divisor;
+}
+
+int multiplexed_channels_per_page(int k)
+{
+    if (k <= 0)
+    {
+        throw invalid_argument("multiplexed layout k must be positive");
+    }
+    return k * k;
+}
+
+size_t multiplexed_page_count(int channels, int k)
+{
+    return ceil_div_size(static_cast<size_t>(channels),
+                         static_cast<size_t>(multiplexed_channels_per_page(k)));
+}
+
+size_t multiplexed_cipher_count(int channels, int k, int pages_per_cipher)
+{
+    if (pages_per_cipher <= 0)
+    {
+        throw invalid_argument("multiplexed layout pages_per_cipher must be positive");
+    }
+    return ceil_div_size(multiplexed_page_count(channels, k),
+                         static_cast<size_t>(pages_per_cipher));
+}
+
+size_t multiplexed_slot_index(const MultiplexedCipherGroup &group, int channel, int row,
+                              int col)
+{
+    if (channel < 0 || channel >= group.c || row < 0 || row >= group.h ||
+        col < 0 || col >= group.w)
+    {
+        throw out_of_range("multiplexed slot index is out of range");
+    }
+    const int channels_per_page = multiplexed_channels_per_page(group.k);
+    const int page = channel / channels_per_page;
+    const int local_channel = channel % channels_per_page;
+    const int local_page = page % group.pages_per_cipher;
+    const int row_offset = local_channel / group.k;
+    const int col_offset = local_channel % group.k;
+    const int multiplexed_w = group.w * group.k;
+    return static_cast<size_t>(local_page) * group.page_size +
+           static_cast<size_t>(row * group.k + row_offset) *
+               static_cast<size_t>(multiplexed_w) +
+           static_cast<size_t>(col * group.k + col_offset);
+}
+
+size_t multiplexed_cipher_index_for_channel(const MultiplexedCipherGroup &group,
+                                            int channel)
+{
+    if (channel < 0 || channel >= group.c)
+    {
+        throw out_of_range("multiplexed channel is out of range");
+    }
+    const int page = channel / multiplexed_channels_per_page(group.k);
+    return static_cast<size_t>(page / group.pages_per_cipher);
+}
+
+MultiplexedCipherGroup make_multiplexed_shape(int h, int w, int c, int k,
+                                              size_t slot_count)
+{
+    MultiplexedCipherGroup group;
+    group.h = h;
+    group.w = w;
+    group.c = c;
+    group.k = k;
+    group.pages_per_cipher = 2;
+    group.page_size = static_cast<size_t>(h * k) * static_cast<size_t>(w * k);
+    group.slot_count = slot_count;
+    if (group.page_size * static_cast<size_t>(group.pages_per_cipher) > slot_count)
+    {
+        throw invalid_argument("multiplexed layout does not fit two active pages per ciphertext");
+    }
+    group.packs.resize(multiplexed_cipher_count(c, k, group.pages_per_cipher));
+    return group;
+}
+
+void log_multiplexed_group_cipher_state(const string &label,
+                                        const MultiplexedCipherGroup &group,
+                                        PoseidonRuntime &runtime)
+{
+    if (group.packs.empty())
+    {
+        resnet18_progress_log() << "[cipher-state] " << label
+                                << ": empty multiplexed group" << endl;
+        return;
+    }
+
+    const size_t first_chain = cipher_chain_index(runtime, group.packs.front());
+    size_t min_chain = first_chain;
+    size_t max_chain = first_chain;
+    const double first_scale = group.packs.front().scale();
+    double min_scale = first_scale;
+    double max_scale = first_scale;
+    for (const Ciphertext &cipher : group.packs)
+    {
+        const size_t chain = cipher_chain_index(runtime, cipher);
+        min_chain = min(min_chain, chain);
+        max_chain = max(max_chain, chain);
+        const double scale = cipher.scale();
+        min_scale = min(min_scale, scale);
+        max_scale = max(max_scale, scale);
+    }
+
+    resnet18_progress_log() << "[cipher-state] " << label
+                            << ": shape(h=" << group.h << ", w=" << group.w
+                            << ", c=" << group.c << ", k=" << group.k
+                            << "), page_size=" << group.page_size
+                            << ", pages_per_cipher=" << group.pages_per_cipher
+                            << ", ciphertexts=" << group.packs.size()
+                            << ", active_slots_per_cipher<= "
+                            << group.page_size *
+                                   static_cast<size_t>(group.pages_per_cipher)
+                            << ", chain_index(first/min/max)=" << first_chain << "/"
+                            << min_chain << "/" << max_chain
+                            << ", scale(first/min/max)=" << first_scale << "/" << min_scale
+                            << "/" << max_scale << endl;
+}
+
+int next_rescale_prime_bits(const Ciphertext &cipher, PoseidonRuntime &runtime)
+{
+    auto context_data = runtime.context.crt_context()->get_context_data(cipher.parms_id());
+    if (!context_data)
+    {
+        throw runtime_error("failed to locate ciphertext parms_id for next prime bit count");
+    }
+    const auto &modulus = context_data->coeff_modulus();
+    if (modulus.empty())
+    {
+        throw runtime_error("ciphertext has no coefficient modulus primes");
+    }
+    return modulus.back().bit_count();
+}
+
+size_t drop_trailing_51_bit_primes(Ciphertext &cipher, PoseidonRuntime &runtime)
+{
+    size_t dropped = 0;
+    while (next_rescale_prime_bits(cipher, runtime) == 51)
+    {
+        Ciphertext next;
+        runtime.evaluator->drop_modulus_to_next(cipher, next);
+        cipher = std::move(next);
+        ++dropped;
+    }
+    return dropped;
+}
+
+size_t drop_trailing_51_bit_primes(vector<Ciphertext> &ciphers, PoseidonRuntime &runtime)
+{
+    size_t max_dropped = 0;
+    for (Ciphertext &cipher : ciphers)
+    {
+        max_dropped = max(max_dropped, drop_trailing_51_bit_primes(cipher, runtime));
+    }
+    return max_dropped;
+}
+
+double local_multiply_plain_scale(const Ciphertext &input, const CKKSEncoder &encoder);
+
+Ciphertext multiply_binary_mask_no_rescale(const Ciphertext &input, const vector<double> &mask,
+                                           PoseidonRuntime &runtime)
+{
+    Plaintext plain;
+    runtime.encoder.encode(mask, input.parms_id(),
+                           local_multiply_plain_scale(input, runtime.encoder), plain);
+    Ciphertext output;
+    runtime.evaluator->multiply_plain(input, plain, output);
+    runtime.evaluator->rescale_dynamic(output, output, input.scale());
+    return output;
+}
+
+Ciphertext multiply_mask_by_constant_rescale(const Ciphertext &input,
+                                             const vector<double> &binary_mask,
+                                             double coeff, PoseidonRuntime &runtime)
+{
+    vector<double> fused(binary_mask.size(), 0.0);
+    for (size_t i = 0; i < binary_mask.size(); ++i)
+    {
+        if (binary_mask[i] != 0.0)
+        {
+            fused[i] = binary_mask[i] * coeff;
+        }
+    }
+
+    Plaintext plain;
+    runtime.encoder.encode(fused, input.parms_id(),
+                           local_multiply_plain_scale(input, runtime.encoder), plain);
+    Ciphertext output;
+    runtime.evaluator->multiply_plain(input, plain, output);
+    runtime.evaluator->rescale_dynamic(output, output, input.scale());
+    return output;
+}
+
+Ciphertext multiply_plain_vector_rescale(const Ciphertext &input,
+                                         const vector<double> &plain_vector,
+                                         PoseidonRuntime &runtime)
+{
+    Plaintext plain;
+    runtime.encoder.encode(plain_vector, input.parms_id(),
+                           local_multiply_plain_scale(input, runtime.encoder), plain);
+    Ciphertext output;
+    runtime.evaluator->multiply_plain(input, plain, output);
+    runtime.evaluator->rescale_dynamic(output, output, input.scale());
+    return output;
+}
+
+int normalize_rotation_step(long long step, size_t slot_count)
+{
+    if (slot_count == 0)
+    {
+        throw invalid_argument("rotation slot count should not be zero");
+    }
+    long long normalized = step % static_cast<long long>(slot_count);
+    if (normalized < 0)
+    {
+        normalized += static_cast<long long>(slot_count);
+    }
+    return static_cast<int>(normalized);
+}
+
+vector<int> power_of_two_rotation_steps(size_t slot_count)
+{
+    vector<int> steps;
+    for (size_t step = 1; step < slot_count; step <<= 1)
+    {
+        steps.push_back(static_cast<int>(step));
+    }
+    return steps;
+}
+
+void rotate_with_power_of_two_keys(const Ciphertext &input, Ciphertext &output,
+                                   long long step, PoseidonRuntime &runtime)
+{
+    int remaining = normalize_rotation_step(step, runtime.slot_count);
+    if (remaining == 0)
+    {
+        output = input;
+        return;
+    }
+
+    Ciphertext current = input;
+    int bit = 1;
+    while (remaining > 0)
+    {
+        if ((remaining & bit) != 0)
+        {
+            Ciphertext rotated;
+            runtime.evaluator->rotate(current, rotated, bit, runtime.galois_keys);
+            current = std::move(rotated);
+            remaining -= bit;
+        }
+        bit <<= 1;
+    }
+    output = std::move(current);
+}
+
+bool local_coefficient_encodes_to_zero(const Ciphertext &input, double coeff,
+                                       const CKKSEncoder &encoder);
+
+vector<double> packed_channel_mask(size_t slot_count, size_t channel_stride,
+                                   int local_channel)
+{
+    vector<double> mask(slot_count, 0.0);
+    const size_t offset = static_cast<size_t>(local_channel) * channel_stride;
+    for (size_t i = 0; i < channel_stride; ++i)
+    {
+        mask[offset + i] = 1.0;
+    }
+    return mask;
+}
+
+MultiplexedCipherGroup pack_channel_group_as_multiplexed_k1(
+    const ChannelCipherGroup &input, PoseidonRuntime &runtime)
+{
+    if (input.spatial_count != static_cast<size_t>(input.h * input.w))
+    {
+        throw invalid_argument("multiplexed k=1 pack expects dense channel ciphertexts");
+    }
+
+    MultiplexedCipherGroup output =
+        make_multiplexed_shape(input.h, input.w, input.c, 1, input.slot_count);
+    if (output.page_size != input.spatial_count)
+    {
+        throw invalid_argument("multiplexed k=1 pack page size mismatch");
+    }
+
+    const vector<double> first_page_mask =
+        packed_channel_mask(input.slot_count, input.spatial_count, 0);
+    vector<vector<double>> page_masks;
+    page_masks.reserve(static_cast<size_t>(output.pages_per_cipher));
+    for (int page = 0; page < output.pages_per_cipher; ++page)
+    {
+        page_masks.emplace_back(
+            packed_channel_mask(input.slot_count, input.spatial_count, page));
+    }
+    resnet18_parallel_for(output.packs.size(), [&](size_t pack_index) {
+        const size_t channel0 = pack_index * static_cast<size_t>(output.pages_per_cipher);
+        Ciphertext packed = multiply_binary_mask_no_rescale(input.channels.at(channel0),
+                                                            first_page_mask, runtime);
+        for (int page = 1; page < output.pages_per_cipher; ++page)
+        {
+            const size_t channel = channel0 + static_cast<size_t>(page);
+            if (channel >= input.channels.size())
+            {
+                continue;
+            }
+            Ciphertext masked = multiply_binary_mask_no_rescale(input.channels.at(channel),
+                                                                first_page_mask, runtime);
+            Ciphertext encrypted_zero;
+            runtime.encryptor.encrypt_zero(masked.parms_id(), encrypted_zero);
+            encrypted_zero.scale() = masked.scale();
+            runtime.evaluator->add_dynamic(masked, encrypted_zero, masked, runtime.encoder);
+            Ciphertext shifted;
+            rotate_with_power_of_two_keys(
+                masked, shifted,
+                -static_cast<long long>(static_cast<size_t>(page) * input.spatial_count),
+                runtime);
+            Ciphertext target_page = multiply_binary_mask_no_rescale(
+                shifted, page_masks.at(static_cast<size_t>(page)), runtime);
+            runtime.evaluator->add_dynamic(packed, target_page, packed, runtime.encoder);
+        }
+        output.packs.at(pack_index) = std::move(packed);
+    });
+    return output;
+}
+
+vector<complex<double>> decrypt_multiplexed_group_complex(
+    const MultiplexedCipherGroup &group, PoseidonRuntime &runtime)
+{
+    vector<complex<double>> values(static_cast<size_t>(group.c) *
+                                       static_cast<size_t>(group.h * group.w),
+                                   complex<double>(0.0, 0.0));
+    vector<vector<complex<double>>> decoded(group.packs.size());
+    for (size_t pack_index = 0; pack_index < group.packs.size(); ++pack_index)
+    {
+        Plaintext plain;
+        runtime.decryptor.decrypt(group.packs.at(pack_index), plain);
+        runtime.encoder.decode(plain, decoded.at(pack_index));
+    }
+
+    const size_t spatial_count = static_cast<size_t>(group.h * group.w);
+    for (int channel = 0; channel < group.c; ++channel)
+    {
+        const size_t pack_index = multiplexed_cipher_index_for_channel(group, channel);
+        for (int row = 0; row < group.h; ++row)
+        {
+            for (int col = 0; col < group.w; ++col)
+            {
+                const size_t slot = multiplexed_slot_index(group, channel, row, col);
+                values[static_cast<size_t>(channel) * spatial_count +
+                       static_cast<size_t>(row * group.w + col)] =
+                    decoded.at(pack_index).at(slot);
+            }
+        }
+    }
+    return values;
+}
+double multiplexed_group_pair_max_abs_error(
+    const vector<complex<double>> &before,
+    const vector<complex<double>> &after)
+{
+    if (before.size() != after.size())
+    {
+        throw invalid_argument("multiplexed bootstrap before/after size mismatch");
+    }
+    double max_abs_error = 0.0;
+    for (size_t i = 0; i < before.size(); ++i)
+    {
+        max_abs_error = max(max_abs_error, abs(after.at(i).real() - before.at(i).real()));
+    }
+    return max_abs_error;
+}
+
+MultiplexedCipherGroup encrypt_multiplexed_group_values(
+    const MultiplexedCipherGroup &shape, const vector<double> &values,
+    PoseidonRuntime &runtime)
+{
+    const size_t expected_size =
+        static_cast<size_t>(shape.c) * static_cast<size_t>(shape.h * shape.w);
+    if (values.size() != expected_size)
+    {
+        throw invalid_argument("mock multiplexed encrypt value count mismatch");
+    }
+
+    MultiplexedCipherGroup output = shape;
+    output.packs.resize(shape.packs.size());
+    const size_t spatial_count = static_cast<size_t>(shape.h * shape.w);
+    for (size_t pack_index = 0; pack_index < output.packs.size(); ++pack_index)
+    {
+        vector<complex<double>> slots(shape.slot_count, {0.0, 0.0});
+        for (int channel = 0; channel < shape.c; ++channel)
+        {
+            if (multiplexed_cipher_index_for_channel(shape, channel) != pack_index)
+            {
+                continue;
+            }
+            const size_t channel_base = static_cast<size_t>(channel) * spatial_count;
+            for (int row = 0; row < shape.h; ++row)
+            {
+                for (int col = 0; col < shape.w; ++col)
+                {
+                    const size_t value_index =
+                        channel_base + static_cast<size_t>(row * shape.w + col);
+                    slots[multiplexed_slot_index(shape, channel, row, col)] =
+                        {values.at(value_index), 0.0};
+                }
+            }
+        }
+
+        Plaintext plain;
+        runtime.encoder.encode(slots, runtime.scale, plain);
+        runtime.encryptor.encrypt(plain, output.packs.at(pack_index));
+    }
+    return output;
+}
+int exact_log2_power_of_two(int value)
+{
+    if (value <= 0 || (value & (value - 1)) != 0)
+    {
+        return -1;
+    }
+    int log_value = 0;
+    while (value > 1)
+    {
+        value >>= 1;
+        ++log_value;
+    }
+    return log_value;
+}
+
+int pow2_int(int exponent)
+{
+    return 1 << exponent;
+}
+
+int multiplexed_local_channel_index(const MultiplexedCipherGroup &group, int channel)
+{
+    const int channels_per_page = multiplexed_channels_per_page(group.k);
+    const int page = channel / channels_per_page;
+    const int local_page = page % group.pages_per_cipher;
+    return local_page * channels_per_page + channel % channels_per_page;
+}
+
+vector<int> multiplexed_channels_for_pack(const MultiplexedCipherGroup &group,
+                                          size_t pack_index)
+{
+    vector<int> channels;
+    for (int channel = 0; channel < group.c; ++channel)
+    {
+        if (multiplexed_cipher_index_for_channel(group, channel) == pack_index)
+        {
+            channels.push_back(channel);
+        }
+    }
+    return channels;
+}
+
+long long multiplexed_spatial_kernel_rotation_step(const MultiplexedCipherGroup &input,
+                                                   int fh, int fw, int kh, int kw)
+{
+    const int pad_h = fh / 2;
+    const int pad_w = fw / 2;
+    return static_cast<long long>(input.k) * static_cast<long long>(input.k) *
+               static_cast<long long>(input.w) * static_cast<long long>(kh - pad_h) +
+           static_cast<long long>(input.k) * static_cast<long long>(kw - pad_w);
+}
+
+long long multiplexed_output_channel_select_rotation_step(
+    const MultiplexedCipherGroup &output, int output_channel)
+{
+    const int local_channel = multiplexed_local_channel_index(output, output_channel);
+    const int channels_per_page = multiplexed_channels_per_page(output.k);
+    const int local_page = local_channel / channels_per_page;
+    const int channel_in_page = local_channel % channels_per_page;
+    const int row_offset = channel_in_page / output.k;
+    const int col_offset = channel_in_page % output.k;
+    return -static_cast<long long>(local_page) * static_cast<long long>(output.page_size) -
+           static_cast<long long>(row_offset) *
+               static_cast<long long>(output.w * output.k) -
+           static_cast<long long>(col_offset);
+}
+
+Ciphertext rotate_multiplexed_local_channel_sum_to_base(const Ciphertext &input_cipher,
+                                                        const MultiplexedCipherGroup &input,
+                                                        PoseidonRuntime &runtime)
+{
+    const int log_k = exact_log2_power_of_two(input.k);
+    if (log_k < 0)
+    {
+        throw invalid_argument("multiplexed compact conv expects k to be a power of two");
+    }
+
+    Ciphertext sum = input_cipher;
+    for (int x = 0; x < log_k; ++x)
+    {
+        Ciphertext rotated;
+        rotate_with_power_of_two_keys(sum, rotated, pow2_int(x), runtime);
+        Ciphertext next_sum;
+        runtime.evaluator->add_dynamic(sum, rotated, next_sum, runtime.encoder);
+        sum = std::move(next_sum);
+    }
+    for (int x = 0; x < log_k; ++x)
+    {
+        Ciphertext rotated;
+        rotate_with_power_of_two_keys(
+            sum, rotated,
+            static_cast<long long>(pow2_int(x)) * static_cast<long long>(input.k) *
+                static_cast<long long>(input.w),
+            runtime);
+        Ciphertext next_sum;
+        runtime.evaluator->add_dynamic(sum, rotated, next_sum, runtime.encoder);
+        sum = std::move(next_sum);
+    }
+    for (int page = 1; page < input.pages_per_cipher; ++page)
+    {
+        Ciphertext rotated;
+        rotate_with_power_of_two_keys(
+            sum, rotated,
+            static_cast<long long>(page) * static_cast<long long>(input.page_size),
+            runtime);
+        Ciphertext next_sum;
+        runtime.evaluator->add_dynamic(sum, rotated, next_sum, runtime.encoder);
+        sum = std::move(next_sum);
+    }
+    return sum;
+}
+
+struct MultiplexedConvFusedKey
+{
+    size_t input_pack_index = 0;
+    int kh = 0;
+    int kw = 0;
+    int step = 0;
+
+    bool operator==(const MultiplexedConvFusedKey &other) const
+    {
+        return input_pack_index == other.input_pack_index && kh == other.kh &&
+               kw == other.kw && step == other.step;
+    }
+};
+
+struct MultiplexedConvFusedKeyHash
+{
+    size_t operator()(const MultiplexedConvFusedKey &key) const
+    {
+        size_t seed = key.input_pack_index;
+        seed ^= static_cast<size_t>(key.kh + 0x9e3779b9) + (seed << 6) + (seed >> 2);
+        seed ^= static_cast<size_t>(key.kw + 0x9e3779b9) + (seed << 6) + (seed >> 2);
+        seed ^= static_cast<size_t>(key.step + 0x9e3779b9) + (seed << 6) + (seed >> 2);
+        return seed;
+    }
+};
+
+MultiplexedCipherGroup multiplexed_channel_conv2d_all_channels(
+    const MultiplexedCipherGroup &input, int out_channels, int stride, int fh, int fw,
+    const vector<double> &weights, const vector<double> &running_var,
+    const vector<double> &constant_weight, double epsilon, PoseidonRuntime &runtime)
+{
+    log_multiplexed_group_cipher_state("multiplexed_dense_conv2d_all_channels input",
+                                       input, runtime);
+    if (stride != 1 && stride != 2)
+    {
+        throw invalid_argument("multiplexed conv currently supports stride 1 or 2 only");
+    }
+    if (fh <= 0 || fw <= 0 || fh % 2 == 0 || fw % 2 == 0)
+    {
+        throw invalid_argument("multiplexed dense conv expects odd kernel sizes");
+    }
+    if (static_cast<int>(weights.size()) != fh * fw * input.c * out_channels)
+    {
+        throw invalid_argument("multiplexed dense conv weight size is invalid");
+    }
+    if (static_cast<int>(running_var.size()) != out_channels ||
+        static_cast<int>(constant_weight.size()) != out_channels)
+    {
+        throw invalid_argument("multiplexed dense conv BN fold vector size is invalid");
+    }
+
+    const int out_k = (stride == 1) ? input.k : input.k * 2;
+    MultiplexedCipherGroup output =
+        make_multiplexed_shape(input.h / stride, input.w / stride, out_channels, out_k,
+                               input.slot_count);
+    const size_t output_pack_threads = resnet18_parallel_thread_count(output.packs.size());
+    resnet18_progress_log()
+        << "multiplexed dense conv compact-vector output pack threads: "
+        << output_pack_threads << endl;
+    size_t max_output_channels_per_pack = 0;
+    for (size_t output_pack_index = 0; output_pack_index < output.packs.size();
+         ++output_pack_index)
+    {
+        max_output_channels_per_pack =
+            max(max_output_channels_per_pack,
+                multiplexed_channels_for_pack(output, output_pack_index).size());
+    }
+    resnet18_progress_log()
+        << "multiplexed dense conv compact-vector estimate: output_packs="
+        << output.packs.size() << ", input_packs=" << input.packs.size()
+        << ", max_output_channels_per_pack=" << max_output_channels_per_pack
+        << ", spatial_rotations_per_pack<=" << input.packs.size() * fh * fw
+        << ", plaintext_vector_multiplies_per_pack<="
+        << input.packs.size() * max_output_channels_per_pack *
+               (static_cast<size_t>(fh * fw) + 1)
+        << endl;
+
+    auto compute_output_pack = [&](size_t output_pack_index) {
+        const vector<int> output_channels =
+            multiplexed_channels_for_pack(output, output_pack_index);
+        if (output_channels.empty())
+        {
+            throw runtime_error("multiplexed compact conv output pack has no channels");
+        }
+
+        vector<Ciphertext> output_channel_terms(output_channels.size());
+        vector<bool> has_output_channel_terms(output_channels.size(), false);
+        vector<vector<double>> select_vectors(output_channels.size(),
+                                              vector<double>(output.slot_count, 0.0));
+        for (size_t output_channel_index = 0;
+             output_channel_index < output_channels.size(); ++output_channel_index)
+        {
+            const int output_channel = output_channels.at(output_channel_index);
+            const double folded_bn_scale =
+                constant_weight[output_channel] /
+                sqrt(running_var[output_channel] + epsilon);
+            if (folded_bn_scale == 0.0 ||
+                local_coefficient_encodes_to_zero(input.packs.front(), folded_bn_scale,
+                                                  runtime.encoder))
+            {
+                throw runtime_error("multiplexed compact conv output channel has zero BN scale");
+            }
+
+            for (int oh = 0; oh < output.h; ++oh)
+            {
+                for (int ow = 0; ow < output.w; ++ow)
+                {
+                    select_vectors.at(output_channel_index)
+                        .at(multiplexed_slot_index(output, output_channel, oh, ow)) =
+                        folded_bn_scale;
+                }
+            }
+        }
+
+        for (size_t input_pack_index = 0; input_pack_index < input.packs.size();
+             ++input_pack_index)
+        {
+            vector<Ciphertext> input_pack_channel_sums(output_channels.size());
+            vector<bool> has_input_pack_channel_sums(output_channels.size(), false);
+            const vector<int> input_channels =
+                multiplexed_channels_for_pack(input, input_pack_index);
+            for (int kh = 0; kh < fh; ++kh)
+            {
+                for (int kw = 0; kw < fw; ++kw)
+                {
+                    Ciphertext rotated;
+                    rotate_with_power_of_two_keys(
+                        input.packs.at(input_pack_index), rotated,
+                        multiplexed_spatial_kernel_rotation_step(input, fh, fw, kh, kw),
+                        runtime);
+
+                    for (size_t output_channel_index = 0;
+                         output_channel_index < output_channels.size();
+                         ++output_channel_index)
+                    {
+                        const int output_channel =
+                            output_channels.at(output_channel_index);
+                        vector<double> compact_weight(output.slot_count, 0.0);
+                        bool has_compact_weight = false;
+                        for (int input_channel : input_channels)
+                        {
+                            const size_t weight_index = static_cast<size_t>(
+                                fh * fw * input.c * output_channel +
+                                fh * fw * input_channel + fw * kh + kw);
+                            const double coeff = weights[weight_index];
+                            if (coeff == 0.0 ||
+                                local_coefficient_encodes_to_zero(
+                                    input.packs.at(input_pack_index), coeff,
+                                    runtime.encoder))
+                            {
+                                continue;
+                            }
+
+                            const int pad_h = fh / 2;
+                            const int pad_w = fw / 2;
+                            for (int oh = 0; oh < output.h; ++oh)
+                            {
+                                for (int ow = 0; ow < output.w; ++ow)
+                                {
+                                    const int ih = oh * stride + kh - pad_h;
+                                    const int iw = ow * stride + kw - pad_w;
+                                    if (ih < 0 || ih >= input.h || iw < 0 ||
+                                        iw >= input.w)
+                                    {
+                                        continue;
+                                    }
+                                    const size_t slot = multiplexed_slot_index(
+                                        input, input_channel, oh * stride, ow * stride);
+                                    compact_weight.at(slot) = coeff;
+                                    has_compact_weight = true;
+                                }
+                            }
+                        }
+                        if (!has_compact_weight)
+                        {
+                            continue;
+                        }
+
+                        Ciphertext weighted = multiply_plain_vector_rescale(
+                            rotated, compact_weight, runtime);
+                        if (!has_input_pack_channel_sums.at(output_channel_index))
+                        {
+                            input_pack_channel_sums.at(output_channel_index) =
+                                std::move(weighted);
+                            has_input_pack_channel_sums.at(output_channel_index) = true;
+                        }
+                        else
+                        {
+                            Ciphertext next_sum;
+                            runtime.evaluator->add_dynamic(
+                                input_pack_channel_sums.at(output_channel_index), weighted,
+                                next_sum, runtime.encoder);
+                            input_pack_channel_sums.at(output_channel_index) =
+                                std::move(next_sum);
+                        }
+                    }
+                }
+            }
+
+            for (size_t output_channel_index = 0;
+                 output_channel_index < output_channels.size(); ++output_channel_index)
+            {
+                if (!has_input_pack_channel_sums.at(output_channel_index))
+                {
+                    continue;
+                }
+
+                Ciphertext folded =
+                    rotate_multiplexed_local_channel_sum_to_base(
+                        input_pack_channel_sums.at(output_channel_index), input, runtime);
+                Ciphertext shifted;
+                rotate_with_power_of_two_keys(
+                    folded, shifted,
+                    multiplexed_output_channel_select_rotation_step(
+                        output, output_channels.at(output_channel_index)),
+                    runtime);
+                Ciphertext selected =
+                    multiply_plain_vector_rescale(
+                        shifted, select_vectors.at(output_channel_index), runtime);
+                if (!has_output_channel_terms.at(output_channel_index))
+                {
+                    output_channel_terms.at(output_channel_index) = std::move(selected);
+                    has_output_channel_terms.at(output_channel_index) = true;
+                }
+                else
+                {
+                    Ciphertext next_sum;
+                    runtime.evaluator->add_dynamic(
+                        output_channel_terms.at(output_channel_index), selected, next_sum,
+                        runtime.encoder);
+                    output_channel_terms.at(output_channel_index) = std::move(next_sum);
+                }
+            }
+        }
+
+        Ciphertext sum;
+        bool has_sum = false;
+        for (size_t output_channel_index = 0;
+             output_channel_index < output_channels.size(); ++output_channel_index)
+        {
+            if (!has_output_channel_terms.at(output_channel_index))
+            {
+                throw runtime_error(
+                    "multiplexed compact conv output channel produced no encrypted terms");
+            }
+            Ciphertext &term = output_channel_terms.at(output_channel_index);
+            if (!has_sum)
+            {
+                sum = std::move(term);
+                has_sum = true;
+            }
+            else
+            {
+                Ciphertext next_sum;
+                runtime.evaluator->add_dynamic(sum, term, next_sum, runtime.encoder);
+                sum = std::move(next_sum);
+            }
+        }
+        if (!has_sum)
+        {
+            throw runtime_error("multiplexed dense conv output pack produced no encrypted terms");
+        }
+        output.packs.at(output_pack_index) = std::move(sum);
+    };
+
+    if (output_pack_threads > 1)
+    {
+        resnet18_parallel_for(output.packs.size(), compute_output_pack);
+    }
+    else
+    {
+        for (size_t output_pack_index = 0; output_pack_index < output.packs.size();
+             ++output_pack_index)
+        {
+            compute_output_pack(output_pack_index);
+        }
+    }
+
+    resnet18_progress_log() << "multiplexed dense conv encrypted pack progress: "
+                            << output.packs.size() << "/" << output.packs.size() << endl;
+    log_multiplexed_group_cipher_state("multiplexed_dense_conv2d_all_channels output",
+                                       output, runtime);
+    return output;
+}
+
+MultiplexedCipherGroup multiplexed_channel_batch_norm(
+    const MultiplexedCipherGroup &input, const vector<double> &bias,
+    const vector<double> &running_mean, const vector<double> &running_var,
+    const vector<double> &weight, double epsilon, double boundary,
+    PoseidonRuntime &runtime)
+{
+    log_multiplexed_group_cipher_state("multiplexed_batch_norm input", input, runtime);
+    if (static_cast<int>(bias.size()) != input.c ||
+        static_cast<int>(running_mean.size()) != input.c ||
+        static_cast<int>(running_var.size()) != input.c ||
+        static_cast<int>(weight.size()) != input.c)
+    {
+        throw invalid_argument("multiplexed batch norm vector size is invalid");
+    }
+
+    MultiplexedCipherGroup output = input;
+    output.packs.resize(input.packs.size());
+    resnet18_parallel_for(input.packs.size(), [&](size_t pack_index) {
+        vector<complex<double>> offsets(input.slot_count, {0.0, 0.0});
+        for (int channel = 0; channel < input.c; ++channel)
+        {
+            if (multiplexed_cipher_index_for_channel(input, channel) != pack_index)
+            {
+                continue;
+            }
+            const double offset =
+                (bias[channel] - running_mean[channel] * weight[channel] /
+                                     sqrt(running_var[channel] + epsilon)) /
+                boundary;
+            for (int row = 0; row < input.h; ++row)
+            {
+                for (int col = 0; col < input.w; ++col)
+                {
+                    offsets[multiplexed_slot_index(input, channel, row, col)] =
+                        {offset, 0.0};
+                }
+            }
+        }
+        Plaintext plain;
+        runtime.encoder.encode(offsets, input.packs.at(pack_index).parms_id(),
+                               input.packs.at(pack_index).scale(), plain);
+        runtime.evaluator->add_plain(input.packs.at(pack_index), plain,
+                                     output.packs.at(pack_index));
+    });
+    log_multiplexed_group_cipher_state("multiplexed_batch_norm output", output, runtime);
+    return output;
+}
+
+PoseidonBootstrapContext make_resnet18_bootstrap_context(PoseidonRuntime &runtime)
+{
+    PoseidonBootstrapContext bootstrap_ctx;
+    bootstrap_ctx.context = &runtime.context;
+    bootstrap_ctx.evaluator = runtime.evaluator.get();
+    bootstrap_ctx.encoder = &runtime.encoder;
+    bootstrap_ctx.relin_keys = &runtime.relin_keys;
+    bootstrap_ctx.galois_keys = &runtime.galois_keys;
+    bootstrap_ctx.bootstrap_config = &runtime.bootstrap_config;
+    return bootstrap_ctx;
+}
+
+MultiplexedCipherGroup multiplexed_channel_bootstrap(
+    const MultiplexedCipherGroup &input, long logn, PoseidonRuntime &runtime,
+    const string &label, const MultiplexedMockOptions &mock_options)
+{
+    log_multiplexed_group_cipher_state(label + " bootstrap input", input, runtime);
+    const vector<complex<double>> bootstrap_input_values =
+        decrypt_multiplexed_group_complex(input, runtime);
+    vector<double> bootstrap_input_real(bootstrap_input_values.size(), 0.0);
+    for (size_t i = 0; i < bootstrap_input_values.size(); ++i)
+    {
+        bootstrap_input_real.at(i) = bootstrap_input_values.at(i).real();
+    }
+    MultiplexedCipherGroup output = input;
+    output.packs.resize(input.packs.size());
+    if (mock_options.mock_bootstrap)
+    {
+        (void)logn;
+        resnet18_progress_log() << label
+                                << " bootstrap MOCK decrypt-reencrypt evaluation" << endl;
+        output = encrypt_multiplexed_group_values(input, bootstrap_input_real, runtime);
+        const size_t dropped_51 = drop_trailing_51_bit_primes(output.packs, runtime);
+        if (dropped_51 > 0)
+        {
+            resnet18_progress_log() << label
+                                    << " bootstrap MOCK drop trailing 51-bit primes after "
+                                       "reencrypt: "
+                                    << dropped_51 << endl;
+        }
+    }
+    else
+    {
+        const size_t thread_count = resnet18_parallel_thread_count(input.packs.size());
+        atomic<size_t> completed_packs{0};
+        resnet18_progress_log() << label << " bootstrap ciphertext parallel threads: "
+                                << thread_count << endl;
+        resnet18_parallel_for(input.packs.size(), [&](size_t pack_index) {
+            PoseidonBootstrapContext bootstrap_ctx =
+                make_resnet18_bootstrap_context(runtime);
+            TensorCipher tensor_in(static_cast<int>(logn), input.k, input.h, input.w, input.c,
+                                   1, input.pages_per_cipher, input.packs.at(pack_index));
+            TensorCipher tensor_out;
+            bootstrap_tensor(tensor_in, tensor_out, bootstrap_ctx);
+            output.packs.at(pack_index) = tensor_out.cipher();
+            const size_t done = completed_packs.fetch_add(1) + 1;
+            resnet18_progress_log() << label << " bootstrap ciphertext progress: "
+                                    << done << "/" << input.packs.size()
+                                    << ", pack=" << pack_index << endl;
+        });
+    }
+    log_multiplexed_group_cipher_state(label + " bootstrap output", output, runtime);
+    const vector<complex<double>> bootstrap_output_values =
+        decrypt_multiplexed_group_complex(output, runtime);
+    const double bootstrap_self_max_abs_error =
+        multiplexed_group_pair_max_abs_error(bootstrap_input_values,
+                                             bootstrap_output_values);
+    resnet18_progress_log() << label
+                            << " bootstrap self max_abs_error(before_vs_after): "
+                            << bootstrap_self_max_abs_error << endl;
+    return output;
+}
+
+MultiplexedCipherGroup multiplexed_channel_homomorphic_relu(
+    const MultiplexedCipherGroup &input, long logn, const ReluConfig &relu_config,
+    PoseidonRuntime &runtime, const string &label,
+    const MultiplexedMockOptions &mock_options)
+{
+    MultiplexedCipherGroup relu_input = input;
+    if (!mock_options.mock_relu)
+    {
+        const size_t dropped_51 = drop_trailing_51_bit_primes(relu_input.packs, runtime);
+        if (dropped_51 > 0)
+        {
+            resnet18_progress_log() << label
+                                    << " drop trailing 51-bit primes before ReLU: "
+                                    << dropped_51 << endl;
+        }
+    }
+    log_multiplexed_group_cipher_state(
+        label + (mock_options.mock_relu ? " mock ReLU input" : " homomorphic ReLU input"),
+        relu_input, runtime);
+    MultiplexedCipherGroup output = relu_input;
+    output.packs.resize(relu_input.packs.size());
+    if (mock_options.mock_relu)
+    {
+        (void)logn;
+        vector<complex<double>> relu_input_values =
+            decrypt_multiplexed_group_complex(relu_input, runtime);
+        vector<double> relu_output_values(relu_input_values.size(), 0.0);
+        for (size_t i = 0; i < relu_input_values.size(); ++i)
+        {
+            relu_output_values.at(i) = approximate_relu_plain(
+                relu_input_values.at(i).real(), relu_config.deg, relu_config.alpha,
+                relu_config.tree, relu_config.scaled_val);
+        }
+        resnet18_progress_log() << label
+                                << " ReLU MOCK decrypt-polynomial-reencrypt evaluation"
+                                << endl;
+        output = encrypt_multiplexed_group_values(relu_input, relu_output_values, runtime);
+        const size_t dropped_51 = drop_trailing_51_bit_primes(output.packs, runtime);
+        if (dropped_51 > 0)
+        {
+            resnet18_progress_log() << label
+                                    << " ReLU MOCK drop trailing 51-bit primes after "
+                                       "reencrypt: "
+                                    << dropped_51 << endl;
+        }
+    }
+    else
+    {
+        const size_t thread_count =
+            resnet18_parallel_thread_count(relu_input.packs.size());
+        atomic<size_t> completed_packs{0};
+        resnet18_progress_log() << label << " homomorphic ReLU parallel threads: "
+                                << thread_count << endl;
+        resnet18_parallel_for(relu_input.packs.size(), [&](size_t pack_index) {
+            TensorCipher tensor_in(static_cast<int>(logn), relu_input.k, relu_input.h,
+                                   relu_input.w, relu_input.c, 1,
+                                   relu_input.pages_per_cipher,
+                                   relu_input.packs.at(pack_index));
+            TensorCipher tensor_out;
+            relu(tensor_in, tensor_out, relu_config.comp_no, relu_config.deg,
+                 relu_config.alpha, relu_config.tree, relu_config.scaled_val,
+                 runtime.encryptor, *runtime.evaluator, runtime.encoder, runtime.relin_keys,
+                 runtime.scale);
+            output.packs.at(pack_index) = tensor_out.cipher();
+            const size_t done = completed_packs.fetch_add(1) + 1;
+            resnet18_progress_log() << label << " homomorphic ReLU ciphertext progress: "
+                                    << done << "/" << relu_input.packs.size()
+                                    << ", pack=" << pack_index << endl;
+        });
+    }
+    log_multiplexed_group_cipher_state(
+        label + (mock_options.mock_relu ? " mock ReLU output" : " homomorphic ReLU output"),
+        output, runtime);
+    return output;
+}
+
+MultiplexedCipherGroup multiplexed_channel_bootstrap_then_relu(
+    const MultiplexedCipherGroup &input, long logn, const ReluConfig &relu_config,
+    PoseidonRuntime &runtime, const string &label, bool bootstrap_before_relu,
+    const MultiplexedMockOptions &mock_options)
+{
+    MultiplexedCipherGroup relu_input = input;
+    if (bootstrap_before_relu)
+    {
+        relu_input = multiplexed_channel_bootstrap(input, logn, runtime, label,
+                                                   mock_options);
+    }
+    return multiplexed_channel_homomorphic_relu(relu_input, logn, relu_config, runtime,
+                                                label, mock_options);
+}
+
+MultiplexedCipherGroup multiplexed_channel_add(const MultiplexedCipherGroup &lhs,
+                                               const MultiplexedCipherGroup &rhs,
+                                               PoseidonRuntime &runtime)
+{
+    log_multiplexed_group_cipher_state("multiplexed_channel_add lhs input", lhs, runtime);
+    log_multiplexed_group_cipher_state("multiplexed_channel_add rhs input", rhs, runtime);
+    if (lhs.h != rhs.h || lhs.w != rhs.w || lhs.c != rhs.c || lhs.k != rhs.k ||
+        lhs.pages_per_cipher != rhs.pages_per_cipher ||
+        lhs.page_size != rhs.page_size || lhs.packs.size() != rhs.packs.size())
+    {
+        throw invalid_argument("multiplexed channel add layout mismatch");
+    }
+    MultiplexedCipherGroup output = lhs;
+    output.packs.resize(lhs.packs.size());
+    resnet18_parallel_for(lhs.packs.size(), [&](size_t pack_index) {
+        Ciphertext lhs_cipher = lhs.packs.at(pack_index);
+        Ciphertext rhs_cipher = rhs.packs.at(pack_index);
+        const size_t lhs_chain = cipher_chain_index(runtime, lhs_cipher);
+        const size_t rhs_chain = cipher_chain_index(runtime, rhs_cipher);
+        if (lhs_chain > rhs_chain)
+        {
+            runtime.evaluator->drop_modulus(lhs_cipher, lhs_cipher, rhs_cipher.parms_id());
+        }
+        else if (rhs_chain > lhs_chain)
+        {
+            runtime.evaluator->drop_modulus(rhs_cipher, rhs_cipher, lhs_cipher.parms_id());
+        }
+        runtime.evaluator->add_dynamic(lhs_cipher, rhs_cipher,
+                                       output.packs.at(pack_index), runtime.encoder);
+    });
+    log_multiplexed_group_cipher_state("multiplexed_channel_add output", output, runtime);
+    return output;
+}
+
+MultiplexedCipherGroup multiplexed_average_pool2d_stride2(
+    const MultiplexedCipherGroup &input, int out_h, int out_w, int out_k,
+    PoseidonRuntime &runtime)
+{
+    log_multiplexed_group_cipher_state("multiplexed avgpool input", input, runtime);
+    MultiplexedCipherGroup output =
+        make_multiplexed_shape(out_h, out_w, input.c, out_k, input.slot_count);
+    if (out_k != input.k * 2 || output.page_size != input.page_size)
+    {
+        throw invalid_argument("multiplexed avgpool expects k_out = 2*k_in with fixed page size");
+    }
+
+    resnet18_progress_log() << "multiplexed avgpool encrypted pack parallel threads: "
+                            << resnet18_parallel_thread_count(output.packs.size()) << endl;
+    atomic<size_t> completed_packs{0};
+    resnet18_parallel_for(output.packs.size(), [&](size_t output_pack_index) {
+        const auto pack_start = chrono::steady_clock::now();
+        resnet18_progress_log() << "multiplexed avgpool pack start: pack="
+                                << output_pack_index << "/" << output.packs.size()
+                                << ", input_chain_index="
+                                << cipher_chain_index(runtime, input.packs.front())
+                                << ", next_prime_bits="
+                                << next_rescale_prime_bits(input.packs.front(), runtime)
+                                << endl;
+        Ciphertext sum;
+        bool has_sum = false;
+        for (int channel = 0; channel < output.c; ++channel)
+        {
+            if (multiplexed_cipher_index_for_channel(output, channel) != output_pack_index)
+            {
+                continue;
+            }
+            const size_t input_pack_index =
+                multiplexed_cipher_index_for_channel(input, channel);
+            for (int kh = 0; kh < 3; ++kh)
+            {
+                for (int kw = 0; kw < 3; ++kw)
+                {
+                    vector<double> mask(output.slot_count, 0.0);
+                    bool has_mask = false;
+                    long long rotation_step = 0;
+                    bool has_rotation_step = false;
+                    for (int oh = 0; oh < out_h; ++oh)
+                    {
+                        for (int ow = 0; ow < out_w; ++ow)
+                        {
+                            const int ih = oh * 2 + kh - 1;
+                            const int iw = ow * 2 + kw - 1;
+                            if (ih < 0 || ih >= input.h || iw < 0 || iw >= input.w)
+                            {
+                                continue;
+                            }
+                            const size_t target_slot =
+                                multiplexed_slot_index(output, channel, oh, ow);
+                            mask[target_slot] = 1.0;
+                            if (!has_rotation_step)
+                            {
+                                const long long source_slot = static_cast<long long>(
+                                    multiplexed_slot_index(input, channel, ih, iw));
+                                rotation_step =
+                                    source_slot - static_cast<long long>(target_slot);
+                                has_rotation_step = true;
+                            }
+                            has_mask = true;
+                        }
+                    }
+                    if (!has_mask)
+                    {
+                        continue;
+                    }
+
+                    Ciphertext rotated;
+                    if (rotation_step == 0)
+                    {
+                        rotated = input.packs.at(input_pack_index);
+                    }
+                    else
+                    {
+                        rotate_with_power_of_two_keys(input.packs.at(input_pack_index),
+                                                      rotated, rotation_step, runtime);
+                    }
+                    Ciphertext term = multiply_binary_mask_no_rescale(rotated, mask, runtime);
+                    if (!has_sum)
+                    {
+                        sum = std::move(term);
+                        has_sum = true;
+                    }
+                    else
+                    {
+                        Ciphertext next_sum;
+                        runtime.evaluator->add_dynamic(sum, term, next_sum, runtime.encoder);
+                        sum = std::move(next_sum);
+                    }
+                }
+            }
+        }
+        if (!has_sum)
+        {
+            throw runtime_error("multiplexed avgpool output pack produced no encrypted terms");
+        }
+
+        Ciphertext averaged;
+        runtime.evaluator->multiply_const(sum, 1.0 / 9.0, runtime.scale, averaged,
+                                          runtime.encoder);
+        runtime.evaluator->rescale_dynamic(averaged, averaged, sum.scale());
+        averaged.scale() = sum.scale();
+        output.packs.at(output_pack_index) = std::move(averaged);
+        const size_t done = completed_packs.fetch_add(1) + 1;
+        resnet18_progress_log() << "multiplexed avgpool pack done: " << done
+                                << "/" << output.packs.size()
+                                << ", pack=" << output_pack_index
+                                << ", output_chain_index="
+                                << cipher_chain_index(runtime,
+                                                      output.packs.at(output_pack_index))
+                                << ", elapsed_ms="
+                                << chrono::duration_cast<chrono::milliseconds>(
+                                       chrono::steady_clock::now() - pack_start)
+                                       .count()
+                                << endl;
+    });
+
+    log_multiplexed_group_cipher_state("multiplexed avgpool output", output, runtime);
+    return output;
+}
+double local_multiply_plain_scale(const Ciphertext &input, const CKKSEncoder &encoder)
+{
+    auto context_data = encoder.context().crt_context()->get_context_data(input.parms_id());
+    if (!context_data)
+    {
+        throw runtime_error("failed to locate ciphertext parms_id for plain scale selection");
+    }
+    const int rescale_prime_bits = context_data->coeff_modulus().back().bit_count();
+    return pow(2.0, static_cast<double>(rescale_prime_bits));
+}
+
+bool local_coefficient_encodes_to_zero(const Ciphertext &input, double coeff,
+                                       const CKKSEncoder &encoder)
+{
+    return fabs(coeff * local_multiply_plain_scale(input, encoder)) < 0.5;
+}
+
+Ciphertext multiply_constant_scalar_rescale(const Ciphertext &input, double coeff,
+                                            PoseidonRuntime &runtime)
+{
+    Plaintext plain;
+    runtime.encoder.encode(coeff, input.parms_id(),
+                           local_multiply_plain_scale(input, runtime.encoder), plain);
+    Ciphertext output;
+    runtime.evaluator->multiply_plain(input, plain, output);
+    runtime.evaluator->rescale_dynamic(output, output, input.scale());
+    return output;
+}
+
+Ciphertext multiplexed_global_average_pool_packed(
+    const MultiplexedCipherGroup &input, double boundary, PoseidonRuntime &runtime)
+{
+    if (input.h <= 0 || input.w <= 0 || input.c <= 0 || input.packs.empty())
+    {
+        throw invalid_argument("multiplexed global average pool input is invalid");
+    }
+    const auto start = chrono::steady_clock::now();
+    log_multiplexed_group_cipher_state("head avgpool multiplexed input", input, runtime);
+    resnet18_progress_log()
+        << "[head-chain] global_avgpool plan: column_mask=-1, row_mask=-1, "
+           "channel_compact_mask=-1, average_multiply=-1"
+        << endl;
+
+    vector<double> column_mask(input.slot_count, 0.0);
+    vector<double> channel_base_mask(input.slot_count, 0.0);
+    for (int channel = 0; channel < input.c; ++channel)
+    {
+        for (int row = 0; row < input.h; ++row)
+        {
+            column_mask[multiplexed_slot_index(input, channel, row, 0)] = 1.0;
+        }
+        channel_base_mask[multiplexed_slot_index(input, channel, 0, 0)] = 1.0;
+    }
+
+    vector<Ciphertext> spatial_sums(input.packs.size());
+    vector<size_t> column_chain_indexes(input.packs.size(), 0);
+    vector<size_t> spatial_chain_indexes(input.packs.size(), 0);
+    resnet18_parallel_for(input.packs.size(), [&](size_t pack_index) {
+        Ciphertext column_sum;
+        bool has_column_sum = false;
+        for (int col = 0; col < input.w; ++col)
+        {
+            Ciphertext rotated;
+            rotate_with_power_of_two_keys(input.packs.at(pack_index), rotated,
+                                          static_cast<long long>(col * input.k), runtime);
+            Ciphertext term = multiply_binary_mask_no_rescale(rotated, column_mask, runtime);
+            if (!has_column_sum)
+            {
+                column_sum = std::move(term);
+                has_column_sum = true;
+            }
+            else
+            {
+                runtime.evaluator->add_dynamic(column_sum, term, column_sum, runtime.encoder);
+            }
+        }
+        column_chain_indexes.at(pack_index) = cipher_chain_index(runtime, column_sum);
+
+        Ciphertext spatial_sum;
+        bool has_spatial_sum = false;
+        const int page_width = input.w * input.k;
+        for (int row = 0; row < input.h; ++row)
+        {
+            Ciphertext rotated;
+            rotate_with_power_of_two_keys(
+                column_sum, rotated,
+                static_cast<long long>(row * input.k * page_width), runtime);
+            Ciphertext term =
+                multiply_binary_mask_no_rescale(rotated, channel_base_mask, runtime);
+            if (!has_spatial_sum)
+            {
+                spatial_sum = std::move(term);
+                has_spatial_sum = true;
+            }
+            else
+            {
+                runtime.evaluator->add_dynamic(spatial_sum, term, spatial_sum,
+                runtime.encoder);
+            }
+        }
+        spatial_chain_indexes.at(pack_index) = cipher_chain_index(runtime, spatial_sum);
+        spatial_sums.at(pack_index) = std::move(spatial_sum);
+        resnet18_progress_log() << "head avgpool spatial pack done: " << pack_index + 1
+                                << '/' << input.packs.size() << endl;
+    });
+    log_head_chain_index_range("global_avgpool after column mask", column_chain_indexes);
+    log_head_chain_index_range("global_avgpool after row mask", spatial_chain_indexes);
+
+    Ciphertext compacted;
+    bool has_compacted = false;
+    for (int channel = 0; channel < input.c; ++channel)
+    {
+        const size_t pack_index = multiplexed_cipher_index_for_channel(input, channel);
+        const size_t source_slot = multiplexed_slot_index(input, channel, 0, 0);
+        const size_t target_slot = static_cast<size_t>(channel);
+        Ciphertext rotated;
+        rotate_with_power_of_two_keys(
+            spatial_sums.at(pack_index), rotated,
+            static_cast<long long>(source_slot) - static_cast<long long>(target_slot), runtime);
+        vector<double> target_mask(input.slot_count, 0.0);
+        target_mask.at(target_slot) = 1.0;
+        Ciphertext term = multiply_binary_mask_no_rescale(rotated, target_mask, runtime);
+        if (!has_compacted)
+        {
+            compacted = std::move(term);
+            has_compacted = true;
+        }
+        else
+        {
+            runtime.evaluator->add_dynamic(compacted, term, compacted, runtime.encoder);
+        }
+        if ((channel + 1) % 64 == 0 || channel + 1 == input.c)
+        {
+            resnet18_progress_log() << "head avgpool channel compact progress: "
+                                    << channel + 1 << '/' << input.c << endl;
+        }
+    }
+    log_head_cipher_chain_state("global_avgpool after channel compact mask", compacted,
+                                runtime);
+
+    Ciphertext averaged = multiply_constant_scalar_rescale(
+        compacted, boundary / static_cast<double>(input.h * input.w), runtime);
+    log_head_cipher_chain_state("global_avgpool after average multiply", averaged, runtime);
+    resnet18_progress_log() << "[duration] head multiplexed avgpool: "
+                            << chrono::duration_cast<chrono::milliseconds>(
+                                   chrono::steady_clock::now() - start)
+                                   .count()
+                            << " ms" << endl;
+    return averaged;
+}
+
+vector<Ciphertext> multiplexed_fully_connected_packed(
+    const Ciphertext &features, int feature_count, const vector<double> &matrix,
+    const vector<double> &bias, int class_count, PoseidonRuntime &runtime)
+{
+    if (feature_count <= 0 || class_count <= 0 ||
+        matrix.size() != static_cast<size_t>(feature_count * class_count) ||
+        bias.size() != static_cast<size_t>(class_count))
+    {
+        throw invalid_argument("multiplexed packed FC parameter size mismatch");
+    }
+    const auto start = chrono::steady_clock::now();
+    resnet18_progress_log() << "[fully-connected-start] layout=multiplexed-packed classes="
+                            << class_count << " features=" << feature_count << endl;
+    const size_t input_chain = cipher_chain_index(runtime, features);
+    log_head_cipher_chain_state("fully_connected input", features, runtime);
+    resnet18_progress_log() << "[head-chain] fully_connected required_levels=1, available_levels="
+                            << input_chain << endl;
+    if (input_chain == 0)
+    {
+        resnet18_progress_log()
+            << "[head-chain] WARNING: fully_connected weight multiply requires one rescale, "
+               "but the input is already at chain_index=0"
+            << endl;
+    }
+    vector<Ciphertext> logits(static_cast<size_t>(class_count));
+    atomic<size_t> completed{0};
+    resnet18_parallel_for(static_cast<size_t>(class_count), [&](size_t class_index) {
+        vector<double> encoded_weights(runtime.slot_count, 0.0);
+        const size_t matrix_base = class_index * static_cast<size_t>(feature_count);
+        copy_n(matrix.begin() + static_cast<ptrdiff_t>(matrix_base), feature_count,
+               encoded_weights.begin());
+        Ciphertext sum = multiply_plain_vector_rescale(features, encoded_weights, runtime);
+        for (int step = 1; step < feature_count; step <<= 1)
+        {
+            Ciphertext rotated;
+            rotate_with_power_of_two_keys(sum, rotated, step, runtime);
+            runtime.evaluator->add_dynamic(sum, rotated, sum, runtime.encoder);
+        }
+        vector<double> encoded_bias(runtime.slot_count, 0.0);
+        encoded_bias[0] = bias.at(class_index);
+        Plaintext bias_plain;
+        runtime.encoder.encode(encoded_bias, sum.parms_id(), sum.scale(), bias_plain);
+        runtime.evaluator->add_plain(sum, bias_plain, sum);
+        logits.at(class_index) = std::move(sum);
+        const size_t done = completed.fetch_add(1) + 1;
+        if (done % 10 == 0 || done == static_cast<size_t>(class_count))
+        {
+            resnet18_progress_log() << "fully connected class progress: " << done << '/'
+                                    << class_count << endl;
+        }
+    });
+    log_head_cipher_chain_range("fully_connected output after weight/sum/bias", logits,
+                                runtime);
+    resnet18_progress_log() << "[fully-connected-done] layout=multiplexed-packed total_ms="
+                            << chrono::duration_cast<chrono::milliseconds>(
+                                   chrono::steady_clock::now() - start)
+                                   .count()
+                            << endl;
+    return logits;
+}

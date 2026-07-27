@@ -1,0 +1,3 @@
+image_id: 0, image label: 65, encrypted_input_chunks: 5, input_decrypt_max_abs_error: 1.61693e-08, conv1_preview_max_abs_error: -1, conv1_channel0_max_abs_error: 7.29744e-09, conv1_all_max_abs_error: -1, conv1_bn_max_abs_error: -1, conv1_bn_channel0_max_abs_error: 7.29743e-09, conv1_relu_channel0_max_abs_error: 0.000115172, conv1_relu_bootstrap_channel0_max_abs_error: 0.000115172, conv1_maxpool_channel0_preview_max_abs_error: -1, conv1_maxpool_channel0_sparse_max_abs_error: 0.0398264, stem_conv1_all_max_abs_error: 1.34728e-08, stem_bn_all_max_abs_error: 1.34728e-08, stem_relu_refresh_all_max_abs_error: 0.00011518, stem_sparse_maxpool_all_max_abs_error: 0.0571705, layer1_block0_conv1_channel0_max_abs_error: 0.0371182, image time : 2055606 ms
+
+total time : 2055658 ms

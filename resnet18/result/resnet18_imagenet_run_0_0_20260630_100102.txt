@@ -1,0 +1,31 @@
+[2026-06-30 10:01:02.332] Setting Poseidon Parameters
+[2026-06-30 10:01:03.144] Poseidon slot count: 32768
+[2026-06-30 10:01:03.144] Poseidon scale: 7.03687e+13
+[2026-06-30 10:01:03.144] ImageNet input values: 150528, encrypted input chunks: 6
+run_start: start_image_id=0, end_image_id=0, run_timestamp=20260630_100102, log_file="/home/guoshuai/github/poseidon/Trident/resnet18/result/resnet18_imagenet_run_0_0_20260630_100102.txt"
+prepare rotation keys: power-of-two decomposition enabled, key_count=15
+prepare rotation keys: steps 1 2 4 8 16 32 64 128 256 512 1024 2048 4096 8192 16384
+[2026-06-30 10:01:03.144] prepare rotation keys power-of-two key count: 15
+prepare rotation keys time: 11673 ms
+[2026-06-30 10:01:14.818] [duration] prepare rotation keys: 11673 ms
+image_start: 0
+
+==================== run_start ====================
+image_id: 0
+run_timestamp: 20260630_100102
+log_file: "/home/guoshuai/github/poseidon/Trident/resnet18/result/resnet18_imagenet_run_0_0_20260630_100102.txt"
+runtime: poseidon ready
+input values=150528, slot_count=32768, input_chunk_count=6
+TensorCipherGroup(shape h=224, w=224, c=3, values=150528, slots_per_chunk=32768, chunks=6, layout=channel_split)
+input decrypt max_abs_error: 1.45483e-08
+conv1 im2col packing: encrypting 7x7x3 patch ciphertexts
+[2026-06-30 10:01:20.692] conv1 im2col encrypt patches
+conv1 im2col patches: 147, spatial_count=12544
+[2026-06-30 10:01:32.934] conv1 im2col patches: 147
+stem full 64-channel: encrypted conv1 evaluation
+[2026-06-30 10:01:32.957] stem full 64-channel conv1 encrypted evaluation
+[2026-06-30 10:01:32.958] [start] conv_im2col_all_channels
+[2026-06-30 10:01:32.958] conv im2col encrypted channel parallel threads: 8
+[2026-06-30 10:02:29.923] conv im2col encrypted channel progress: 64/64
+[2026-06-30 10:02:29.923] [cipher-state] conv_im2col_all_channels output: shape(h=112, w=112, c=64, spatial=12544), channels=64, chain_index(first/min/max)=8/8/8, scale(first/min/max)=7.03687e+13/7.03687e+13/7.03687e+13
+[2026-06-30 10:02:29.923] [duration] conv_im2col_all_channels: 56965 ms

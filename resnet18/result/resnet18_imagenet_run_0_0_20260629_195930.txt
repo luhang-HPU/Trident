@@ -1,0 +1,7 @@
+[2026-06-29 19:59:30.106] Setting Poseidon Parameters
+[2026-06-29 19:59:33.049] Poseidon slot count: 32768
+[2026-06-29 19:59:33.049] Poseidon scale: 7.03687e+13
+[2026-06-29 19:59:33.049] ImageNet input values: 150528, encrypted input chunks: 6
+run_start: start_image_id=0, end_image_id=0, run_timestamp=20260629_195930, log_file="/home/guoshuai/github/poseidon/Trident/resnet18/result/resnet18_imagenet_run_0_0_20260629_195930.txt"
+prepare rotation keys: total unique rotation steps=12715
+[2026-06-29 19:59:33.131] prepare rotation keys total unique rotation steps: 12715
