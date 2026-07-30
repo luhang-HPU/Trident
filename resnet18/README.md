@@ -14,10 +14,8 @@ cmake --build Trident/build --target resnet18 -j2
 cmake --build Trident/build --target resnet18_plain -j2
 ```
 
-当前 `resnet18` 是密文入口。Poseidon 目前 `logN` 最大为 `16`，单个 CKKS
-ciphertext 只有 `32768` slots，而一张 ImageNet 输入有 `224*224*3=150528`
-个值。因此密文入口已经使用 `TensorCipherGroup` 按通道把一张图拆成 6 个 ciphertext
-加密，并会解密回读检查输入误差：
+当前 `resnet18` 是密文入口。程序把输入直接重排并加密为首层 `7×7×3=147`
+个 im2col patch 密文，供 stem 卷积使用：
 
 ```bash
 ./Trident/build/resnet18/resnet18 START_IMAGE_ID END_IMAGE_ID
@@ -26,7 +24,7 @@ ciphertext 只有 `32768` slots，而一张 ImageNet 输入有 `224*224*3=150528
 当前密文入口会完成整张 ResNet-18 网络：
 
 ```text
-ImageNet input -> 6 ciphertext TensorCipherGroup
+ImageNet input -> 147 ciphertext im2col patches
 -> conv1 + bn + polynomial relu + average pool
 -> layer1 + layer2 + layer3 + layer4
 -> global average pool -> encrypted fc(512, 1000)

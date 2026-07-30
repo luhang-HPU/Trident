@@ -39,7 +39,6 @@ flowchart TD
     B --> C[RGB normalize + CHW flatten]
     C --> D[test_values.txt]
     D --> E[读取并除以 B=20]
-    E --> F[TensorCipherGroup: 6 个输入密文]
     E --> G[7x7 stride-2 im2col: 147 个 patch 密文]
     G --> H[64 通道 stem 卷积]
     H --> I[multiplexed k=1: 32 个密文]
@@ -63,7 +62,6 @@ flowchart TD
 | `infer_config.*` | 网络常量、CKKS 参数、Q/P 模数链和 ReLU 配置 |
 | `infer_runtime.*` | 创建 context、encoder、encryptor、decryptor、evaluator 和密钥 |
 | `parameter_loader.*` | 读取预处理输入、标签及 torchvision 导出的模型参数 |
-| `tensor_cipher_group.*` | 将放不进单个密文的原始图片按通道切成多个密文 |
 | `encrypted_group_ops.*` | stem 的 im2col 加密和首个 `7×7` 卷积 |
 | `encrypted_ops.*` | 单密文 Bootstrap、ReLU 和分类头矩阵乘法 |
 | `relu_approx.*` | 读取多项式系数并执行明文/密文 Chebyshev 近似 |
@@ -300,21 +298,7 @@ prepare evaluation keys time
 
 ## 7. 三种主要密文布局
 
-### 7.1 `TensorCipherGroup`：原始输入的 6 个密文
-
-一张图片有 150528 个值，而一个 CKKS 密文只有 32768 个 slots，不能放进一个密文。
-`TensorCipherGroup` 按通道切分：
-
-```text
-每通道值数 = 224×224 = 50176
-每通道 chunks = ceil(50176 / 32768) = 2
-总 chunks = 3×2 = 6
-```
-
-每个 chunk 的有效值从 slot 0 开始排列，其余 slots 填 0。这个输入组用于证明完整
-图片能够按当前 `logN=16` 参数加密、解密和恢复 CHW 顺序。
-
-### 7.2 `Im2ColCipherGroup`：stem 卷积输入
+### 7.1 `Im2ColCipherGroup`：stem 卷积输入
 
 首层是 `7×7, stride=2, padding=3`，输出空间为：
 
@@ -336,10 +320,9 @@ input[ic, oh×2 + kh - 3, ow×2 + kw - 3]
 
 越界位置保持为 0，实现 padding。每个 patch 密文只使用前 12544 个 slots。
 
-需要注意：`TensorCipherGroup` 和 `Im2ColCipherGroup` 都从同一份明文输入构造。
-前者用于验证原始输入的多密文切分，后者是当前 stem 卷积真正消费的布局。
+`Im2ColCipherGroup` 直接从明文输入构造，是当前 stem 卷积真正消费的输入布局。
 
-### 7.3 `ChannelCipherGroup`：stem 输出过渡布局
+### 7.2 `ChannelCipherGroup`：stem 输出过渡布局
 
 首层卷积产生 64 个输出通道，每个通道一个密文：
 
@@ -349,7 +332,7 @@ input[ic, oh×2 + kh - 3, ow×2 + kw - 3]
 
 该布局只在 stem 卷积输出阶段使用，随后会被打包为 multiplexed 布局。
 
-### 7.4 `MultiplexedCipherGroup`：网络主体布局
+### 7.3 `MultiplexedCipherGroup`：网络主体布局
 
 网络主体使用：
 
@@ -393,7 +376,7 @@ slot = local_page × page_size
      + (col×k + col_offset)
 ```
 
-### 7.5 为什么降采样时 `k` 加倍
+### 7.4 为什么降采样时 `k` 加倍
 
 stride 2 会使 `H、W` 各减半，同时代码设置：
 
@@ -419,18 +402,7 @@ W_out × k_out = W_in × k_in
 
 ## 8. Stem 密态计算
 
-### 8.1 输入加密和检查
-
-程序首先构造 6-chunk `TensorCipherGroup`，跳过顶部连续 51-bit primes，然后解密
-检查：
-
-```text
-input decrypt max_abs_error
-```
-
-这个检查验证多密文切分和 CKKS 编解码，但 stem 卷积使用后续的 im2col 密文。
-
-### 8.2 im2col 卷积
+### 8.1 im2col 卷积
 
 `encrypted_conv2d_im2col_all_channels()` 为 64 个输出通道并行计算：
 
@@ -446,7 +418,7 @@ conv[oc] = Σ(ic,kh,kw)
 权重和 `folded_scale` 是明文标量。每项使用 `multiply_plain`，随后 rescale 并累加。
 这一阶段已经融合 BN 的乘法部分，但尚未加入 BN 的均值和 bias offset。
 
-### 8.3 打包为 `k=1`
+### 8.2 打包为 `k=1`
 
 64 个逐通道密文通过 `pack_channel_group_as_multiplexed_k1()` 合并为 32 个密文。
 每个密文保存两页：
@@ -458,7 +430,7 @@ page 1: 下一个 112×112 通道
 
 打包只使用 binary mask、rotation 和 add，不改变张量数值。
 
-### 8.4 BN offset
+### 8.3 BN offset
 
 普通 BN 为：
 
@@ -481,7 +453,7 @@ offset = (beta - mean × gamma / sqrt(var + epsilon)) / B
 offset 作为与密文相同 `parms_id` 和 scale 的明文向量编码，再通过 `add_plain`
 加入，不额外消耗乘法层级。
 
-### 8.5 首个 ReLU
+### 8.4 首个 ReLU
 
 stem 的第一个 ReLU 直接执行同态多项式，不先 Bootstrap：
 
@@ -491,7 +463,7 @@ stem BN → polynomial ReLU
 
 这是整个网络唯一不在 ReLU 前刷新模数链的激活点。
 
-### 8.6 average-pool
+### 8.5 average-pool
 
 `multiplexed_average_pool2d_stride2()` 对 3×3 窗口的 9 个位置分别：
 
@@ -854,9 +826,6 @@ generate relin keys, Galois keys, bootstrap polynomial
 for image_id in [start, end]:
     x = read test_values[image_id] / B
     label = read test_label[image_id]
-
-    input_chunks = encrypt TensorCipherGroup(x)       # 6 ciphertexts
-    verify decrypt(input_chunks) against x
 
     patches = encrypt im2col(x, 7×7, stride=2)       # 147 ciphertexts
     stem = encrypted_conv(patches, conv1, folded BN) # 64 channel ciphertexts
