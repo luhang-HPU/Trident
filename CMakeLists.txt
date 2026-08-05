@@ -4,6 +4,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_C_STANDARD 99)
 
 include(FetchContent)
+include(CTest)
 
 # 根据ASAN的值来设置编译器标志  
 option(ASAN "Enable AddressSanitizer" OFF)
@@ -101,4 +102,10 @@ option(RESNET50 "Build ImageNet ResNet-50 for POSEIDON" ON)
 message(STATUS "RESNET50: ${RESNET50}")
 if (RESNET50)
     add_subdirectory(resnet50)
+endif()
+
+option(QWEN "Build CPU plaintext Qwen reference" ON)
+message(STATUS "QWEN: ${QWEN}")
+if (QWEN)
+    add_subdirectory(qwen)
 endif()

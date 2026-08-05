@@ -380,6 +380,328 @@ double eval_chebyshev_decomposed_plain(double input, long degree,
     return eval_node(1);
 }
 
+using PolynomialList = vector<Polynomial>;
+
+void build_balanced_chebyshev_tree_node(
+    Tree &tree, int node, size_t degree)
+{
+    if (degree <= 1)
+    {
+        tree.tree.at(static_cast<size_t>(node)) = 0;
+        return;
+    }
+    const size_t split = (degree + 1) / 2;
+    tree.tree.at(static_cast<size_t>(node)) =
+        static_cast<int>(split);
+    build_balanced_chebyshev_tree_node(
+        tree, 2 * node, split - 1);
+    build_balanced_chebyshev_tree_node(
+        tree, 2 * node + 1, degree - split);
+}
+
+Tree make_balanced_chebyshev_tree(size_t degree)
+{
+    const size_t coefficient_count = degree + 1;
+    if ((coefficient_count & (coefficient_count - 1)) != 0)
+    {
+        throw invalid_argument(
+            "balanced Chebyshev evaluation requires degree 2^k-1");
+    }
+    Tree tree(EvalType::Baby);
+    tree.depth = static_cast<int>(log2(coefficient_count)) - 1;
+    tree.tree.assign(size_t{1} << (tree.depth + 1), -1);
+    tree.tree[0] = -1;
+    build_balanced_chebyshev_tree_node(tree, 1, degree);
+    return tree;
+}
+
+double current_rescale_modulus(
+    const Ciphertext &cipher, const PoseidonContext &context)
+{
+    const auto data =
+        context.crt_context()->get_context_data(cipher.parms_id());
+    if (!data || data->coeff_modulus().empty())
+    {
+        throw runtime_error(
+            "general Chebyshev evaluation cannot find the current modulus");
+    }
+    return static_cast<double>(
+        data->coeff_modulus().back().value());
+}
+
+// Poseidon rejects an encoding scale whose bit count approaches the complete
+// modulus at the last level. Encoding 8*c at q/8 produces the same integer
+// representative as encoding c at q, with enough margin for its bit-count
+// check.
+constexpr double kGeneralChebyshevScaleFraction = 0.125;
+
+Ciphertext multiply_general_chebyshev(
+    const Ciphertext &lhs_input, const Ciphertext &rhs_input,
+    EvaluatorCkksBase &evaluator, CKKSEncoder &encoder,
+    const RelinKeys &relin_keys, const PoseidonContext &context)
+{
+    Ciphertext lhs = lhs_input;
+    Ciphertext rhs = rhs_input;
+    const auto lhs_data =
+        context.crt_context()->get_context_data(lhs.parms_id());
+    const auto rhs_data =
+        context.crt_context()->get_context_data(rhs.parms_id());
+    if (!lhs_data || !rhs_data)
+    {
+        throw runtime_error(
+            "general Chebyshev product has an unknown ciphertext level");
+    }
+    if (lhs_data->chain_index() > rhs_data->chain_index())
+    {
+        evaluator.drop_modulus(lhs, lhs, rhs.parms_id());
+    }
+    else if (rhs_data->chain_index() > lhs_data->chain_index())
+    {
+        evaluator.drop_modulus(rhs, rhs, lhs.parms_id());
+    }
+
+    const double target_scale = lhs.scale();
+    const double modulus = current_rescale_modulus(lhs, context);
+    const double balancing_value = modulus / rhs.scale();
+    Ciphertext balanced_rhs;
+    evaluator.multiply_const(
+        rhs, balancing_value, 1.0, balanced_rhs, encoder);
+
+    Ciphertext product;
+    evaluator.multiply_relin_dynamic(
+        lhs, balanced_rhs, product, relin_keys);
+    evaluator.rescale(product, product);
+    assign_scale_for_relu_reference(product, target_scale);
+    return product;
+}
+
+void eval_t_for_general_chebyshev(
+    EvaluatorCkksBase &evaluator, const RelinKeys &relin_keys,
+    CKKSEncoder &encoder, Ciphertext &output,
+    const Ciphertext &half_degree, const Ciphertext &t0,
+    const PoseidonContext &context)
+{
+    Ciphertext product = multiply_general_chebyshev(
+        half_degree, half_degree, evaluator, encoder,
+        relin_keys, context);
+    evaluator.add(product, product, output);
+    if (output.parms_id() == t0.parms_id())
+    {
+        evaluator.sub(output, t0, output);
+    }
+    else
+    {
+        evaluator.sub_dynamic(output, t0, output, encoder);
+    }
+    assign_scale_for_relu_reference(output, product.scale());
+}
+
+Ciphertext evaluate_general_chebyshev_leaf(
+    const PolynomialList &polynomials,
+    const vector<vector<int>> &slot_indexes,
+    const vector<unique_ptr<Ciphertext>> &basis,
+    double scale, EvaluatorCkksBase &evaluator,
+    CKKSEncoder &encoder, const PoseidonContext &context)
+{
+    if (polynomials.empty() || polynomials.size() != slot_indexes.size())
+    {
+        throw invalid_argument(
+            "general Chebyshev leaf has inconsistent polynomial slots");
+    }
+    const size_t slot_count = encoder.slot_count();
+    const size_t maximum_degree = polynomials.front().degree();
+    Ciphertext accumulator;
+    bool initialized = false;
+
+    vector<complex<double>> constants(slot_count, {0.0, 0.0});
+    bool has_constant = false;
+    for (size_t polynomial_index = 0;
+         polynomial_index < polynomials.size(); ++polynomial_index)
+    {
+        const complex<double> coefficient =
+            polynomials[polynomial_index].data().front();
+        if (abs(coefficient) <= poseidon::util::IsNegligibleThreshold)
+        {
+            continue;
+        }
+        has_constant = true;
+        for (int slot : slot_indexes[polynomial_index])
+        {
+            if (slot < 0 || static_cast<size_t>(slot) >= slot_count)
+            {
+                throw out_of_range(
+                    "general Chebyshev slot index is out of range");
+            }
+            constants[static_cast<size_t>(slot)] = coefficient;
+        }
+    }
+
+    for (size_t degree = 1; degree <= maximum_degree; ++degree)
+    {
+        vector<complex<double>> values(slot_count, {0.0, 0.0});
+        bool nonzero = false;
+        for (size_t polynomial_index = 0;
+             polynomial_index < polynomials.size(); ++polynomial_index)
+        {
+            const complex<double> coefficient =
+                polynomials[polynomial_index].data().at(degree);
+            if (abs(coefficient) <= poseidon::util::IsNegligibleThreshold)
+            {
+                continue;
+            }
+            nonzero = true;
+            for (int slot : slot_indexes[polynomial_index])
+            {
+                if (slot < 0 || static_cast<size_t>(slot) >= slot_count)
+                {
+                    throw out_of_range(
+                        "general Chebyshev slot index is out of range");
+                }
+                values[static_cast<size_t>(slot)] =
+                    coefficient / kGeneralChebyshevScaleFraction;
+            }
+        }
+        if (!nonzero)
+        {
+            continue;
+        }
+        if (degree >= basis.size() || !basis[degree])
+        {
+            throw runtime_error(
+                "general Chebyshev evaluation is missing a basis ciphertext");
+        }
+        Plaintext encoded;
+        const double coefficient_scale =
+            kGeneralChebyshevScaleFraction *
+            current_rescale_modulus(*basis[degree], context);
+        encoder.encode(values, basis[degree]->parms_id(),
+                       coefficient_scale, encoded);
+        Ciphertext term;
+        evaluator.multiply_plain(*basis[degree], encoded, term);
+        if (!initialized)
+        {
+            accumulator = std::move(term);
+            initialized = true;
+        }
+        else
+        {
+            add_lazy_cipher_for_relu_reference(
+                accumulator, term, evaluator, encoder);
+        }
+    }
+    if (initialized)
+    {
+        evaluator.rescale(accumulator, accumulator);
+        assign_scale_for_relu_reference(accumulator, scale);
+    }
+    else if (has_constant)
+    {
+        if (basis.empty() || !basis[0])
+        {
+            throw runtime_error(
+                "general Chebyshev evaluation is missing T0");
+        }
+        Plaintext encoded_constant;
+        const double coefficient_scale =
+            kGeneralChebyshevScaleFraction *
+            current_rescale_modulus(*basis[0], context);
+        vector<complex<double>> scaled_constants = constants;
+        for (complex<double> &constant : scaled_constants)
+        {
+            constant /= kGeneralChebyshevScaleFraction;
+        }
+        encoder.encode(scaled_constants, basis[0]->parms_id(),
+                       coefficient_scale, encoded_constant);
+        evaluator.multiply_plain(
+            *basis[0], encoded_constant, accumulator);
+        evaluator.rescale(accumulator, accumulator);
+        assign_scale_for_relu_reference(accumulator, scale);
+        return accumulator;
+    }
+    else
+    {
+        if (basis.empty() || !basis[0])
+        {
+            throw runtime_error(
+                "general Chebyshev evaluation is missing T0");
+        }
+        const double coefficient_scale =
+            kGeneralChebyshevScaleFraction *
+            current_rescale_modulus(*basis[0], context);
+        evaluator.multiply_const(
+            *basis[0], 1.0 / kGeneralChebyshevScaleFraction,
+            coefficient_scale,
+            accumulator, encoder);
+        evaluator.rescale(accumulator, accumulator);
+        assign_scale_for_relu_reference(accumulator, scale);
+        Ciphertext zero = accumulator;
+        evaluator.sub(accumulator, zero, accumulator);
+        return accumulator;
+    }
+
+    if (has_constant)
+    {
+        Plaintext encoded_constant;
+        encoder.encode(constants, accumulator.parms_id(),
+                       accumulator.scale(), encoded_constant);
+        evaluator.add_plain(
+            accumulator, encoded_constant, accumulator);
+    }
+    return accumulator;
+}
+
+Ciphertext evaluate_general_chebyshev_node(
+    int node, const PolynomialList &polynomials,
+    const vector<vector<int>> &slot_indexes, const Tree &tree,
+    const vector<unique_ptr<Ciphertext>> &basis, double scale,
+    EvaluatorCkksBase &evaluator, CKKSEncoder &encoder,
+    const RelinKeys &relin_keys, const PoseidonContext &context)
+{
+    if (node <= 0 || static_cast<size_t>(node) >= tree.tree.size())
+    {
+        throw out_of_range("general Chebyshev tree node is out of range");
+    }
+    const int split = tree.tree[static_cast<size_t>(node)];
+    if (split == 0)
+    {
+        return evaluate_general_chebyshev_leaf(
+            polynomials, slot_indexes, basis, scale, evaluator, encoder,
+            context);
+    }
+    if (split < 0 || static_cast<size_t>(split) >= basis.size() ||
+        !basis[static_cast<size_t>(split)])
+    {
+        throw runtime_error(
+            "general Chebyshev tree has an invalid split basis");
+    }
+
+    PolynomialList left_polynomials;
+    PolynomialList right_polynomials;
+    left_polynomials.reserve(polynomials.size());
+    right_polynomials.reserve(polynomials.size());
+    for (const Polynomial &polynomial : polynomials)
+    {
+        auto [quotient, remainder] =
+            split_coeffs(polynomial, split);
+        left_polynomials.push_back(std::move(remainder));
+        right_polynomials.push_back(std::move(quotient));
+    }
+
+    Ciphertext right = evaluate_general_chebyshev_node(
+        2 * node + 1, right_polynomials, slot_indexes, tree, basis,
+        scale, evaluator, encoder, relin_keys, context);
+    Ciphertext product = multiply_general_chebyshev(
+        *basis[static_cast<size_t>(split)], right,
+        evaluator, encoder, relin_keys, context);
+
+    Ciphertext left = evaluate_general_chebyshev_node(
+        2 * node, left_polynomials, slot_indexes, tree, basis,
+        scale, evaluator, encoder, relin_keys, context);
+    add_lazy_cipher_for_relu_reference(
+        product, left, evaluator, encoder);
+    return product;
+}
+
 } // namespace
 
 Tree::Tree()
@@ -722,4 +1044,63 @@ Ciphertext approximate_sign(const Ciphertext &input, const vector<int> &deg, lon
     evaluator.add_const(result, 0.5, result, encoder);
 
     return result;
+}
+
+Ciphertext evaluate_chebyshev_baby(
+    const Ciphertext &input, const PolynomialVector &polynomials,
+    Encryptor &encryptor, CKKSEncoder &encoder,
+    EvaluatorCkksBase &evaluator, RelinKeys &relin_keys,
+    const PoseidonContext &context)
+{
+    if (polynomials.polys().empty() ||
+        polynomials.polys().size() != polynomials.index().size())
+    {
+        throw invalid_argument(
+            "general Chebyshev evaluation received invalid polynomials");
+    }
+    const size_t degree = polynomials.polys().front().degree();
+    if (degree == 0)
+    {
+        throw invalid_argument(
+            "general Chebyshev evaluation requires positive degree");
+    }
+    for (const Polynomial &polynomial : polynomials.polys())
+    {
+        if (polynomial.basis_type() != Chebyshev ||
+            polynomial.degree() != degree)
+        {
+            throw invalid_argument(
+                "general Chebyshev polynomials must share degree and basis");
+        }
+    }
+
+    Tree tree = make_balanced_chebyshev_tree(degree);
+    vector<unique_ptr<Ciphertext>> basis(degree + 1);
+    basis[0] = make_unique<Ciphertext>();
+    basis[1] = make_unique<Ciphertext>();
+    generate_t0_t1(encryptor, encoder, input, *basis[0], *basis[1]);
+
+    // The balanced tree only splits on powers of two. Building T2, T4, ...
+    // directly keeps the same multiplicative depth as the ResNet ReLU path
+    // and avoids materializing unused T3, T5, ... basis ciphertexts.
+    for (size_t chebyshev_degree = 2;
+         chebyshev_degree <= degree;
+         chebyshev_degree *= 2)
+    {
+        const size_t half_degree = chebyshev_degree / 2;
+        if (!basis[half_degree] || !basis[0])
+        {
+            throw runtime_error(
+                "general Chebyshev power-of-two basis dependency is missing");
+        }
+        basis[chebyshev_degree] = make_unique<Ciphertext>();
+        eval_t_for_general_chebyshev(
+            evaluator, relin_keys, encoder,
+            *basis[chebyshev_degree], *basis[half_degree],
+            *basis[0], context);
+    }
+
+    return evaluate_general_chebyshev_node(
+        1, polynomials.polys(), polynomials.index(), tree, basis,
+        input.scale(), evaluator, encoder, relin_keys, context);
 }

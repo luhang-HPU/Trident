@@ -5,3 +5,5 @@ resnet20/result/
 resnet18/result/
 resnet50/result/
 bash.txt
+qwen/pretrained_parameters/
+qwen/validation_output/
