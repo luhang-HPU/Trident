@@ -2923,9 +2923,12 @@ void prepare_resnet18_evaluation_keys(PoseidonRuntime &runtime, ofstream &output
 
 } // namespace
 
-void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
+void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id, size_t dnum)
 {
-    const PoseidonInferPlan plan = default_poseidon_plan();
+    // Measure the complete inference run, including configuration, Poseidon context
+    // construction, evaluation-key generation, input processing, and all images.
+    const auto all_time_start = chrono::steady_clock::now();
+    const PoseidonInferPlan plan = default_poseidon_plan(dnum);
     const size_t image_value_count =
         static_cast<size_t>(kImageNetInputHeight * kImageNetInputWidth * kImageNetInputChannels);
     const string run_timestamp = make_run_timestamp();
@@ -2947,10 +2950,15 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
     PoseidonRuntime runtime = make_poseidon_runtime(plan, false);
     resnet18_progress_log() << "Poseidon slot count: " << runtime.slot_count << endl;
     resnet18_progress_log() << "Poseidon scale: " << runtime.scale << endl;
+    resnet18_progress_log() << "Poseidon hybrid key-switch: dnum=" << plan.dnum
+                            << ", q_count=" << plan.logq_chain.size()
+                            << ", p_count="
+                            << logp_chain(plan.logq_chain.size(), plan.dnum).size() << endl;
     resnet18_progress_log() << "ImageNet input values: " << image_value_count << endl;
 
     out_log << "run_start: start_image_id=" << start_image_id
             << ", end_image_id=" << end_image_id
+            << ", dnum=" << plan.dnum
             << ", plain_relu_reference=homomorphic_polynomial"
             << ", mock_relu=" << (mock_options.mock_relu ? 1 : 0)
             << ", mock_bootstrap=" << (mock_options.mock_bootstrap ? 1 : 0)
@@ -2958,7 +2966,6 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
             << ", log_file=" << run_result_path << '\n';
     prepare_resnet18_evaluation_keys(runtime, out_log);
 
-    const auto all_time_start = chrono::high_resolution_clock::now();
     for (size_t image_id = start_image_id; image_id <= end_image_id; ++image_id)
     {
         const auto image_time_start = chrono::high_resolution_clock::now();
@@ -5020,7 +5027,7 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id)
         out_log.flush();
     }
 
-    const auto all_time_end = chrono::high_resolution_clock::now();
+    const auto all_time_end = chrono::steady_clock::now();
     const auto all_time_diff =
         chrono::duration_cast<chrono::milliseconds>(all_time_end - all_time_start);
     resnet18_progress_log() << "total time : " << all_time_diff.count() << " ms" << endl;

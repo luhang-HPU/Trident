@@ -44,6 +44,7 @@ struct PoseidonInferPlan
     long init_p = 8;
     int log_scale = static_cast<int>(kResNet18ComputePrimeBits);
     int boot_level = static_cast<int>(kResNet18BootstrapPrimeCount);
+    std::size_t dnum = 3;
     std::vector<std::uint32_t> logq_chain;
 };
 
@@ -54,6 +55,6 @@ std::filesystem::path relu_param_root();
 std::filesystem::path result_dir();
 
 std::vector<std::uint32_t> logq_chain();
-std::vector<std::uint32_t> logp_chain();
-PoseidonInferPlan default_poseidon_plan();
+std::vector<std::uint32_t> logp_chain(std::size_t q_count, std::size_t dnum);
+PoseidonInferPlan default_poseidon_plan(std::size_t dnum = 3);
 ReluConfig default_relu_config(const PoseidonInferPlan &plan);

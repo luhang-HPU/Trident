@@ -1,5 +1,7 @@
 #include "infer_config.h"
 
+#include <stdexcept>
+
 namespace fs = std::filesystem;
 
 fs::path resnet50_root()
@@ -43,18 +45,31 @@ std::vector<std::uint32_t> logq_chain()
     };
 }
 
-std::vector<std::uint32_t> logp_chain()
+std::vector<std::uint32_t> logp_chain(std::size_t q_count, std::size_t dnum)
 {
-    return {51};
+    if (dnum != 3 && dnum != 4)
+    {
+        throw std::invalid_argument("ResNet50 dnum must be 3 or 4");
+    }
+    if (q_count == 0)
+    {
+        throw std::invalid_argument("ResNet50 Q modulus chain must not be empty");
+    }
+
+    // Poseidon's hybrid key switching uses dnum = ceil(|Q| / |P|).
+    const std::size_t p_count = (q_count + dnum - 1) / dnum;
+    return std::vector<std::uint32_t>(p_count, kResNet50BootstrapPrimeBits);
 }
 
-PoseidonInferPlan default_poseidon_plan()
+PoseidonInferPlan default_poseidon_plan(std::size_t dnum)
 {
     PoseidonInferPlan plan;
     plan.logN = 16;
     plan.log_slots = 15;
     plan.init_p = 8;
+    plan.dnum = dnum;
     plan.logq_chain = logq_chain();
+    (void)logp_chain(plan.logq_chain.size(), plan.dnum);
     return plan;
 }
 

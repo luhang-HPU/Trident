@@ -48,6 +48,14 @@ void validate_bootstrap_modulus_chain(const PoseidonInferPlan &plan)
                 "ResNet18 bootstrap requires fourteen trailing 51-bit primes");
         }
     }
+
+    const auto p_chain = logp_chain(plan.logq_chain.size(), plan.dnum);
+    const std::size_t actual_dnum =
+        (plan.logq_chain.size() + p_chain.size() - 1) / p_chain.size();
+    if (actual_dnum != plan.dnum)
+    {
+        throw std::invalid_argument("ResNet18 modulus chains do not produce the requested dnum");
+    }
 }
 
 } // namespace
@@ -69,7 +77,8 @@ PoseidonRuntime make_poseidon_runtime(const PoseidonInferPlan &plan, bool genera
     ParametersLiteral ckks_param_literal{
         CKKS, static_cast<std::uint32_t>(plan.logN), static_cast<std::uint32_t>(plan.logN - 1),
         static_cast<std::uint32_t>(plan.log_scale), 5, kResNet18BootstrapQ0Level, 0, {}, {}};
-    ckks_param_literal.set_log_modulus(plan.logq_chain, logp_chain());
+    ckks_param_literal.set_log_modulus(
+        plan.logq_chain, logp_chain(plan.logq_chain.size(), plan.dnum));
 
     PoseidonFactory::get_instance()->set_device_type(DEVICE_SOFTWARE);
     auto context = PoseidonFactory::get_instance()->create_poseidon_context(ckks_param_literal);
