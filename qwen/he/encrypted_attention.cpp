@@ -3,12 +3,15 @@
 #include "he/encrypted_ops.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <complex>
+#include <iostream>
 #include <iterator>
 #include <limits>
 #include <optional>
 #include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -17,6 +20,68 @@ namespace qwen::he
 
 namespace
 {
+
+void log_attention_tensor_metadata(const EncryptedTensor &tensor,
+                                   HeRuntime &runtime)
+{
+    std::size_t minimum_level = std::numeric_limits<std::size_t>::max();
+    std::size_t maximum_level = 0;
+    for (const poseidon::Ciphertext &cipher : tensor.ciphertexts())
+    {
+        const std::size_t level = runtime.chain_index(cipher);
+        minimum_level = std::min(minimum_level, level);
+        maximum_level = std::max(maximum_level, level);
+    }
+    std::cout << " tokens=" << tensor.layout().tokens
+              << " features=" << tensor.layout().features
+              << " ciphers=" << tensor.ciphertexts().size();
+    if (!tensor.ciphertexts().empty())
+    {
+        std::cout << " level_min=" << minimum_level
+                  << " level_max=" << maximum_level;
+    }
+}
+
+template <typename Function>
+EncryptedTensor logged_attention_tensor_operation(
+    const std::string &name, const EncryptedTensor &input,
+    HeRuntime &runtime, Function &&function)
+{
+    if (!runtime.operation_logging())
+    {
+        return function();
+    }
+    const std::string operation =
+        runtime.operation_context() + ".attention." + name;
+    std::cout << "operation=" << operation << " event=start";
+    log_attention_tensor_metadata(input, runtime);
+    std::cout << '\n';
+    const auto start = std::chrono::steady_clock::now();
+    try
+    {
+        EncryptedTensor output = function();
+        const auto elapsed =
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - start)
+                .count();
+        std::cout << "operation=" << operation
+                  << " event=end duration_ms=" << elapsed;
+        log_attention_tensor_metadata(output, runtime);
+        std::cout << '\n';
+        return output;
+    }
+    catch (const std::exception &error)
+    {
+        const auto elapsed =
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - start)
+                .count();
+        std::cerr << "operation=" << operation
+                  << " event=error duration_ms=" << elapsed
+                  << " message=" << error.what() << '\n';
+        throw;
+    }
+}
 
 Tensor flat_to_heads(const Tensor &flat, std::size_t heads,
                      std::size_t head_dim)
@@ -423,6 +488,28 @@ double approximate_pairwise_maximum(double lhs, double rhs,
         .at(0, 0);
 }
 
+ApproximationConfig dual_token_sigmoid_config(
+    const StableAttentionApproximationConfig &config)
+{
+    const double score_bound = std::max(
+        std::abs(config.exponential.minimum),
+        std::abs(config.exponential.maximum));
+    return {-score_bound, score_bound,
+            std::max(32, config.exponential.sample_count)};
+}
+
+ApproximationConfig online_softmax_config(
+    const StableAttentionApproximationConfig &config)
+{
+    const double score_bound = std::max(
+        std::abs(config.exponential.minimum),
+        std::abs(config.exponential.maximum));
+    const double accumulation_margin =
+        std::log(std::max(1.0, config.reciprocal.maximum));
+    const double bound = score_bound + accumulation_margin;
+    return {-bound, bound, std::max(128, config.exponential.sample_count)};
+}
+
 EncryptedTensor mock_exact_attention(
     const EncryptedTensor &query, const EncryptedTensor &key,
     const EncryptedTensor &value, const QwenConfig &model_config,
@@ -640,6 +727,18 @@ void StableAttentionApproximationConfig::validate() const
         throw std::invalid_argument(
             "stable attention reciprocal interval must be positive");
     }
+    if (!std::isfinite(maximum_bootstrap_value_scale) ||
+        maximum_bootstrap_value_scale <= 0.0)
+    {
+        throw std::invalid_argument(
+            "stable attention maximum bootstrap scale must be positive");
+    }
+    if (!std::isfinite(dual_token_bootstrap_value_scale) ||
+        dual_token_bootstrap_value_scale <= 0.0)
+    {
+        throw std::invalid_argument(
+            "stable attention dual-token bootstrap scale must be positive");
+    }
 }
 
 Tensor approximate_causal_gqa_attention(
@@ -793,10 +892,6 @@ Tensor approximate_stable_causal_gqa_attention(
         all_key = &cache->key();
         all_value = &cache->value();
     }
-    const poseidon::Polynomial exponential =
-        make_exp_polynomial(approximation.exponential);
-    const poseidon::Polynomial reciprocal =
-        make_reciprocal_polynomial(approximation.reciprocal);
     const std::size_t group_size = model_config.query_group_size();
     const double scale =
         1.0 / std::sqrt(static_cast<double>(model_config.head_dim));
@@ -826,68 +921,70 @@ Tensor approximate_stable_causal_gqa_attention(
                 scores[key_token] *= scale;
             }
 
-            double maximum = scores.front();
-            for (std::size_t key_token = 1;
-                 key_token < scores.size(); ++key_token)
+            if (scores.size() == 2)
             {
-                maximum = approximate_pairwise_maximum(
-                    maximum, scores[key_token],
-                    approximation.maximum);
-            }
-
-            std::vector<double> exponentials(scores.size(), 0.0);
-            double denominator = 0.0;
-            for (std::size_t key_token = 0;
-                 key_token < scores.size(); ++key_token)
-            {
-                const double shifted = scores[key_token] - maximum;
-                if (shifted < approximation.exponential.minimum ||
-                    shifted > approximation.exponential.maximum)
-                {
-                    throw std::out_of_range(
-                        "stable attention shifted score " +
-                        std::to_string(shifted) +
-                        " is outside [" +
-                        std::to_string(
-                            approximation.exponential.minimum) +
-                        ", " +
-                        std::to_string(
-                            approximation.exponential.maximum) +
-                        "]");
-                }
-                exponentials[key_token] =
-                    evaluate_chebyshev_plain(shifted, exponential);
-                denominator += exponentials[key_token];
-            }
-            if (denominator < approximation.reciprocal.minimum ||
-                denominator > approximation.reciprocal.maximum)
-            {
-                throw std::out_of_range(
-                    "stable attention denominator " +
-                    std::to_string(denominator) +
-                    " is outside [" +
-                    std::to_string(
-                        approximation.reciprocal.minimum) +
-                    ", " +
-                    std::to_string(
-                        approximation.reciprocal.maximum) +
-                    "]");
-            }
-            const double inverse =
-                evaluate_chebyshev_plain(denominator, reciprocal);
-            for (std::size_t key_token = 0;
-                 key_token < scores.size(); ++key_token)
-            {
-                const double probability =
-                    exponentials[key_token] * inverse;
+                const poseidon::Polynomial sigmoid =
+                    make_sigmoid_polynomial(
+                        dual_token_sigmoid_config(approximation));
+                const double first_probability =
+                    evaluate_chebyshev_plain(
+                        scores[0] - scores[1], sigmoid);
                 for (std::size_t feature = 0;
                      feature < model_config.head_dim; ++feature)
                 {
-                    output.at(query_token, query_head, feature) +=
-                        probability *
-                        all_value->at(
-                            key_token, key_value_head, feature);
+                    const double first_value = all_value->at(
+                        0, key_value_head, feature);
+                    const double second_value = all_value->at(
+                        1, key_value_head, feature);
+                    output.at(query_token, query_head, feature) =
+                        second_value + first_probability *
+                                           (first_value - second_value);
                 }
+                continue;
+            }
+
+            const ApproximationConfig online_config =
+                online_softmax_config(approximation);
+            const poseidon::Polynomial sigmoid =
+                make_sigmoid_polynomial(online_config);
+            const poseidon::Polynomial softplus =
+                make_softplus_polynomial(online_config);
+            double log_normalizer = scores.front();
+            std::vector<double> aggregate(model_config.head_dim, 0.0);
+            for (std::size_t feature = 0;
+                 feature < model_config.head_dim; ++feature)
+            {
+                aggregate[feature] =
+                    all_value->at(0, key_value_head, feature);
+            }
+            for (std::size_t key_token = 1;
+                 key_token < scores.size(); ++key_token)
+            {
+                const double delta = scores[key_token] - log_normalizer;
+                if (delta < online_config.minimum ||
+                    delta > online_config.maximum)
+                {
+                    throw std::out_of_range(
+                        "online softmax delta is outside its calibrated interval");
+                }
+                const double new_probability =
+                    evaluate_chebyshev_plain(delta, sigmoid);
+                log_normalizer +=
+                    evaluate_chebyshev_plain(delta, softplus);
+                for (std::size_t feature = 0;
+                     feature < model_config.head_dim; ++feature)
+                {
+                    const double next_value = all_value->at(
+                        key_token, key_value_head, feature);
+                    aggregate[feature] += new_probability *
+                        (next_value - aggregate[feature]);
+                }
+            }
+            for (std::size_t feature = 0;
+                 feature < model_config.head_dim; ++feature)
+            {
+                output.at(query_token, query_head, feature) =
+                    aggregate[feature];
             }
         }
     }
@@ -922,108 +1019,111 @@ EncryptedTensor encrypted_stable_attention_impl(
                 attention.repeated_values[query_token]);
             continue;
         }
-        EncryptedTensor maximum =
+        if (attention.rows[query_token].size() == 2)
+        {
+            EncryptedTensor difference = encrypted_subtract(
+                attention.rows[query_token][0],
+                attention.rows[query_token][1], runtime);
+            const std::string prefix =
+                "row_" + std::to_string(query_token) + ".step_1.";
+            difference = logged_attention_tensor_operation(
+                prefix + "delta_refresh", difference, runtime, [&] {
+                    return encrypted_refresh_at_scale(
+                        difference, maximum_refresh,
+                        approximation.dual_token_bootstrap_value_scale,
+                        runtime);
+                });
+            const EncryptedTensor first_probability =
+                logged_attention_tensor_operation(
+                    prefix + "sigmoid", difference, runtime, [&] {
+                        return encrypted_sigmoid(
+                            difference,
+                            dual_token_sigmoid_config(approximation),
+                            runtime);
+                    });
+            const EncryptedTensor value_difference = encrypted_subtract(
+                attention.repeated_values[0],
+                attention.repeated_values[1], runtime);
+            const EncryptedTensor weighted_difference = encrypted_multiply(
+                first_probability, value_difference, runtime);
+            output_tokens.push_back(encrypted_add(
+                attention.repeated_values[1], weighted_difference,
+                runtime));
+            continue;
+        }
+        const ApproximationConfig online_config =
+            online_softmax_config(approximation);
+        const double online_value_scale = std::max(
+            approximation.dual_token_bootstrap_value_scale,
+            std::max(std::abs(online_config.minimum),
+                     std::abs(online_config.maximum)) /
+                16.0);
+        EncryptedTensor log_normalizer =
             attention.rows[query_token].front();
+        EncryptedTensor aggregate = attention.repeated_values.front();
         for (std::size_t key_token = 1;
              key_token < attention.rows[query_token].size();
              ++key_token)
         {
-            // A cached decode can align a newly computed score with a much
-            // older cache ciphertext. In the insecure debug profile that can
-            // leave the sign polynomial at the bottom of the modulus chain,
-            // where its first ciphertext square exceeds Poseidon's scale
-            // bound. Refresh only this debug safety case; production mode
-            // must follow the explicit bootstrap schedule below.
-            EncryptedTensor candidate =
-                attention.rows[query_token][key_token];
-            if (maximum_refresh != RefreshMode::none &&
-                (!runtime.config().production_security ||
-                 runtime.config().allow_insecure_mock_boundaries) &&
-                (runtime.chain_index(maximum.cipher(0, 0)) < 20 ||
-                 runtime.chain_index(candidate.cipher(0, 0)) < 20))
-            {
-                maximum = encrypted_refresh(
-                    maximum, maximum_refresh, runtime);
-                candidate = encrypted_refresh(
-                    candidate, maximum_refresh, runtime);
-            }
-            try
-            {
-                maximum = encrypted_maximum(
-                    maximum, candidate,
-                    approximation.maximum, runtime);
-            }
-            catch (...)
-            {
-                if (maximum_refresh == RefreshMode::none ||
-                    (runtime.config().production_security &&
-                     !runtime.config().allow_insecure_mock_boundaries))
-                {
-                    throw;
-                }
-                // Some debug-only cache paths can still inherit a scale that
-                // is too close to Poseidon's bound after modulus alignment.
-                // Retry once from freshly re-encrypted operands; production
-                // parameters never take this branch.
-                constexpr RefreshMode retry_mode =
-                    RefreshMode::debug_reencrypt;
-                maximum = encrypted_refresh(
-                    maximum, retry_mode, runtime);
-                candidate = encrypted_refresh(
-                    candidate, retry_mode, runtime);
-                maximum = encrypted_maximum(
-                    maximum, candidate,
-                    approximation.maximum, runtime);
-            }
-            maximum = encrypted_refresh(
-                maximum, maximum_refresh, runtime);
-        }
+            const std::string prefix =
+                "row_" + std::to_string(query_token) + ".step_" +
+                std::to_string(key_token) + '.';
+            EncryptedTensor delta = encrypted_subtract(
+                attention.rows[query_token][key_token],
+                log_normalizer, runtime);
+            delta = logged_attention_tensor_operation(
+                prefix + "delta_refresh", delta, runtime, [&] {
+                    return encrypted_refresh_at_scale(
+                        delta, maximum_refresh, online_value_scale,
+                        runtime);
+                });
+            const EncryptedTensor new_probability =
+                logged_attention_tensor_operation(
+                    prefix + "sigmoid", delta, runtime, [&] {
+                        return encrypted_sigmoid(
+                            delta, online_config, runtime);
+                    });
+            const EncryptedTensor log_correction =
+                logged_attention_tensor_operation(
+                    prefix + "softplus", delta, runtime, [&] {
+                        return encrypted_softplus(
+                            delta, online_config, runtime);
+                    });
+            log_normalizer = encrypted_add(
+                log_normalizer, log_correction, runtime);
 
-        std::vector<EncryptedTensor> exponentials;
-        exponentials.reserve(attention.rows[query_token].size());
-        for (const EncryptedTensor &score :
-             attention.rows[query_token])
-        {
-            const EncryptedTensor shifted =
-                encrypted_subtract(score, maximum, runtime);
-            exponentials.push_back(encrypted_exp(
-                shifted, approximation.exponential, runtime));
-        }
-        EncryptedTensor denominator = exponentials.front();
-        for (std::size_t key_token = 1;
-             key_token < exponentials.size(); ++key_token)
-        {
-            denominator = encrypted_add(
-                denominator, exponentials[key_token], runtime);
-        }
-        denominator = encrypted_refresh(
-            denominator, denominator_refresh, runtime);
-        const EncryptedTensor inverse = encrypted_reciprocal(
-            denominator, approximation.reciprocal, runtime);
-
-        std::optional<EncryptedTensor> accumulated;
-        for (std::size_t key_token = 0;
-             key_token < exponentials.size(); ++key_token)
-        {
-            const EncryptedTensor probability = encrypted_multiply(
-                exponentials[key_token], inverse, runtime);
-            const EncryptedTensor weighted_value = encrypted_multiply(
-                probability,
-                attention.repeated_values[key_token],
-                runtime);
-            if (!accumulated.has_value())
+            if (runtime.chain_index(aggregate.cipher(0, 0)) <= 2 &&
+                denominator_refresh != RefreshMode::none)
             {
-                accumulated.emplace(weighted_value);
+                aggregate = logged_attention_tensor_operation(
+                    prefix + "aggregate_refresh", aggregate, runtime,
+                    [&] {
+                        return encrypted_refresh(
+                            aggregate, denominator_refresh, runtime);
+                    });
             }
-            else
-            {
-                accumulated = encrypted_add(
-                    *accumulated, weighted_value, runtime);
-            }
+            const EncryptedTensor value_delta = encrypted_subtract(
+                attention.repeated_values[key_token], aggregate, runtime);
+            aggregate = logged_attention_tensor_operation(
+                prefix + "aggregate_update", aggregate, runtime, [&] {
+                    const EncryptedTensor weighted_delta =
+                        encrypted_multiply(
+                            new_probability, value_delta, runtime);
+                    return encrypted_add(
+                        aggregate, weighted_delta, runtime);
+                });
         }
-        output_tokens.push_back(std::move(*accumulated));
+        output_tokens.push_back(std::move(aggregate));
     }
-    return stack_token_outputs(std::move(output_tokens), runtime);
+    EncryptedTensor output =
+        stack_token_outputs(std::move(output_tokens), runtime);
+    if (runtime.chain_index(output.cipher(0, 0)) <= 1 &&
+        denominator_refresh != RefreshMode::none)
+    {
+        output = encrypted_refresh(
+            output, denominator_refresh, runtime);
+    }
+    return output;
 }
 
 EncryptedTensor encrypted_stable_causal_gqa_attention(

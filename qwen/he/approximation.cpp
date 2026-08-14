@@ -5,9 +5,11 @@
 #include "poseidon/plaintext.h"
 #include "relu_approx.h"
 
+#include <algorithm>
 #include <cmath>
 #include <complex>
 #include <functional>
+#include <iterator>
 #include <numeric>
 #include <stdexcept>
 #include <utility>
@@ -27,6 +29,26 @@ double inverse_sqrt_function(double value)
 double silu_function(double value)
 {
     return value / (1.0 + std::exp(-value));
+}
+
+double sigmoid_function(double value)
+{
+    if (value >= 0.0)
+    {
+        const double exponential = std::exp(-value);
+        return 1.0 / (1.0 + exponential);
+    }
+    const double exponential = std::exp(value);
+    return exponential / (1.0 + exponential);
+}
+
+double softplus_function(double value)
+{
+    if (value >= 0.0)
+    {
+        return value + std::log1p(std::exp(-value));
+    }
+    return std::log1p(std::exp(value));
 }
 
 double exp_function(double value)
@@ -264,6 +286,19 @@ EncryptedTensor evaluate_position_polynomial(
     return EncryptedTensor(input.layout(), std::move(output));
 }
 
+struct FeaturePolynomialGroup
+{
+    ApproximationConfig config;
+    std::vector<int> slots;
+};
+
+bool same_approximation_config(const ApproximationConfig &lhs,
+                               const ApproximationConfig &rhs)
+{
+    return lhs.minimum == rhs.minimum && lhs.maximum == rhs.maximum &&
+           lhs.sample_count == rhs.sample_count;
+}
+
 EncryptedTensor evaluate_feature_polynomial(
     const EncryptedTensor &input, const ApproximationConfig &config,
     const std::map<std::size_t, ApproximationConfig> &position_overrides,
@@ -280,72 +315,105 @@ EncryptedTensor evaluate_feature_polynomial(
     }
     std::vector<poseidon::Ciphertext> output;
     output.reserve(input.ciphertexts().size());
-    for (std::size_t token = 0; token < input.layout().tokens; ++token)
+    for (std::size_t token_group = 0;
+         token_group < input.layout().token_groups(); ++token_group)
     {
-        const auto token_override = position_overrides.find(token);
-        const ApproximationConfig &token_config =
-            token_override == position_overrides.end()
-                ? config
-                : token_override->second;
-        const auto feature_override =
-            position_feature_overrides.find(token);
-        const std::vector<ApproximationConfig> *token_features =
-            feature_override == position_feature_overrides.end()
-                ? nullptr
-                : &feature_override->second;
-        if (token_features != nullptr &&
-            token_features->size() != input.layout().features)
-        {
-            throw std::invalid_argument(
-                "position SiLU feature calibration has the wrong width");
-        }
-
+        const std::size_t first_token =
+            token_group * input.layout().token_capacity();
+        const std::size_t active_tokens = std::min(
+            input.layout().token_capacity(),
+            input.layout().tokens - first_token);
         for (std::size_t chunk = 0;
              chunk < input.layout().feature_chunks(); ++chunk)
         {
-            const poseidon::Ciphertext &source = input.cipher(token, chunk);
+            const poseidon::Ciphertext &source =
+                input.cipher(token_group, chunk);
             std::vector<std::complex<double>> multipliers(
-                runtime.config().slot_count(), {0.0, 0.0});
+                input.layout().slot_count, {0.0, 0.0});
             std::vector<std::complex<double>> offsets(
-                runtime.config().slot_count(), {0.0, 0.0});
-            std::vector<poseidon::Polynomial> polynomials;
-            std::vector<std::vector<int>> polynomial_slots;
+                input.layout().slot_count, {0.0, 0.0});
             const std::size_t feature_begin =
                 chunk * input.layout().token_stride;
             const std::size_t feature_end = std::min(
                 feature_begin + input.layout().token_stride,
                 input.layout().features);
-            polynomials.reserve(feature_end - feature_begin);
-            polynomial_slots.reserve(feature_end - feature_begin);
-            std::size_t maximum_degree = 0;
-            for (std::size_t feature = feature_begin;
-                 feature < feature_end; ++feature)
+            std::vector<FeaturePolynomialGroup> groups;
+            groups.reserve(active_tokens * (feature_end - feature_begin));
+            for (std::size_t local_token = 0;
+                 local_token < active_tokens; ++local_token)
             {
-                const ApproximationConfig &feature_config =
-                    token_features != nullptr
-                        ? token_features->at(feature)
-                        : (!feature_configs.empty()
-                               ? feature_configs.at(feature)
-                               : token_config);
-                const std::size_t slot = feature - feature_begin;
-                multipliers[slot] = {
-                    2.0 / (feature_config.maximum -
-                           feature_config.minimum),
-                    0.0};
-                offsets[slot] = {
-                    -(feature_config.maximum +
-                      feature_config.minimum) /
-                        (feature_config.maximum -
-                         feature_config.minimum),
-                    0.0};
+                const std::size_t token = first_token + local_token;
+                const auto token_override =
+                    position_overrides.find(token);
+                const ApproximationConfig &token_config =
+                    token_override == position_overrides.end()
+                        ? config
+                        : token_override->second;
+                const auto feature_override =
+                    position_feature_overrides.find(token);
+                const std::vector<ApproximationConfig> *token_features =
+                    feature_override == position_feature_overrides.end()
+                        ? nullptr
+                        : &feature_override->second;
+                if (token_features != nullptr &&
+                    token_features->size() != input.layout().features)
+                {
+                    throw std::invalid_argument(
+                        "position SiLU feature calibration has the wrong width");
+                }
+
+                for (std::size_t feature = feature_begin;
+                     feature < feature_end; ++feature)
+                {
+                    const ApproximationConfig &feature_config =
+                        token_features != nullptr
+                            ? token_features->at(feature)
+                            : (!feature_configs.empty()
+                                   ? feature_configs.at(feature)
+                                   : token_config);
+                    feature_config.validate();
+                    const std::size_t slot =
+                        local_token * input.layout().token_stride +
+                        (feature - feature_begin);
+                    multipliers[slot] = {
+                        2.0 / (feature_config.maximum -
+                               feature_config.minimum),
+                        0.0};
+                    offsets[slot] = {
+                        -(feature_config.maximum +
+                          feature_config.minimum) /
+                            (feature_config.maximum -
+                             feature_config.minimum),
+                        0.0};
+                    auto group = std::find_if(
+                        groups.begin(), groups.end(),
+                        [&](const FeaturePolynomialGroup &candidate) {
+                            return same_approximation_config(
+                                candidate.config, feature_config);
+                        });
+                    if (group == groups.end())
+                    {
+                        groups.push_back({feature_config, {}});
+                        group = std::prev(groups.end());
+                    }
+                    group->slots.push_back(static_cast<int>(slot));
+                }
+            }
+
+            std::vector<poseidon::Polynomial> polynomials;
+            std::vector<std::vector<int>> polynomial_slots;
+            polynomials.reserve(groups.size());
+            polynomial_slots.reserve(groups.size());
+            std::size_t maximum_degree = 0;
+            for (const FeaturePolynomialGroup &group : groups)
+            {
                 poseidon::Polynomial polynomial =
-                    make_silu_polynomial(feature_config);
+                    make_silu_polynomial(group.config);
                 polynomial.lead() = true;
                 maximum_degree =
                     std::max(maximum_degree, polynomial.degree());
                 polynomials.push_back(std::move(polynomial));
-                polynomial_slots.push_back(
-                    {static_cast<int>(slot)});
+                polynomial_slots.push_back(group.slots);
             }
             for (poseidon::Polynomial &polynomial : polynomials)
             {
@@ -424,6 +492,24 @@ poseidon::Polynomial make_silu_polynomial(
     config.validate();
     return poseidon::util::approximate(
         silu_function, config.minimum, config.maximum,
+        config.sample_count);
+}
+
+poseidon::Polynomial make_sigmoid_polynomial(
+    const ApproximationConfig &config)
+{
+    config.validate();
+    return poseidon::util::approximate(
+        sigmoid_function, config.minimum, config.maximum,
+        config.sample_count);
+}
+
+poseidon::Polynomial make_softplus_polynomial(
+    const ApproximationConfig &config)
+{
+    config.validate();
+    return poseidon::util::approximate(
+        softplus_function, config.minimum, config.maximum,
         config.sample_count);
 }
 
@@ -577,6 +663,34 @@ Tensor approximate_exp_plain(const Tensor &input,
     return output;
 }
 
+Tensor approximate_sigmoid_plain(
+    const Tensor &input, const ApproximationConfig &config)
+{
+    const poseidon::Polynomial polynomial =
+        make_sigmoid_polynomial(config);
+    Tensor output(input.shape());
+    for (std::size_t index = 0; index < input.numel(); ++index)
+    {
+        output.data()[index] =
+            evaluate_chebyshev_plain(input.data()[index], polynomial);
+    }
+    return output;
+}
+
+Tensor approximate_softplus_plain(
+    const Tensor &input, const ApproximationConfig &config)
+{
+    const poseidon::Polynomial polynomial =
+        make_softplus_polynomial(config);
+    Tensor output(input.shape());
+    for (std::size_t index = 0; index < input.numel(); ++index)
+    {
+        output.data()[index] =
+            evaluate_chebyshev_plain(input.data()[index], polynomial);
+    }
+    return output;
+}
+
 Tensor approximate_reciprocal_plain(
     const Tensor &input, const ApproximationConfig &config)
 {
@@ -677,11 +791,6 @@ EncryptedTensor encrypted_silu(
     }
     if (!feature_configs.empty() || !position_feature_overrides.empty())
     {
-        if (input.layout().tokens != input.layout().token_groups())
-        {
-            throw std::invalid_argument(
-                "feature-calibrated SiLU requires one token per ciphertext");
-        }
         return evaluate_feature_polynomial(
             input, config, position_overrides, feature_configs,
             position_feature_overrides, runtime);
@@ -730,6 +839,40 @@ EncryptedTensor encrypted_exp(const EncryptedTensor &input,
     }
     return evaluate_tensor_polynomial(
         input, make_exp_polynomial(config), config, runtime);
+}
+
+EncryptedTensor encrypted_sigmoid(
+    const EncryptedTensor &input, const ApproximationConfig &config,
+    HeRuntime &runtime)
+{
+    if (runtime.mock_attention())
+    {
+        Tensor plain = decrypt_tensor(input, runtime);
+        for (double &value : plain.data())
+        {
+            value = sigmoid_function(value);
+        }
+        return encrypt_tensor(plain, runtime);
+    }
+    return evaluate_tensor_polynomial(
+        input, make_sigmoid_polynomial(config), config, runtime);
+}
+
+EncryptedTensor encrypted_softplus(
+    const EncryptedTensor &input, const ApproximationConfig &config,
+    HeRuntime &runtime)
+{
+    if (runtime.mock_attention())
+    {
+        Tensor plain = decrypt_tensor(input, runtime);
+        for (double &value : plain.data())
+        {
+            value = softplus_function(value);
+        }
+        return encrypt_tensor(plain, runtime);
+    }
+    return evaluate_tensor_polynomial(
+        input, make_softplus_polynomial(config), config, runtime);
 }
 
 EncryptedTensor encrypted_reciprocal(

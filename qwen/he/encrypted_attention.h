@@ -42,6 +42,8 @@ struct StableAttentionApproximationConfig
     ComparisonConfig maximum;
     ApproximationConfig exponential;
     ApproximationConfig reciprocal;
+    double maximum_bootstrap_value_scale = 1.0;
+    double dual_token_bootstrap_value_scale = 1.0;
 
     void validate() const;
 };

@@ -7,10 +7,12 @@
 #include "he/encrypted_tensor.h"
 #include "he/he_config.h"
 #include "he/he_runtime.h"
+#include "he/qwen25_05b_config.h"
 #include "model/plain_attention.h"
 #include "ops/plain_ops.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <exception>
 #include <iostream>
@@ -157,9 +159,92 @@ void test_single_token_bootstrap_schedule()
         multi.qkv_refresh == qwen::he::RefreshMode::debug_bootstrap &&
             multi.attention_maximum_refresh ==
                 qwen::he::RefreshMode::debug_bootstrap &&
-            multi.attention_denominator_refresh ==
+        multi.attention_denominator_refresh ==
                 qwen::he::RefreshMode::debug_bootstrap,
         "multi-token Attention refreshes must remain enabled");
+
+    qwen::he::EncryptedDecoderApproximationConfig multi_real;
+    qwen::he::set_decoder_bootstrap_schedule(
+        multi_real, qwen::he::RefreshMode::bootstrap);
+    qwen::he::remove_redundant_rmsnorm_refreshes(multi_real);
+    expect_true(
+        multi_real.qkv_refresh == qwen::he::RefreshMode::bootstrap &&
+            multi_real.attention_maximum_refresh ==
+                qwen::he::RefreshMode::bootstrap &&
+            multi_real.attention_denominator_refresh ==
+                qwen::he::RefreshMode::bootstrap &&
+            multi_real.attention_output_refresh ==
+                qwen::he::RefreshMode::bootstrap &&
+            multi_real.post_attention_refresh ==
+                qwen::he::RefreshMode::bootstrap &&
+            multi_real.output_refresh ==
+                qwen::he::RefreshMode::bootstrap,
+        "real multi-token schedule must retain Attention bootstraps");
+    expect_true(
+        multi_real.input_norm_refresh == qwen::he::RefreshMode::none &&
+            multi_real.mlp_input_refresh == qwen::he::RefreshMode::none,
+        "real multi-token schedule must skip redundant RMSNorm refreshes");
+
+    qwen::he::set_decoder_dual_token_bootstrap_schedule(
+        multi_real, qwen::he::RefreshMode::bootstrap);
+    expect_true(
+        multi_real.qkv_refresh == qwen::he::RefreshMode::none &&
+            multi_real.attention_maximum_refresh ==
+                qwen::he::RefreshMode::bootstrap &&
+            multi_real.attention_denominator_refresh ==
+                qwen::he::RefreshMode::none &&
+            multi_real.attention_output_refresh ==
+                qwen::he::RefreshMode::none,
+        "dual-token Attention must refresh only the score difference");
+    expect_true(
+        multi_real.post_attention_refresh ==
+                qwen::he::RefreshMode::bootstrap &&
+            multi_real.output_refresh ==
+                qwen::he::RefreshMode::bootstrap,
+        "dual-token schedule must retain both residual bootstraps");
+
+    qwen::he::set_decoder_multi_token_bootstrap_schedule(
+        multi_real, qwen::he::RefreshMode::bootstrap, 3);
+    expect_true(
+        multi_real.qkv_refresh == qwen::he::RefreshMode::none &&
+            multi_real.attention_maximum_refresh ==
+                qwen::he::RefreshMode::bootstrap &&
+            multi_real.attention_denominator_refresh ==
+                qwen::he::RefreshMode::bootstrap &&
+            multi_real.attention_output_refresh ==
+                qwen::he::RefreshMode::none,
+        "general multi-token Attention must refresh scores and denominator");
+
+    qwen::he::set_qwen25_05b_calibrated_bootstrap_scales(
+        multi_real, 2);
+    expect_true(
+        multi_real.post_attention_bootstrap_value_scale == 1.0 &&
+            multi_real.output_bootstrap_value_scale == 32.0 &&
+            multi_real.mlp_input_bootstrap_value_scale == 1.0 &&
+            multi_real.mlp_input_refresh ==
+                qwen::he::RefreshMode::bootstrap,
+        "layer-2 calibrated bootstrap scales");
+    qwen::he::set_qwen25_05b_calibrated_bootstrap_scales(
+        multi_real, 3);
+    expect_true(
+        multi_real.post_attention_bootstrap_value_scale == 128.0 &&
+            multi_real.output_bootstrap_value_scale == 128.0 &&
+            multi_real.mlp_input_bootstrap_value_scale == 128.0 &&
+            multi_real.mlp_input_refresh ==
+                qwen::he::RefreshMode::bootstrap,
+        "later-layer calibrated bootstrap scales");
+
+    const auto short_attention =
+        qwen::he::qwen25_05b_layer_approximation(3, 4);
+    const auto medium_attention =
+        qwen::he::qwen25_05b_layer_approximation(3, 8);
+    const auto long_attention =
+        qwen::he::qwen25_05b_layer_approximation(3, 16);
+    expect_true(
+        short_attention.attention.exponential.minimum == -23.8793227 &&
+            medium_attention.attention.exponential.minimum == -35.3810452 &&
+            long_attention.attention.exponential.minimum == -35.3810452,
+        "token-count-aware Attention calibration intervals");
 }
 
 void test_single_token_periodic_linear()
@@ -387,6 +472,47 @@ void test_packed_rotation_and_linear()
     std::cout << '\n';
     expect_tensor_near(silu_decrypted, silu_reference, 4.0e-4,
                        "packed_position_aware_silu");
+
+    std::vector<qwen::he::ApproximationConfig> packed_feature_configs;
+    packed_feature_configs.reserve(input.dim(1));
+    for (std::size_t feature = 0; feature < input.dim(1); ++feature)
+    {
+        double minimum = input.at(0, feature);
+        double maximum = input.at(0, feature);
+        for (std::size_t token = 1; token < input.dim(0); ++token)
+        {
+            minimum = std::min(minimum, input.at(token, feature));
+            maximum = std::max(maximum, input.at(token, feature));
+        }
+        packed_feature_configs.push_back({minimum - 2.0, maximum + 2.0,
+                                          16});
+    }
+    std::map<std::size_t, std::vector<qwen::he::ApproximationConfig>>
+        packed_feature_overrides;
+    for (std::size_t token = 0; token < input.dim(0); ++token)
+    {
+        std::vector<qwen::he::ApproximationConfig> token_configs;
+        token_configs.reserve(input.dim(1));
+        for (std::size_t feature = 0; feature < input.dim(1);
+             ++feature)
+        {
+            const double value = input.at(token, feature);
+            token_configs.push_back({value - 1.0, value + 1.0, 16});
+        }
+        packed_feature_overrides.emplace(token, std::move(token_configs));
+    }
+    const qwen::Tensor packed_feature_reference =
+        qwen::he::approximate_silu_plain(
+            input, silu_config, {}, packed_feature_configs,
+            packed_feature_overrides);
+    const qwen::he::EncryptedTensor packed_feature_silu =
+        qwen::he::encrypted_silu(
+            encrypted, silu_config, {}, packed_feature_configs,
+            packed_feature_overrides, runtime);
+    expect_tensor_near(
+        qwen::he::decrypt_tensor(packed_feature_silu, runtime),
+        packed_feature_reference, 4.0e-4,
+        "packed_feature_calibrated_silu");
 
     const qwen::Tensor rms_weight(
         {8}, {1.0, 0.9, 1.1, 0.8, 1.2, 0.75, 1.25, 0.95});
@@ -789,6 +915,64 @@ void test_silu(qwen::he::HeRuntime &runtime)
         "position_aware_encrypted_silu");
 }
 
+void test_sigmoid(qwen::he::HeRuntime &runtime)
+{
+    const qwen::Tensor input(
+        {1, 9}, {-8.0, -4.0, -2.0, -0.5, 0.0,
+                 0.5, 2.0, 4.0, 8.0});
+    const qwen::he::ApproximationConfig config{-8.0, 8.0, 32};
+    qwen::Tensor exact(input.shape());
+    for (std::size_t index = 0; index < input.numel(); ++index)
+    {
+        exact.data()[index] =
+            1.0 / (1.0 + std::exp(-input.data()[index]));
+    }
+    const qwen::Tensor polynomial =
+        qwen::he::approximate_sigmoid_plain(input, config);
+    expect_tensor_near(polynomial, exact, 2.0e-4,
+                       "polynomial_plain_sigmoid");
+
+    const qwen::he::EncryptedTensor encrypted =
+        qwen::he::encrypt_tensor(input, runtime);
+    const qwen::he::EncryptedTensor encrypted_result =
+        qwen::he::encrypted_sigmoid(encrypted, config, runtime);
+    expect_tensor_near(
+        qwen::he::decrypt_tensor(encrypted_result, runtime),
+        polynomial, 2.0e-4, "encrypted_vs_polynomial_sigmoid");
+    const std::size_t input_level =
+        runtime.chain_index(encrypted.cipher(0, 0));
+    const std::size_t output_level =
+        runtime.chain_index(encrypted_result.cipher(0, 0));
+    expect_true(input_level == output_level + 6,
+                "degree-31 sigmoid must consume six levels");
+    std::cout << "encrypted_sigmoid level_in=" << input_level
+              << " level_out=" << output_level << '\n';
+
+    qwen::Tensor softplus_exact(input.shape());
+    for (std::size_t index = 0; index < input.numel(); ++index)
+    {
+        const double value = input.data()[index];
+        softplus_exact.data()[index] =
+            value >= 0.0
+                ? value + std::log1p(std::exp(-value))
+                : std::log1p(std::exp(value));
+    }
+    const qwen::Tensor softplus_polynomial =
+        qwen::he::approximate_softplus_plain(input, config);
+    expect_tensor_near(softplus_polynomial, softplus_exact, 2.0e-4,
+                       "polynomial_plain_softplus");
+    const qwen::he::EncryptedTensor encrypted_softplus =
+        qwen::he::encrypted_softplus(encrypted, config, runtime);
+    expect_tensor_near(
+        qwen::he::decrypt_tensor(encrypted_softplus, runtime),
+        softplus_polynomial, 2.0e-4,
+        "encrypted_vs_polynomial_softplus");
+    expect_true(
+        input_level ==
+            runtime.chain_index(encrypted_softplus.cipher(0, 0)) + 6,
+        "degree-31 softplus must consume six levels");
+}
+
 void test_rms_norm(qwen::he::HeRuntime &runtime)
 {
     qwen::Tensor input({1, 896});
@@ -884,6 +1068,33 @@ void test_rms_norm(qwen::he::HeRuntime &runtime)
             encrypted_mixed_result, runtime),
         mixed_polynomial, 2.0e-4,
         "position_aware_encrypted_rms_norm");
+
+    qwen::Tensor final_sequence({4, 896});
+    const std::array<double, 4> final_variances{
+        12.7, 6.2, 8.4, 50.0};
+    for (std::size_t token = 0; token < 4; ++token)
+    {
+        for (std::size_t feature = 0; feature < 896; ++feature)
+        {
+            final_sequence.at(token, feature) =
+                std::sqrt(final_variances[token]) *
+                (1.0 + 0.04 * std::sin(
+                            static_cast<double>(feature) * 0.03));
+        }
+    }
+    const qwen::he::ApproximationConfig final_config{2.5, 55.0, 32};
+    const qwen::Tensor final_polynomial =
+        qwen::he::approximate_rms_norm_plain(
+            final_sequence, weight, epsilon, final_config);
+    const qwen::he::EncryptedTensor encrypted_final =
+        qwen::he::encrypt_tensor(final_sequence, runtime);
+    const qwen::he::EncryptedTensor encrypted_final_result =
+        qwen::he::encrypted_rms_norm(
+            encrypted_final, weight, epsilon, final_config, runtime);
+    expect_tensor_near(
+        qwen::he::decrypt_tensor(encrypted_final_result, runtime),
+        final_polynomial, 5.0e-4,
+        "packed_four_token_final_rms_norm");
 }
 
 void test_causal_gqa_attention(qwen::he::HeRuntime &runtime)
@@ -1022,6 +1233,55 @@ void test_stable_causal_gqa_attention()
               << " level_out_token1="
               << runtime.chain_index(encrypted_result.cipher(1, 0))
               << '\n';
+}
+
+void test_multi_token_stable_causal_gqa_attention()
+{
+    qwen::he::HeRuntime runtime =
+        qwen::he::make_he_runtime(
+            qwen::he::deep_debug_he_config());
+    const qwen::QwenConfig config = qwen::demo_config();
+    qwen::Tensor query({4, 4, 2});
+    qwen::Tensor key({4, 2, 2});
+    qwen::Tensor value({4, 2, 2});
+    for (std::size_t index = 0; index < query.numel(); ++index)
+    {
+        query.data()[index] =
+            0.35 * std::sin(0.31 * static_cast<double>(index + 1));
+    }
+    for (std::size_t index = 0; index < key.numel(); ++index)
+    {
+        key.data()[index] =
+            0.40 * std::cos(0.27 * static_cast<double>(index + 2));
+        value.data()[index] =
+            0.65 * std::sin(0.19 * static_cast<double>(index + 3));
+    }
+    const qwen::he::StableAttentionApproximationConfig approximation{
+        {2.0}, {-2.0, 0.1, 32}, {0.75, 4.5, 32}};
+    const qwen::Tensor exact =
+        qwen::causal_gqa_attention(query, key, value, config);
+    const qwen::Tensor polynomial =
+        qwen::he::approximate_stable_causal_gqa_attention(
+            query, key, value, config, approximation);
+    expect_tensor_near(
+        polynomial, exact, 2.0e-4,
+        "polynomial_plain_multi_token_stable_attention");
+
+    const qwen::he::EncryptedTensor encrypted =
+        qwen::he::encrypted_stable_causal_gqa_attention(
+            qwen::he::encrypt_tensor(query.reshape({4, 8}), runtime),
+            qwen::he::encrypt_tensor(key.reshape({4, 4}), runtime),
+            qwen::he::encrypt_tensor(value.reshape({4, 4}), runtime),
+            config, approximation, runtime,
+            qwen::he::RefreshMode::debug_bootstrap,
+            qwen::he::RefreshMode::debug_bootstrap);
+    expect_tensor_near(
+        qwen::he::decrypt_tensor(encrypted, runtime),
+        polynomial.reshape({4, 8}), 3.0e-3,
+        "encrypted_vs_polynomial_multi_token_stable_attention");
+    std::cout << "encrypted_multi_token_stable_attention tokens=4"
+              << " level_out="
+              << runtime.chain_index(encrypted.cipher(0, 0)) << '\n';
 }
 
 void test_encrypted_cached_stable_attention()
@@ -1282,10 +1542,13 @@ int main()
         run("rope", [&] { test_rope(runtime); });
         run("chunked_linear", [&] { test_chunked_linear(runtime); });
         run("silu", [&] { test_silu(runtime); });
+        run("sigmoid", [&] { test_sigmoid(runtime); });
         run("rms_norm", [&] { test_rms_norm(runtime); });
         run("causal_gqa_attention", [&] { test_causal_gqa_attention(runtime); });
         run("private_maximum", [&] { test_private_maximum(runtime); });
         run("stable_causal_gqa_attention", test_stable_causal_gqa_attention);
+        run("multi_token_stable_causal_gqa_attention",
+            test_multi_token_stable_causal_gqa_attention);
         run("encrypted_cached_stable_attention", test_encrypted_cached_stable_attention);
         run("encrypted_decoder_layer", test_encrypted_decoder_layer);
         run("encrypted_cached_decoder_layer", test_encrypted_cached_decoder_layer);

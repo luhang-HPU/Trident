@@ -27,6 +27,10 @@ ApproximationConfig silu_config();
 poseidon::Polynomial
 make_inverse_sqrt_polynomial(const ApproximationConfig &config);
 poseidon::Polynomial make_silu_polynomial(const ApproximationConfig &config);
+poseidon::Polynomial make_sigmoid_polynomial(
+    const ApproximationConfig &config);
+poseidon::Polynomial make_softplus_polynomial(
+    const ApproximationConfig &config);
 poseidon::Polynomial make_exp_polynomial(const ApproximationConfig &config);
 poseidon::Polynomial
 make_reciprocal_polynomial(const ApproximationConfig &config);
@@ -35,6 +39,10 @@ double evaluate_chebyshev_plain(double input,
                                 const poseidon::Polynomial &polynomial);
 Tensor approximate_silu_plain(const Tensor &input,
                               const ApproximationConfig &config);
+Tensor approximate_sigmoid_plain(const Tensor &input,
+                                 const ApproximationConfig &config);
+Tensor approximate_softplus_plain(const Tensor &input,
+                                  const ApproximationConfig &config);
 Tensor approximate_silu_plain(
     const Tensor &input, const ApproximationConfig &config,
     const std::map<std::size_t, ApproximationConfig>
@@ -61,6 +69,12 @@ Tensor approximate_rms_norm_plain(
 EncryptedTensor encrypted_silu(const EncryptedTensor &input,
                                const ApproximationConfig &config,
                                HeRuntime &runtime);
+EncryptedTensor encrypted_sigmoid(const EncryptedTensor &input,
+                                  const ApproximationConfig &config,
+                                  HeRuntime &runtime);
+EncryptedTensor encrypted_softplus(const EncryptedTensor &input,
+                                   const ApproximationConfig &config,
+                                   HeRuntime &runtime);
 EncryptedTensor encrypted_silu(
     const EncryptedTensor &input,
     const ApproximationConfig &config,

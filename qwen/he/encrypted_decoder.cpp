@@ -38,30 +38,6 @@ void trace_plain(const PlainTraceCallback &trace, const char *name,
     }
 }
 
-EncryptedTensor refresh_at_scale(const EncryptedTensor &input,
-                                 RefreshMode mode, double value_scale,
-                                 HeRuntime &runtime)
-{
-    if (mode != RefreshMode::bootstrap ||
-        poseidon::util::are_approximate<double>(value_scale, 1.0))
-    {
-        return encrypted_refresh(input, mode, runtime);
-    }
-    const double previous = runtime.config().bootstrap_value_scale;
-    runtime.set_bootstrap_value_scale(value_scale);
-    try
-    {
-        EncryptedTensor result = encrypted_refresh(input, mode, runtime);
-        runtime.set_bootstrap_value_scale(previous);
-        return result;
-    }
-    catch (...)
-    {
-        runtime.set_bootstrap_value_scale(previous);
-        throw;
-    }
-}
-
 EncryptedTensor apply_linear(const EncryptedTensor &input,
                              const Tensor &weight,
                              const Tensor *bias,
@@ -214,6 +190,7 @@ void EncryptedDecoderApproximationConfig::validate() const
     silu.validate();
     const double scales[] = {
         input_norm_bootstrap_value_scale,
+        query_key_bootstrap_value_scale,
         post_attention_bootstrap_value_scale,
         mlp_input_bootstrap_value_scale,
         output_bootstrap_value_scale};
@@ -296,6 +273,42 @@ void set_decoder_boundary_bootstrap_schedule(
     config.attention_output_refresh = RefreshMode::none;
     config.mlp_input_refresh = RefreshMode::none;
     config.output_refresh = RefreshMode::bootstrap;
+}
+
+void set_decoder_dual_token_bootstrap_schedule(
+    EncryptedDecoderApproximationConfig &config,
+    RefreshMode mode)
+{
+    set_decoder_multi_token_bootstrap_schedule(config, mode, 2);
+}
+
+void set_decoder_multi_token_bootstrap_schedule(
+    EncryptedDecoderApproximationConfig &config,
+    RefreshMode mode, std::size_t maximum_tokens)
+{
+    if (mode != RefreshMode::debug_bootstrap &&
+        mode != RefreshMode::bootstrap)
+    {
+        throw std::invalid_argument(
+            "multi-token bootstrap schedule requires a bootstrap refresh mode");
+    }
+    if (maximum_tokens < 2)
+    {
+        throw std::invalid_argument(
+            "multi-token bootstrap schedule requires at least two tokens");
+    }
+    // Form Attention scores before refreshing so bootstrap error is not
+    // amplified by the Q/K dot product. Q/K/V and the Attention output retain
+    // enough depth to reach their next nonlinear or residual boundary.
+    config.input_norm_refresh = RefreshMode::none;
+    config.qkv_refresh = RefreshMode::none;
+    config.attention_maximum_refresh = mode;
+    config.attention_denominator_refresh =
+        maximum_tokens == 2 ? RefreshMode::none : mode;
+    config.attention_output_refresh = RefreshMode::none;
+    config.post_attention_refresh = mode;
+    config.mlp_input_refresh = RefreshMode::none;
+    config.output_refresh = mode;
 }
 
 void set_decoder_reduced_mock_bootstrap_schedule(
@@ -519,7 +532,7 @@ EncryptedTensor encrypted_decoder_layer(
     {
         normalized = logged_operation(
             "input_rmsnorm_refresh", normalized, runtime, [&] {
-                return refresh_at_scale(
+                return encrypted_refresh_at_scale(
                     normalized, approximation.input_norm_refresh,
                     approximation.input_norm_bootstrap_value_scale,
                     runtime);
@@ -569,13 +582,17 @@ EncryptedTensor encrypted_decoder_layer(
     {
         query_rope = logged_operation(
             "query_rope_refresh", query_rope, runtime, [&] {
-                return encrypted_refresh(
-                    query_rope, approximation.qkv_refresh, runtime);
+                return encrypted_refresh_at_scale(
+                    query_rope, approximation.qkv_refresh,
+                    approximation.query_key_bootstrap_value_scale,
+                    runtime);
             });
         key_rope = logged_operation(
             "key_rope_refresh", key_rope, runtime, [&] {
-                return encrypted_refresh(
-                    key_rope, approximation.qkv_refresh, runtime);
+                return encrypted_refresh_at_scale(
+                    key_rope, approximation.qkv_refresh,
+                    approximation.query_key_bootstrap_value_scale,
+                    runtime);
             });
         value = logged_operation(
             "value_refresh", value, runtime, [&] {
@@ -627,7 +644,7 @@ EncryptedTensor encrypted_decoder_layer(
     trace_tensor(trace, "post_attention_residual", post_attention);
     post_attention = logged_operation(
         "post_attention_refresh", post_attention, runtime, [&] {
-            return refresh_at_scale(
+            return encrypted_refresh_at_scale(
                 post_attention,
                 approximation.post_attention_refresh,
                 approximation.post_attention_bootstrap_value_scale,
@@ -648,7 +665,7 @@ EncryptedTensor encrypted_decoder_layer(
     {
         mlp_input = logged_operation(
             "mlp_input_refresh", mlp_input, runtime, [&] {
-                return refresh_at_scale(
+                return encrypted_refresh_at_scale(
                     mlp_input, approximation.mlp_input_refresh,
                     approximation.mlp_input_bootstrap_value_scale,
                     runtime);
@@ -697,7 +714,7 @@ EncryptedTensor encrypted_decoder_layer(
     {
         output = logged_operation(
             "output_refresh", output, runtime, [&] {
-                return refresh_at_scale(
+                return encrypted_refresh_at_scale(
                     output, approximation.output_refresh,
                     approximation.output_bootstrap_value_scale,
                     runtime);

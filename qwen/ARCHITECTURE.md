@@ -661,3 +661,102 @@ noise budget
 ```
 
 这样可以在进入完整 24 层推理之前定位算子误差和参数问题。
+
+## 21. 当前多 Token 密文 Softmax
+
+明文参考仍使用第 9 节的标准稳定 Softmax。密文实现按可见 token 数量分三条路径：
+
+```text
+1 个 token: softmax 概率恒为 1，直接返回 V
+2 个 token: p0 = sigmoid(s0 - s1)，O = V1 + p0 * (V0 - V1)
+3 个及以上 token: 在线 logsumexp 递推
+```
+
+在线递推维护当前归一化常数 `L` 和加权输出 `O`：
+
+```text
+初始: L = s0, O = V0
+delta = si - L
+p = sigmoid(delta)
+O = O + p * (Vi - O)
+L = L + softplus(delta)
+```
+
+其中：
+
+```text
+sigmoid(x) = 1 / (1 + exp(-x))
+softplus(x) = log(1 + exp(x))
+```
+
+这组递推在实数域与标准 Softmax 完全等价。CKKS 路径使用 Chebyshev 多项式分别近似
+`sigmoid` 和 `softplus`，不解密 Q、K、V、分数、概率或 Attention 输出。
+
+每个 `delta` 在多项式之前执行一次真实 Bootstrap，并恢复到 level 18；当前
+degree-127 的 `sigmoid`/`softplus` 路径输出到 level 9。输出聚合每次密文乘法消耗
+1 个 level，在 level 不足时按需 Bootstrap。前 3 个 Decoder 层边界仍只保留：
+
+```text
+post_attention_refresh
+output_refresh
+```
+
+后层 residual 的数值范围明显增大，因此 Qwen2.5-0.5B 使用官方 checkpoint 校准得到的
+逐层自举幅值缩放。缩放输入会额外消耗 1 个 level，所以从 layer 2 开始还要在
+post-Attention RMSNorm 后执行 `mlp_input_refresh`，为 SiLU、SwiGLU 和 Down Projection
+以及缩放后的 `output_refresh` 补足深度。该调度同时用于单 token、多 token 和
+`target/tc128` 路径。
+
+当前回归覆盖：
+
+```text
+2 token 特化公式
+4 token 完整因果 Attention
+3 token KV-cache prefill/decode
+官方 checkpoint 的 3、4、8 token 真实 CKKS 单层
+官方 checkpoint 的 4 token 真实 CKKS 多层
+官方 checkpoint 的 4 token layer 23 + Final RMSNorm 真实 Bootstrap
+```
+
+启用 `--log-file` 后，每个在线 Softmax step 都输出 `delta_refresh`、`sigmoid`、
+`softplus`、`aggregate_update` 以及按需 `aggregate_refresh` 的开始时刻、耗时、
+密文数量和输入输出 level。
+
+Final RMSNorm 使用 `[2.5, 55]` 上的 degree-31 inverse-square-root
+Chebyshev 多项式。degree-31 会进入低深度 baby-step 求值路径；4-token、方差覆盖
+`[6.2, 50]` 的密文回归中，CKKS 相对多项式参考的最大绝对误差约为 `5.6e-7`。
+
+## 22. 多 Token 全模型真实密态运行
+
+从 Poseidon 仓库根目录启动 4-token prefill、24 层 Qwen2.5-0.5B、真实 Bootstrap
+和 1-token greedy 输出：
+
+```bash
+cd /home/guoshuai/github/poseidon
+
+RUN_ID=$(date +%Y%m%d_%H%M%S)
+
+nohup env OMP_NUM_THREADS=16 ./Trident/build/qwen/qwen_he_generate \
+  --model Trident/qwen/pretrained_parameters/Qwen2.5-0.5B \
+  --input-ids 9707,11,1246,525 \
+  --max-new-tokens 1 \
+  --max-layers 24 \
+  --he-mode bootstrap \
+  --bootstrap-layers 24 \
+  --profile target \
+  --tokens-per-cipher 4 \
+  --log-file Trident/qwen/validation_output/qwen_he_generate_4token_target.log \
+  > "Trident/qwen/validation_output/qwen_he_generate_4token_target_nohup_${RUN_ID}.log" \
+  2>&1 < /dev/null &
+
+echo $! | tee Trident/qwen/validation_output/qwen_he_generate_4token_target.pid
+```
+
+`target` 使用 `logN=16`、`log_slots=15` 和 tc128 参数检查。这里的
+`--tokens-per-cipher 4` 只控制逻辑 token packing，不启用 compact/sparse Bootstrap；
+每次刷新仍调用 Poseidon 的标准全槽 Bootstrap。
+
+对于 `4/8/32/128` 等整数幅值缩放，自举前的除法仍使用一次高精度 rescale，
+自举后的恢复乘法使用 Poseidon `multiply_const_direct`。恢复阶段不再额外消耗 level，
+因此缩放后的边界自举稳定返回 level 19。target 的 layer 2 会先执行
+`mlp_input_refresh`，避免 MLP 在 level 0 才进入 `output_refresh`。

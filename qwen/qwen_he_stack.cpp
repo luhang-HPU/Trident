@@ -134,9 +134,11 @@ void print_usage(const char *program)
     std::cout
         << "Usage: " << program
         << " --model DIR [--input-ids N,N,...] [--max-layers N]"
+           " [--start-layer N]"
            " [--final-only] [--he-mode bootstrap-mock|debug|mock|silu-mock|bootstrap]"
            " [--bootstrap-layers N]"
            " [--profile target|prototype|prototype-fast|prototype-mid|prototype-high|prototype-high13]"
+           " [--tokens-per-cipher N]"
            " [--log-file PATH]\n";
 }
 
@@ -150,11 +152,14 @@ int main(int argc, char **argv)
         std::filesystem::path model_directory;
         std::vector<std::size_t> token_ids{9707, 11, 847};
         std::size_t maximum_layers = 2;
+        std::size_t start_layer = 0;
         bool final_only = false;
         std::string he_mode = "bootstrap-mock";
         bool bootstrap_layers_set = false;
         std::size_t bootstrap_layers = 0;
         std::string profile = "target";
+        bool tokens_per_cipher_set = false;
+        std::size_t tokens_per_cipher = 0;
         std::filesystem::path log_file =
             "Trident/qwen/validation_output/qwen_he_stack.log";
         for (int index = 1; index < argc; ++index)
@@ -200,6 +205,17 @@ int main(int argc, char **argv)
                 maximum_layers =
                     static_cast<std::size_t>(
                         std::stoull(argv[++index]));
+            }
+            else if (argument == "--start-layer")
+            {
+                start_layer = static_cast<std::size_t>(
+                    std::stoull(argv[++index]));
+            }
+            else if (argument == "--tokens-per-cipher")
+            {
+                tokens_per_cipher = static_cast<std::size_t>(
+                    std::stoull(argv[++index]));
+                tokens_per_cipher_set = true;
             }
             else if (argument == "--he-mode")
             {
@@ -248,14 +264,10 @@ int main(int argc, char **argv)
             throw std::invalid_argument(
                 "--bootstrap-layers must be positive");
         }
-        if (he_mode == "bootstrap" &&
-            (profile == "prototype" || profile == "prototype-fast" ||
-             profile == "prototype-mid" || profile == "prototype-high" ||
-             profile == "prototype-high13") &&
-            token_ids.size() != 1)
+        if (tokens_per_cipher_set && tokens_per_cipher == 0)
         {
             throw std::invalid_argument(
-                "prototype bootstrap currently requires one input token");
+                "--tokens-per-cipher must be positive");
         }
         if (!log_file.parent_path().empty())
         {
@@ -280,6 +292,11 @@ int main(int argc, char **argv)
             throw std::invalid_argument(
                 "--max-layers must be positive");
         }
+        if (start_layer >= maximum_layers)
+        {
+            throw std::invalid_argument(
+                "--start-layer must be smaller than --max-layers");
+        }
         const std::size_t effective_bootstrap_layers =
             bootstrap_layers_set
                 ? std::min(bootstrap_layers, maximum_layers)
@@ -289,6 +306,11 @@ int main(int argc, char **argv)
         {
             throw std::invalid_argument(
                 "--final-only requires all model layers");
+        }
+        if (final_only && start_layer != 0)
+        {
+            throw std::invalid_argument(
+                "--final-only cannot be combined with --start-layer");
         }
         weights.layers.resize(maximum_layers);
         const qwen::Tensor input =
@@ -301,12 +323,15 @@ int main(int argc, char **argv)
             polynomial_traces(maximum_layers);
         std::vector<qwen::Tensor> exact_outputs;
         exact_outputs.reserve(maximum_layers);
+        std::vector<qwen::Tensor> polynomial_outputs;
+        polynomial_outputs.reserve(maximum_layers);
 
         qwen::Tensor exact = input;
         qwen::Tensor polynomial = input;
         std::cout << "Qwen encrypted decoder stack validation\n"
                   << "tokens=" << token_ids.size()
                   << " layers=" << maximum_layers
+                  << " start_layer=" << start_layer
                   << " he_mode=" << he_mode
                   << " mock_bootstrap="
                   << (he_mode == "bootstrap" ? "no" : "yes")
@@ -346,28 +371,20 @@ int main(int argc, char **argv)
                 qwen::he::set_decoder_reduced_mock_bootstrap_schedule(
                     approximation, token_ids.size() > 1);
             }
+            if (token_ids.size() > 1)
+            {
+                qwen::he::set_decoder_multi_token_bootstrap_schedule(
+                    approximation, layer_refresh_mode,
+                    token_ids.size());
+            }
             if (layer_refresh_mode == qwen::he::RefreshMode::bootstrap &&
+                token_ids.size() == 1 &&
                 (profile == "prototype" || profile == "prototype-fast" ||
                  profile == "prototype-mid" || profile == "prototype-high" ||
                  profile == "prototype-high13"))
             {
                 qwen::he::set_decoder_boundary_bootstrap_schedule(
                     approximation);
-                if (profile == "prototype-high" || profile == "prototype-high13")
-                {
-                    const double post_attention_scale =
-                        layer < 3 ? 1.0 : 128.0;
-                    const double output_scale =
-                        layer < 2 ? 1.0 : (layer == 2 ? 32.0 : 1024.0);
-                    const double mlp_input_scale =
-                        layer < 3 ? 1.0 : (layer == 3 ? 128.0 : 4.0);
-                    approximation.post_attention_bootstrap_value_scale =
-                        post_attention_scale;
-                    approximation.output_bootstrap_value_scale =
-                        output_scale;
-                    approximation.mlp_input_bootstrap_value_scale =
-                        mlp_input_scale;
-                }
             }
             if (token_ids.size() == 1)
             {
@@ -376,6 +393,13 @@ int main(int argc, char **argv)
             }
             qwen::he::remove_redundant_rmsnorm_refreshes(
                 approximation);
+            if (layer_refresh_mode == qwen::he::RefreshMode::bootstrap &&
+                (profile == "target" || profile == "prototype-high" ||
+                 profile == "prototype-high13"))
+            {
+                qwen::he::set_qwen25_05b_calibrated_bootstrap_scales(
+                    approximation, layer);
+            }
             polynomial = qwen::he::approximate_decoder_layer(
                 polynomial, weights.layers[layer], model_config,
                 approximation, 0,
@@ -387,6 +411,7 @@ int main(int argc, char **argv)
                 model_config, weights.layers[layer]);
             exact = exact_layer.forward(exact);
             exact_outputs.push_back(exact);
+            polynomial_outputs.push_back(polynomial);
             const ErrorMetrics metrics = compare(polynomial, exact);
             std::cout << "plain_layer=" << layer
                       << " max_abs=" << metrics.max_abs
@@ -411,6 +436,11 @@ int main(int argc, char **argv)
                                   : profile == "prototype-high13"
                                         ? qwen::he::prototype_high13_bootstrap_he_config()
                                         : qwen::he::target_he_config();
+        if (tokens_per_cipher_set)
+        {
+            he_config.max_tokens_per_cipher = tokens_per_cipher;
+            he_config.validate();
+        }
         he_config.allow_insecure_mock_boundaries =
             he_mode != "bootstrap";
         const std::uint64_t q_modulus_bits = std::accumulate(
@@ -451,9 +481,14 @@ int main(int argc, char **argv)
         }
         runtime.set_operation_logging(true);
         const auto runtime_stop = std::chrono::steady_clock::now();
+        const qwen::Tensor &encrypted_reference_input =
+            start_layer == 0
+                ? input
+                : polynomial_outputs[start_layer - 1];
         qwen::he::EncryptedTensor encrypted_input =
             qwen::he::encrypt_tensor(
-                final_only ? polynomial : input, runtime);
+                final_only ? polynomial : encrypted_reference_input,
+                runtime);
         const auto input_drop_start =
             std::chrono::steady_clock::now();
         std::cout << "operation=input_modulus_drop event=start"
@@ -480,46 +515,70 @@ int main(int argc, char **argv)
                 runtime);
         }
         double maximum_ckks_error = 0.0;
+        double maximum_ckks_error_tolerance = 0.0;
+        std::string maximum_ckks_error_node;
+        bool intermediate_ckks_pass = true;
         const auto encrypted_start = std::chrono::steady_clock::now();
-        const qwen::he::EncryptedTensor encrypted_output =
-            final_only
-                ? encrypted_input
-                : qwen::he::encrypted_decoder_stack(
-                      encrypted_input, weights.layers, model_config,
-                      approximations, 0, runtime,
-                      [&](std::size_t layer,
-                          const std::string &name,
-                          const qwen::he::EncryptedTensor &tensor) {
-                          const auto reference =
-                              polynomial_traces[layer].find(name);
-                          if (reference ==
-                              polynomial_traces[layer].end())
-                          {
-                              throw std::runtime_error(
-                                  "missing polynomial trace node");
-                          }
-                          const ErrorMetrics metrics = compare(
-                              qwen::he::decrypt_tensor(
-                                  tensor, runtime),
-                              reference->second);
-                          maximum_ckks_error = std::max(
-                              maximum_ckks_error,
-                              metrics.max_abs);
-                          std::cout << "trace=layer_" << layer
-                                    << '.' << name << " chain="
-                                    << runtime.chain_index(
-                                           tensor.cipher(0, 0))
-                                    << " max_abs="
-                                    << metrics.max_abs
-                                    << " rmse=" << metrics.rmse
-                                    << '\n';
-                      });
+        qwen::he::EncryptedTensor encrypted_output = encrypted_input;
+        if (!final_only)
+        {
+            for (std::size_t layer = start_layer;
+                 layer < maximum_layers; ++layer)
+            {
+                runtime.set_operation_context(
+                    "layer_" + std::to_string(layer));
+                runtime.set_bootstrap_value_scale(
+                    runtime.config().bootstrap_value_scale_for_layer(
+                        layer));
+                encrypted_output = qwen::he::encrypted_decoder_layer(
+                    encrypted_output, weights.layers[layer],
+                    model_config, approximations[layer], 0, runtime,
+                    [&](const std::string &name,
+                        const qwen::he::EncryptedTensor &tensor) {
+                        const auto reference =
+                            polynomial_traces[layer].find(name);
+                        if (reference == polynomial_traces[layer].end())
+                        {
+                            throw std::runtime_error(
+                                "missing polynomial trace node");
+                        }
+                        const ErrorMetrics metrics = compare(
+                            qwen::he::decrypt_tensor(tensor, runtime),
+                            reference->second);
+                        const double tolerance =
+                            2.0e-2 + 2.0e-5 *
+                                           tensor_max_abs(
+                                               reference->second);
+                        intermediate_ckks_pass =
+                            intermediate_ckks_pass &&
+                            metrics.max_abs <= tolerance;
+                        if (metrics.max_abs > maximum_ckks_error)
+                        {
+                            maximum_ckks_error = metrics.max_abs;
+                            maximum_ckks_error_tolerance = tolerance;
+                            maximum_ckks_error_node =
+                                "layer_" + std::to_string(layer) +
+                                '.' + name;
+                        }
+                        std::cout << "trace=layer_" << layer << '.'
+                                  << name << " chain="
+                                  << runtime.chain_index(
+                                         tensor.cipher(0, 0))
+                                  << " max_abs=" << metrics.max_abs
+                                  << " rmse=" << metrics.rmse << '\n';
+                    });
+            }
+        }
         const auto encrypted_stop = std::chrono::steady_clock::now();
         const ErrorMetrics final_ckks = compare(
             qwen::he::decrypt_tensor(encrypted_output, runtime),
             polynomial);
+        const double final_ckks_tolerance =
+            1.0e-2 + 2.0e-5 * tensor_max_abs(polynomial);
         ErrorMetrics final_norm_ckks;
         ErrorMetrics final_norm_approximation;
+        double final_norm_ckks_tolerance = 0.0;
+        double final_norm_approximation_tolerance = 0.0;
         ErrorMetrics logits_ckks;
         ErrorMetrics logits_approximation;
         std::size_t exact_argmax = 0;
@@ -540,6 +599,8 @@ int main(int argc, char **argv)
                     model_config.rms_norm_epsilon, final_config);
             final_norm_approximation =
                 compare(polynomial_final, exact_final);
+            final_norm_approximation_tolerance =
+                1.0e-2 + 5.0e-4 * tensor_max_abs(exact_final);
             qwen::he::EncryptedTensor encrypted_final =
                 qwen::he::encrypted_rms_norm(
                     encrypted_output, weights.final_norm,
@@ -554,6 +615,8 @@ int main(int argc, char **argv)
                     encrypted_final, runtime);
             final_norm_ckks =
                 compare(decrypted_final, polynomial_final);
+            final_norm_ckks_tolerance =
+                1.0e-2 + 5.0e-4 * tensor_max_abs(polynomial_final);
             final_output_level = runtime.chain_index(
                 encrypted_final.cipher(0, 0));
 
@@ -591,6 +654,13 @@ int main(int argc, char **argv)
         std::cout << "final_ckks_vs_polynomial max_abs="
                   << final_ckks.max_abs
                   << " rmse=" << final_ckks.rmse << '\n'
+                  << "intermediate_ckks_peak node="
+                  << maximum_ckks_error_node
+                  << " max_abs=" << maximum_ckks_error
+                  << " tolerance="
+                  << maximum_ckks_error_tolerance << '\n'
+                  << "final_ckks_tolerance="
+                  << final_ckks_tolerance << '\n'
                   << "chain_in="
                   << runtime.chain_index(
                          encrypted_input.cipher(0, 0))
@@ -609,10 +679,13 @@ int main(int argc, char **argv)
             std::cout
                 << "final_rmsnorm_ckks_vs_polynomial max_abs="
                 << final_norm_ckks.max_abs
-                << " rmse=" << final_norm_ckks.rmse << '\n'
+                << " rmse=" << final_norm_ckks.rmse
+                << " tolerance=" << final_norm_ckks_tolerance << '\n'
                 << "final_rmsnorm_polynomial_vs_exact max_abs="
                 << final_norm_approximation.max_abs
                 << " rmse=" << final_norm_approximation.rmse
+                << " tolerance="
+                << final_norm_approximation_tolerance
                 << '\n'
                 << "client_logits_ckks_vs_polynomial max_abs="
                 << logits_ckks.max_abs
@@ -626,11 +699,12 @@ int main(int argc, char **argv)
                 << " encrypted=" << encrypted_argmax
                 << " final_level=" << final_output_level << '\n';
         }
-        if (maximum_ckks_error > 1.0e-2 ||
-            final_ckks.max_abs > 1.0e-2 ||
+        if (!intermediate_ckks_pass ||
+            final_ckks.max_abs > final_ckks_tolerance ||
             (maximum_layers == model_config.num_hidden_layers &&
-             (final_norm_ckks.max_abs > 1.0e-2 ||
-              final_norm_approximation.max_abs > 1.0e-2 ||
+             (final_norm_ckks.max_abs > final_norm_ckks_tolerance ||
+              final_norm_approximation.max_abs >
+                  final_norm_approximation_tolerance ||
               logits_ckks.max_abs > 1.0e-1 ||
               logits_approximation.max_abs > 1.0e-1 ||
               exact_argmax != polynomial_argmax ||

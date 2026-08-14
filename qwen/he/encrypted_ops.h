@@ -48,6 +48,9 @@ EncryptedTensor encrypted_bootstrap(const EncryptedTensor &input,
 EncryptedTensor encrypted_refresh(const EncryptedTensor &input,
                                   RefreshMode mode,
                                   HeRuntime &runtime);
+EncryptedTensor encrypted_refresh_at_scale(
+    const EncryptedTensor &input, RefreshMode mode, double value_scale,
+    HeRuntime &runtime);
 
 poseidon::Ciphertext rotate_slots(const poseidon::Ciphertext &input, int steps,
                                   HeRuntime &runtime);

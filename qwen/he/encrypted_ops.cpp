@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <complex>
+#include <limits>
 #include <map>
 #include <set>
 #include <stdexcept>
@@ -525,14 +526,32 @@ EncryptedTensor encrypted_bootstrap(const EncryptedTensor &input,
         }
         if (!poseidon::util::are_approximate<double>(value_scale, 1.0))
         {
-            const double plain_scale =
-                rescale_plain_scale(refreshed, runtime);
             poseidon::Ciphertext restored;
-            runtime.evaluator->multiply_const(
-                refreshed, value_scale, plain_scale, restored,
-                runtime.encoder);
-            runtime.evaluator->rescale_dynamic(
-                restored, restored, runtime.scale());
+            const double rounded_scale = std::round(value_scale);
+            if (poseidon::util::are_approximate<double>(
+                    value_scale, rounded_scale) &&
+                rounded_scale >=
+                    static_cast<double>(std::numeric_limits<int>::min()) &&
+                rounded_scale <=
+                    static_cast<double>(std::numeric_limits<int>::max()))
+            {
+                // Calibrated Qwen boundary scales are small integers. A
+                // unit-scale plaintext multiplication restores them exactly
+                // without consuming the freshly bootstrapped level.
+                runtime.evaluator->multiply_const_direct(
+                    refreshed, static_cast<int>(rounded_scale), restored,
+                    runtime.encoder);
+            }
+            else
+            {
+                const double plain_scale =
+                    rescale_plain_scale(refreshed, runtime);
+                runtime.evaluator->multiply_const(
+                    refreshed, value_scale, plain_scale, restored,
+                    runtime.encoder);
+                runtime.evaluator->rescale_dynamic(
+                    restored, restored, runtime.scale());
+            }
             restored.scale() = runtime.scale();
             refreshed = std::move(restored);
         }
@@ -584,6 +603,35 @@ EncryptedTensor encrypted_refresh(const EncryptedTensor &input,
         output.push_back(std::move(dropped));
     }
     return EncryptedTensor(refreshed.layout(), std::move(output));
+}
+
+EncryptedTensor encrypted_refresh_at_scale(
+    const EncryptedTensor &input, RefreshMode mode, double value_scale,
+    HeRuntime &runtime)
+{
+    if (!std::isfinite(value_scale) || value_scale <= 0.0)
+    {
+        throw std::invalid_argument(
+            "Qwen encrypted refresh value scale must be positive");
+    }
+    if (mode != RefreshMode::bootstrap ||
+        poseidon::util::are_approximate<double>(value_scale, 1.0))
+    {
+        return encrypted_refresh(input, mode, runtime);
+    }
+    const double previous = runtime.config().bootstrap_value_scale;
+    runtime.set_bootstrap_value_scale(value_scale);
+    try
+    {
+        EncryptedTensor result = encrypted_refresh(input, mode, runtime);
+        runtime.set_bootstrap_value_scale(previous);
+        return result;
+    }
+    catch (...)
+    {
+        runtime.set_bootstrap_value_scale(previous);
+        throw;
+    }
 }
 
 poseidon::Ciphertext rotate_slots(const poseidon::Ciphertext &input, int steps,

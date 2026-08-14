@@ -39,6 +39,38 @@ int main()
 {
     try
     {
+        const qwen::he::ApproximationConfig online_config{-27.1, 27.1, 128};
+        qwen::Tensor online_input({1, 2049});
+        qwen::Tensor sigmoid_exact(online_input.shape());
+        qwen::Tensor softplus_exact(online_input.shape());
+        for (std::size_t index = 0; index < online_input.numel(); ++index)
+        {
+            const double value = online_config.minimum +
+                (online_config.maximum - online_config.minimum) *
+                    static_cast<double>(index) /
+                    static_cast<double>(online_input.numel() - 1);
+            online_input.data()[index] = value;
+            sigmoid_exact.data()[index] =
+                value >= 0.0
+                    ? 1.0 / (1.0 + std::exp(-value))
+                    : std::exp(value) / (1.0 + std::exp(value));
+            softplus_exact.data()[index] =
+                value >= 0.0
+                    ? value + std::log1p(std::exp(-value))
+                    : std::log1p(std::exp(value));
+        }
+        const double sigmoid_error = maximum_absolute_error(
+            qwen::he::approximate_sigmoid_plain(
+                online_input, online_config),
+            sigmoid_exact);
+        const double softplus_error = maximum_absolute_error(
+            qwen::he::approximate_softplus_plain(
+                online_input, online_config),
+            softplus_exact);
+        std::cout << "online_softmax degree=127 sigmoid_max_abs="
+                  << sigmoid_error << " softplus_max_abs="
+                  << softplus_error << '\n';
+
         qwen::he::HeRuntime runtime =
             qwen::he::make_he_runtime(qwen::he::debug_he_config());
         qwen::Tensor input({1, 896});
@@ -90,6 +122,11 @@ int main()
         {
             throw std::runtime_error(
                 "reduced-depth RMSNorm exceeded CKKS error tolerance");
+        }
+        if (sigmoid_error > 2.0e-4 || softplus_error > 2.0e-4)
+        {
+            throw std::runtime_error(
+                "online Softmax polynomial exceeded error tolerance");
         }
         std::cout << "qwen_low_depth_poly_tests: PASS\n";
         return 0;

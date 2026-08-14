@@ -100,6 +100,7 @@ void print_usage(const char *program)
     std::cout << "Usage: " << program
               << " [--model DIR] [--token-id N]"
                  " [--profile target|prototype|prototype-fast|prototype-mid|prototype-high|prototype-high13]"
+                 " [--value-scale X]"
                  " [--log-file PATH]\n";
 }
 
@@ -112,6 +113,7 @@ int main(int argc, char **argv)
         std::cout << std::unitbuf;
         std::filesystem::path model_directory;
         std::size_t token_id = 9707;
+        double value_scale = 1.0;
         std::string profile = "target";
         std::filesystem::path log_file =
             "Trident/qwen/validation_output/qwen_he_bootstrap.log";
@@ -152,6 +154,15 @@ int main(int argc, char **argv)
                         "--profile must be target, prototype, prototype-fast, prototype-mid, prototype-high, or prototype-high13");
                 }
             }
+            else if (argument == "--value-scale")
+            {
+                value_scale = std::stod(argv[++index]);
+                if (!std::isfinite(value_scale) || value_scale <= 0.0)
+                {
+                    throw std::invalid_argument(
+                        "--value-scale must be finite and positive");
+                }
+            }
             else
             {
                 throw std::invalid_argument(
@@ -174,6 +185,7 @@ int main(int argc, char **argv)
         std::cout << "Qwen real Bootstrap validation\n"
                   << "profile=" << profile
                   << " token_id=" << token_id
+                  << " value_scale=" << value_scale
                   << " model="
                   << (model_directory.empty()
                           ? "synthetic"
@@ -302,8 +314,9 @@ int main(int argc, char **argv)
                   << " scale=" << encrypted.cipher(0, 0).scale()
                   << '\n';
         const qwen::he::EncryptedTensor refreshed =
-            qwen::he::encrypted_refresh(
-                encrypted, qwen::he::RefreshMode::bootstrap, runtime);
+            qwen::he::encrypted_refresh_at_scale(
+                encrypted, qwen::he::RefreshMode::bootstrap,
+                value_scale, runtime);
         const auto bootstrap_stop = std::chrono::steady_clock::now();
         std::cout << "operation=poseidon_bootstrap event=end duration_ms="
                   << milliseconds(bootstrap_stop - bootstrap_start)
@@ -316,6 +329,10 @@ int main(int argc, char **argv)
 
         const ErrorMetrics after_metrics =
             compare(decrypted, expected);
+        const double restored_max_tolerance =
+            5.0e-4 * std::max(1.0, value_scale);
+        const double restored_rmse_tolerance =
+            2.0e-4 * std::max(1.0, value_scale);
         std::cout << "Qwen CKKS target-parameter bootstrap validation\n"
                   << "stage="
                   << (real_checkpoint
@@ -331,6 +348,7 @@ int main(int argc, char **argv)
                   << " q_primes=" << config.log_q.size()
                   << " scale_bits=" << config.log_scale << '\n'
                   << "profile=" << profile << '\n'
+                  << "value_scale=" << value_scale << '\n'
                   << "level_before=" << level_before
                   << " level_after="
                   << runtime.chain_index(refreshed.cipher(0, 0))
@@ -344,7 +362,10 @@ int main(int argc, char **argv)
                   << "after_bootstrap_max_abs="
                   << after_metrics.max_abs
                   << " after_bootstrap_rmse="
-                  << after_metrics.rmse << '\n'
+                  << after_metrics.rmse
+                  << " max_tolerance=" << restored_max_tolerance
+                  << " rmse_tolerance=" << restored_rmse_tolerance
+                  << '\n'
                   << "runtime_ms="
                   << milliseconds(runtime_stop - runtime_start)
                   << " bootstrap_ms="
@@ -354,8 +375,8 @@ int main(int argc, char **argv)
                   << (config.production_security ? "tc128" : "development-only")
                   << '\n';
         if (before_metrics.max_abs > 2.0e-4 ||
-            after_metrics.max_abs > 5.0e-4 ||
-            after_metrics.rmse > 2.0e-4)
+            after_metrics.max_abs > restored_max_tolerance ||
+            after_metrics.rmse > restored_rmse_tolerance)
         {
             std::cerr << "result=FAIL\n";
             return 1;

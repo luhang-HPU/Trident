@@ -48,6 +48,16 @@ ErrorMetrics compare(const qwen::Tensor &actual, const qwen::Tensor &expected)
     return metrics;
 }
 
+double tensor_max_abs(const qwen::Tensor &tensor)
+{
+    double result = 0.0;
+    for (const double value : tensor.data())
+    {
+        result = std::max(result, std::abs(value));
+    }
+    return result;
+}
+
 std::vector<std::size_t> parse_token_ids(const std::string &text)
 {
     std::vector<std::size_t> result;
@@ -351,7 +361,13 @@ int main(int argc, char **argv)
         print_metrics("v_proj_ckks_vs_polynomial", value_ckks);
         print_metrics("q_rope_ckks_vs_polynomial", query_rope_ckks);
         print_metrics("k_rope_ckks_vs_polynomial", key_rope_ckks);
-        std::cout << "exact_causal_score_range=[" << score_min << ','
+        std::cout << "q_rope_value_max_abs="
+                  << tensor_max_abs(polynomial_query_rope)
+                  << " k_rope_value_max_abs="
+                  << tensor_max_abs(polynomial_key_rope)
+                  << " value_max_abs="
+                  << tensor_max_abs(polynomial_value) << '\n'
+                  << "exact_causal_score_range=[" << score_min << ','
                   << score_max << "]\n"
                   << "chain_in="
                   << runtime.chain_index(encrypted_hidden.cipher(0, 0))

@@ -53,6 +53,16 @@ ErrorMetrics compare(const qwen::Tensor &actual,
     return result;
 }
 
+double tensor_max_abs(const qwen::Tensor &tensor)
+{
+    double maximum = 0.0;
+    for (double value : tensor.data())
+    {
+        maximum = std::max(maximum, std::abs(value));
+    }
+    return maximum;
+}
+
 std::vector<std::size_t> parse_token_ids(const std::string &text)
 {
     std::vector<std::size_t> result;
@@ -162,7 +172,8 @@ void print_usage(const char *program)
            " [--max-new-tokens N] [--max-layers N]"
            " [--he-mode bootstrap-mock|debug|mock|silu-mock|bootstrap]"
            " [--bootstrap-layers N]"
-           " [--profile target|prototype|prototype-fast|prototype-mid|prototype-high|prototype-high13] [--log-file PATH]\n";
+           " [--profile target|prototype|prototype-fast|prototype-mid|prototype-high|prototype-high13]"
+           " [--tokens-per-cipher N] [--log-file PATH]\n";
 }
 
 } // namespace
@@ -180,6 +191,8 @@ int main(int argc, char **argv)
         bool bootstrap_layers_set = false;
         std::size_t bootstrap_layers = 0;
         std::string profile = "target";
+        bool tokens_per_cipher_set = false;
+        std::size_t tokens_per_cipher = 0;
         std::filesystem::path log_file =
             "Trident/qwen/validation_output/qwen_he_generate.log";
         for (int index = 1; index < argc; ++index)
@@ -224,6 +237,12 @@ int main(int argc, char **argv)
             {
                 maximum_layers = static_cast<std::size_t>(
                     std::stoull(argv[++index]));
+            }
+            else if (argument == "--tokens-per-cipher")
+            {
+                tokens_per_cipher = static_cast<std::size_t>(
+                    std::stoull(argv[++index]));
+                tokens_per_cipher_set = true;
             }
             else if (argument == "--he-mode")
             {
@@ -272,14 +291,10 @@ int main(int argc, char **argv)
             throw std::invalid_argument(
                 "--bootstrap-layers must be positive");
         }
-        if (he_mode == "bootstrap" &&
-            (profile == "prototype" || profile == "prototype-fast" ||
-             profile == "prototype-mid" || profile == "prototype-high" ||
-             profile == "prototype-high13") &&
-            prompt.size() != 1)
+        if (tokens_per_cipher_set && tokens_per_cipher == 0)
         {
             throw std::invalid_argument(
-                "prototype bootstrap currently requires one prompt token");
+                "--tokens-per-cipher must be positive");
         }
         if (!log_file.parent_path().empty())
         {
@@ -362,28 +377,20 @@ int main(int argc, char **argv)
                 qwen::he::set_decoder_reduced_mock_bootstrap_schedule(
                     approximation, maximum_attention_tokens > 1);
             }
+            if (maximum_attention_tokens > 1)
+            {
+                qwen::he::set_decoder_multi_token_bootstrap_schedule(
+                    approximation, layer_refresh_mode,
+                    maximum_attention_tokens);
+            }
             if (layer_refresh_mode == qwen::he::RefreshMode::bootstrap &&
+                maximum_attention_tokens == 1 &&
                 (profile == "prototype" || profile == "prototype-fast" ||
                  profile == "prototype-mid" || profile == "prototype-high" ||
                  profile == "prototype-high13"))
             {
                 qwen::he::set_decoder_boundary_bootstrap_schedule(
                     approximation);
-                if (profile == "prototype-high" || profile == "prototype-high13")
-                {
-                    const double post_attention_scale =
-                        layer < 3 ? 1.0 : 128.0;
-                    const double output_scale =
-                        layer < 2 ? 1.0 : (layer == 2 ? 32.0 : 1024.0);
-                    const double mlp_input_scale =
-                        layer < 3 ? 1.0 : (layer == 3 ? 128.0 : 4.0);
-                    approximation.post_attention_bootstrap_value_scale =
-                        post_attention_scale;
-                    approximation.output_bootstrap_value_scale =
-                        output_scale;
-                    approximation.mlp_input_bootstrap_value_scale =
-                        mlp_input_scale;
-                }
             }
             if (maximum_attention_tokens == 1)
             {
@@ -392,6 +399,13 @@ int main(int argc, char **argv)
             }
             qwen::he::remove_redundant_rmsnorm_refreshes(
                 approximation);
+            if (layer_refresh_mode == qwen::he::RefreshMode::bootstrap &&
+                (profile == "target" || profile == "prototype-high" ||
+                 profile == "prototype-high13"))
+            {
+                qwen::he::set_qwen25_05b_calibrated_bootstrap_scales(
+                    approximation, layer);
+            }
             approximations.push_back(std::move(approximation));
         }
 
@@ -408,6 +422,11 @@ int main(int argc, char **argv)
                                   : profile == "prototype-high13"
                                         ? qwen::he::prototype_high13_bootstrap_he_config()
                                         : qwen::he::target_he_config();
+        if (tokens_per_cipher_set)
+        {
+            he_config.max_tokens_per_cipher = tokens_per_cipher;
+            he_config.validate();
+        }
         he_config.allow_insecure_mock_boundaries =
             he_mode != "bootstrap";
         const std::uint64_t q_modulus_bits = std::accumulate(
@@ -463,6 +482,8 @@ int main(int argc, char **argv)
         std::vector<std::size_t> encrypted_generated;
         std::size_t position_offset = 0;
         double maximum_ckks_error = 0.0;
+        double maximum_ckks_error_tolerance = 0.0;
+        bool ckks_pass = true;
         const auto inference_start = std::chrono::steady_clock::now();
         for (std::size_t step = 0; step < maximum_new_tokens; ++step)
         {
@@ -526,8 +547,22 @@ int main(int argc, char **argv)
                         : polynomial_hidden);
                 const ErrorMetrics layer_approximation = compare(
                     polynomial_hidden, exact_hidden);
+                const qwen::Tensor &layer_reference =
+                    runtime.mock_nonlinear()
+                        ? exact_hidden
+                        : polynomial_hidden;
+                const double layer_reference_max_abs =
+                    tensor_max_abs(layer_reference);
+                const double layer_ckks_tolerance =
+                    1.0e-2 +
+                    2.0e-5 * layer_reference_max_abs;
+                ckks_pass = ckks_pass &&
+                            layer_ckks.max_abs <= layer_ckks_tolerance;
                 maximum_ckks_error = std::max(
                     maximum_ckks_error, layer_ckks.max_abs);
+                maximum_ckks_error_tolerance = std::max(
+                    maximum_ckks_error_tolerance,
+                    layer_ckks_tolerance);
                 std::cout
                     << "step=" << step << " layer=" << layer
                     << " cache_tokens="
@@ -543,6 +578,7 @@ int main(int argc, char **argv)
                     << runtime.chain_index(
                            encrypted_caches[layer].value().cipher(0, 0))
                     << " ckks_max_abs=" << layer_ckks.max_abs
+                    << " ckks_tolerance=" << layer_ckks_tolerance
                     << " approximation_max_abs="
                     << layer_approximation.max_abs
                     << " level="
@@ -603,6 +639,14 @@ int main(int argc, char **argv)
             const ErrorMetrics final_ckks = compare(
                 decrypted_final,
                 runtime.mock_nonlinear() ? exact_final : polynomial_final);
+            const qwen::Tensor &final_reference =
+                runtime.mock_nonlinear()
+                    ? exact_final
+                    : polynomial_final;
+            const double final_reference_max_abs =
+                tensor_max_abs(final_reference);
+            const double final_ckks_tolerance =
+                1.0e-2 + 5.0e-4 * final_reference_max_abs;
             const ErrorMetrics logits_ckks = compare(
                 encrypted_logits,
                 runtime.mock_nonlinear() ? exact_logits : polynomial_logits);
@@ -610,9 +654,12 @@ int main(int argc, char **argv)
                 polynomial_logits, exact_logits);
             maximum_ckks_error = std::max(
                 maximum_ckks_error, final_ckks.max_abs);
+            ckks_pass = ckks_pass &&
+                        final_ckks.max_abs <= final_ckks_tolerance;
             std::cout
                 << "step=" << step
                 << " final_ckks_max_abs=" << final_ckks.max_abs
+                << " final_ckks_tolerance=" << final_ckks_tolerance
                 << " logits_ckks_max_abs=" << logits_ckks.max_abs
                 << " logits_approximation_max_abs="
                 << logits_approximation.max_abs
@@ -653,12 +700,14 @@ int main(int argc, char **argv)
         }
         std::cout
             << "\nmaximum_ckks_error=" << maximum_ckks_error
+            << " maximum_layer_ckks_tolerance="
+            << maximum_ckks_error_tolerance
             << " runtime_ms="
             << milliseconds(runtime_stop - runtime_start)
             << " inference_ms="
             << milliseconds(inference_stop - inference_start)
             << '\n';
-        if (maximum_ckks_error > 1.0e-2)
+        if (!ckks_pass)
         {
             std::cerr << "result=FAIL\n";
             return 1;

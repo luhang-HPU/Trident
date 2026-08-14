@@ -30,6 +30,7 @@ struct EncryptedDecoderApproximationConfig
     RefreshMode mlp_input_refresh = RefreshMode::none;
     RefreshMode output_refresh = RefreshMode::none;
     double input_norm_bootstrap_value_scale = 1.0;
+    double query_key_bootstrap_value_scale = 1.0;
     double post_attention_bootstrap_value_scale = 1.0;
     double mlp_input_bootstrap_value_scale = 1.0;
     double output_bootstrap_value_scale = 1.0;
@@ -56,6 +57,14 @@ void set_decoder_bootstrap_schedule(
 // scale/schedule failures behind refreshes at every operator.
 void set_decoder_boundary_bootstrap_schedule(
     EncryptedDecoderApproximationConfig &config);
+
+void set_decoder_dual_token_bootstrap_schedule(
+    EncryptedDecoderApproximationConfig &config,
+    RefreshMode mode);
+
+void set_decoder_multi_token_bootstrap_schedule(
+    EncryptedDecoderApproximationConfig &config,
+    RefreshMode mode, std::size_t maximum_tokens);
 
 // Bootstrap-mock validation schedule after the degree-15 RMSNorm and
 // degree-31 SiLU depth reductions. All arithmetic remains encrypted; only

@@ -1,6 +1,8 @@
 #include "he/qwen25_05b_config.h"
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <stdexcept>
 #include <utility>
 
@@ -20,7 +22,9 @@ struct PositionRanges
 struct AttentionRange
 {
     double difference_bound;
-    double shifted_minimum;
+    double shifted_minimum_4;
+    double shifted_minimum_8;
+    double shifted_minimum_long;
 };
 
 struct FeatureInterval
@@ -120,18 +124,30 @@ constexpr std::array<PositionRanges, 24> silu_ranges{{
 }};
 
 constexpr std::array<AttentionRange, 24> attention_ranges{{
-    {2048.0, -25.5198062}, {512.0, -20.2836166},
-    {256.0, -14.8578274},  {128.0, -35.3810452},
-    {64.0, -14.5408387},   {32.0, -14.6178481},
-    {32.0, -13.8313712},   {32.0, -17.4962545},
-    {2048.0, -40.0261355}, {64.0, -37.2509173},
-    {32.0, -18.0465851},   {64.0, -44.779459},
-    {32.0, -19.3463971},   {32.0, -21.0297889},
-    {32.0, -15.9794237},   {32.0, -18.3827208},
-    {32.0, -21.7771979},   {32.0, -13.1870643},
-    {32.0, -13.5686547},   {32.0, -15.7849202},
-    {32.0, -15.1932593},   {32.0, -18.6579905},
-    {32.0, -12.7351799},   {64.0, -22.7723178},
+    {2048.0, -20.7619699, -24.2558455, -25.5198062},
+    {512.0, -13.9329355, -20.2836166, -20.2836166},
+    {256.0, -10.9896266, -14.8578274, -14.8578274},
+    {128.0, -23.8793227, -35.3810452, -35.3810452},
+    {64.0, -12.3127681, -14.5408387, -14.5408387},
+    {32.0, -11.1244653, -13.8095376, -14.6178481},
+    {32.0, -11.6863148, -13.0498017, -13.8313712},
+    {32.0, -14.8586562, -17.4962545, -17.4962545},
+    {2048.0, -32.3749386, -38.8002132, -40.0261355},
+    {64.0, -33.6584061, -37.2509173, -37.2509173},
+    {32.0, -13.269669, -16.5106687, -18.0465851},
+    {64.0, -39.7822416, -39.7822416, -44.779459},
+    {32.0, -15.7194845, -19.0659745, -19.3463971},
+    {32.0, -19.9439487, -21.1209283, -21.1209283},
+    {32.0, -12.4406734, -15.01669, -15.9794237},
+    {32.0, -11.8188523, -21.1930928, -21.1930928},
+    {32.0, -18.0478871, -21.7771979, -21.7771979},
+    {32.0, -11.7480348, -13.0318694, -13.1870643},
+    {32.0, -13.5686547, -13.5686547, -13.5686547},
+    {32.0, -10.0819545, -12.67875, -15.7849202},
+    {32.0, -13.2274271, -14.8248581, -15.1932593},
+    {32.0, -14.5465609, -18.6579905, -18.6579905},
+    {32.0, -10.0181839, -12.7351799, -12.7351799},
+    {64.0, -22.6136331, -22.7723178, -22.7723178},
 }};
 
 } // namespace
@@ -149,8 +165,18 @@ qwen25_05b_layer_approximation(std::size_t layer,
     const PositionRanges &post = post_rms_ranges[layer];
     const PositionRanges &silu = silu_ranges[layer];
     const AttentionRange &attention = attention_ranges[layer];
+    const double shifted_minimum =
+        maximum_tokens <= 4
+            ? attention.shifted_minimum_4
+            : (maximum_tokens <= 8
+                   ? attention.shifted_minimum_8
+                   : attention.shifted_minimum_long);
 
     EncryptedDecoderApproximationConfig result;
+    // Layer-0 Q/K values reach roughly 80/130 on the official checkpoint.
+    // Keep the message inside Poseidon's bootstrap interval and restore the
+    // original scale after refresh. Value tensors remain unscaled.
+    result.query_key_bootstrap_value_scale = 8.0;
     result.input_inverse_sqrt = {
         input.other_minimum, input.other_maximum, 16};
     result.input_inverse_sqrt_overrides.emplace(
@@ -166,11 +192,18 @@ qwen25_05b_layer_approximation(std::size_t layer,
 
     result.attention = {
         {attention.difference_bound},
-        {attention.shifted_minimum, 1.0,
-         attention.shifted_minimum < -25.0 ? 64 : 32},
+        {shifted_minimum, 1.0, 64},
         {0.60, static_cast<double>(maximum_tokens) + 0.50,
          maximum_tokens > 4 ? 64 : 32},
     };
+    result.attention.maximum_bootstrap_value_scale =
+        std::max(1.0, attention.difference_bound / 16.0);
+    result.attention.dual_token_bootstrap_value_scale = std::max(
+        1.0,
+        (-attention.shifted_minimum_long +
+         std::log(std::max(
+             1.0, static_cast<double>(maximum_tokens) + 0.5))) /
+            16.0);
     result.silu = {
         silu.other_minimum, silu.other_maximum, 32};
     result.silu_overrides.emplace(
@@ -208,9 +241,38 @@ qwen25_05b_layer_approximation(std::size_t layer,
     return result;
 }
 
+void set_qwen25_05b_calibrated_bootstrap_scales(
+    EncryptedDecoderApproximationConfig &config,
+    std::size_t layer)
+{
+    if (layer >= input_rms_ranges.size())
+    {
+        throw std::out_of_range(
+            "Qwen2.5-0.5B bootstrap scale layer is out of range");
+    }
+    // These scales cover the official checkpoint's calibrated residual
+    // ranges. They are independent of the number of logical prompt tokens.
+    config.post_attention_bootstrap_value_scale =
+        layer < 3 ? 1.0 : 128.0;
+    config.output_bootstrap_value_scale =
+        layer < 2 ? 1.0 : (layer == 2 ? 32.0 : 128.0);
+    config.mlp_input_bootstrap_value_scale =
+        layer < 3 ? 1.0 : (layer == 3 ? 128.0 : 4.0);
+    // A non-unit output refresh needs one level to scale its input before
+    // bootstrap. With the target 46-bit scale, layer 2's RMSNorm + SwiGLU +
+    // down-projection path reaches level 0, so refresh the MLP input from
+    // layer 2 onward. Later layers also need this boundary for their scaled
+    // residual refreshes.
+    config.mlp_input_refresh =
+        layer < 2 ? RefreshMode::none : RefreshMode::bootstrap;
+}
+
 ApproximationConfig qwen25_05b_final_inverse_sqrt_config()
 {
-    return {2.5, 55.0, 64};
+    // Degree 31 stays on the reduced-depth Chebyshev evaluator. Degree 63
+    // uses Poseidon's generic polynomial-vector path, which is not stable
+    // enough for packed final RMSNorm values at the target CKKS scale.
+    return {2.5, 55.0, 32};
 }
 
 } // namespace qwen::he
