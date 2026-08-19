@@ -133,8 +133,16 @@ void log_tensor_metadata(const EncryptedTensor &tensor,
               << " ciphers=" << tensor.ciphertexts().size();
     if (!tensor.ciphertexts().empty())
     {
+        const std::size_t active_slots =
+            tensor.layout().tokens * tensor.layout().features;
+        const std::size_t available_slots =
+            tensor.ciphertexts().size() * tensor.layout().slot_count;
         std::cout << " level_min=" << minimum_level
-                  << " level_max=" << maximum_level;
+                  << " level_max=" << maximum_level
+                  << " active_slots=" << active_slots
+                  << " slot_utilization="
+                  << static_cast<double>(active_slots) /
+                         static_cast<double>(available_slots);
     }
 }
 

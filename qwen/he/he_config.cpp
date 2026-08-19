@@ -59,10 +59,13 @@ void HeConfig::validate() const
                 "Qwen HE bootstrap value scale schedule is invalid");
         }
     }
-    if (token_stride == 0 || token_stride > slot_count() ||
+    if (token_stride == 0 ||
+        (token_stride & (token_stride - 1)) != 0 ||
+        token_stride > slot_count() ||
         slot_count() % token_stride != 0)
     {
-        throw std::invalid_argument("Qwen HE token_stride must divide the slot count");
+        throw std::invalid_argument(
+            "Qwen HE token_stride must be a power of two that divides the slot count");
     }
     if (max_tokens_per_cipher > slot_count() / token_stride)
     {

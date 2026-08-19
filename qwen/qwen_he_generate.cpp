@@ -173,7 +173,8 @@ void print_usage(const char *program)
            " [--he-mode bootstrap-mock|debug|mock|silu-mock|bootstrap]"
            " [--bootstrap-layers N]"
            " [--profile target|prototype|prototype-fast|prototype-mid|prototype-high|prototype-high13]"
-           " [--tokens-per-cipher N] [--log-file PATH]\n";
+           " [--token-stride N] [--tokens-per-cipher N]"
+           " [--log-file PATH]\n";
 }
 
 } // namespace
@@ -191,6 +192,8 @@ int main(int argc, char **argv)
         bool bootstrap_layers_set = false;
         std::size_t bootstrap_layers = 0;
         std::string profile = "target";
+        bool token_stride_set = false;
+        std::size_t token_stride = 0;
         bool tokens_per_cipher_set = false;
         std::size_t tokens_per_cipher = 0;
         std::filesystem::path log_file =
@@ -244,6 +247,12 @@ int main(int argc, char **argv)
                     std::stoull(argv[++index]));
                 tokens_per_cipher_set = true;
             }
+            else if (argument == "--token-stride")
+            {
+                token_stride = static_cast<std::size_t>(
+                    std::stoull(argv[++index]));
+                token_stride_set = true;
+            }
             else if (argument == "--he-mode")
             {
                 he_mode = argv[++index];
@@ -295,6 +304,11 @@ int main(int argc, char **argv)
         {
             throw std::invalid_argument(
                 "--tokens-per-cipher must be positive");
+        }
+        if (token_stride_set && token_stride == 0)
+        {
+            throw std::invalid_argument(
+                "--token-stride must be positive");
         }
         if (!log_file.parent_path().empty())
         {
@@ -422,11 +436,15 @@ int main(int argc, char **argv)
                                   : profile == "prototype-high13"
                                         ? qwen::he::prototype_high13_bootstrap_he_config()
                                         : qwen::he::target_he_config();
+        if (token_stride_set)
+        {
+            he_config.token_stride = token_stride;
+        }
         if (tokens_per_cipher_set)
         {
             he_config.max_tokens_per_cipher = tokens_per_cipher;
-            he_config.validate();
         }
+        he_config.validate();
         he_config.allow_insecure_mock_boundaries =
             he_mode != "bootstrap";
         const std::uint64_t q_modulus_bits = std::accumulate(

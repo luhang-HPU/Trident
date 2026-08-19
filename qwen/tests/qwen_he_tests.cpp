@@ -17,6 +17,7 @@
 #include <exception>
 #include <iostream>
 #include <map>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -52,6 +53,19 @@ void expect_tensor_near(const qwen::Tensor &actual,
     std::cout << message << " max_abs=" << maximum << " rmse=" << rmse
               << " tolerance=" << tolerance << '\n';
     expect_true(maximum <= tolerance, message + " exceeds tolerance");
+}
+
+std::size_t count_occurrences(const std::string &text,
+                              const std::string &pattern)
+{
+    std::size_t count = 0;
+    std::size_t position = 0;
+    while ((position = text.find(pattern, position)) != std::string::npos)
+    {
+        ++count;
+        position += pattern.size();
+    }
+    return count;
 }
 
 qwen::Tensor token_range(const qwen::Tensor &input,
@@ -118,6 +132,35 @@ void test_single_token_cipher_policy()
     expect_tensor_near(
         qwen::he::unpack_tensor(packed, layout), input, 0.0,
         "single_token_cipher_pack_round_trip");
+}
+
+void test_qwen_wide_stride_cipher_counts()
+{
+    qwen::he::HeConfig config = qwen::he::target_he_config();
+    config.token_stride = 8192;
+    config.max_tokens_per_cipher = 4;
+    config.validate();
+
+    const qwen::he::EncryptedTensorLayout hidden{
+        4, 896, config.token_stride, config.slot_count(),
+        config.tokens_per_cipher()};
+    const qwen::he::EncryptedTensorLayout intermediate{
+        4, 4864, config.token_stride, config.slot_count(),
+        config.tokens_per_cipher()};
+    const qwen::he::EncryptedTensorLayout key_value{
+        4, 128, config.token_stride, config.slot_count(),
+        config.tokens_per_cipher()};
+    expect_true(hidden.cipher_count() == 1,
+                "wide-stride hidden ciphertext count");
+    expect_true(intermediate.cipher_count() == 1,
+                "wide-stride MLP ciphertext count");
+    expect_true(key_value.cipher_count() == 1,
+                "wide-stride KV ciphertext count");
+
+    const qwen::he::EncryptedTensorLayout baseline_intermediate{
+        4, 4864, 1024, config.slot_count(), 4};
+    expect_true(baseline_intermediate.cipher_count() == 5,
+                "baseline MLP ciphertext count");
 }
 
 void test_single_token_bootstrap_schedule()
@@ -282,6 +325,135 @@ void test_single_token_periodic_linear()
                 "periodic Linear output must retain one ciphertext per token");
     expect_tensor_near(qwen::he::decrypt_tensor(result, runtime), reference,
                        2.0e-4, "single_token_periodic_linear");
+}
+
+void test_wide_stride_operators()
+{
+    qwen::he::HeConfig config = qwen::he::deep_debug_he_config();
+    config.token_stride = 16;
+    config.max_tokens_per_cipher = 4;
+    config.validate();
+    qwen::he::HeRuntime runtime = qwen::he::make_he_runtime(config);
+
+    qwen::Tensor input({4, 8});
+    for (std::size_t index = 0; index < input.numel(); ++index)
+    {
+        input.data()[index] =
+            0.4 * std::sin(0.23 * static_cast<double>(index + 1));
+    }
+    qwen::Tensor weight({12, 8});
+    for (std::size_t index = 0; index < weight.numel(); ++index)
+    {
+        weight.data()[index] =
+            0.15 * std::cos(0.17 * static_cast<double>(index + 2));
+    }
+    const qwen::Tensor linear_reference = qwen::linear(input, weight);
+    const qwen::he::EncryptedTensor encrypted =
+        qwen::he::encrypt_tensor(input, runtime);
+    expect_true(encrypted.ciphertexts().size() == 1,
+                "wide-stride input must use one ciphertext");
+    const qwen::he::EncryptedTensor linear = qwen::he::encrypted_linear(
+        encrypted, qwen::he::encode_linear(weight, runtime), nullptr,
+        runtime);
+    expect_true(linear.ciphertexts().size() == 1,
+                "wide-stride expanded Linear must use one ciphertext");
+    expect_tensor_near(qwen::he::decrypt_tensor(linear, runtime),
+                       linear_reference, 2.0e-4,
+                       "wide_stride_linear");
+
+    const qwen::he::ApproximationConfig silu_config{-2.0, 2.0, 16};
+    const qwen::Tensor silu_reference =
+        qwen::he::approximate_silu_plain(
+            linear_reference, silu_config);
+    const qwen::he::EncryptedTensor silu = qwen::he::encrypted_silu(
+        linear, silu_config, {}, runtime);
+    expect_true(silu.ciphertexts().size() == 1,
+                "wide-stride SiLU must preserve one ciphertext");
+    expect_tensor_near(qwen::he::decrypt_tensor(silu, runtime),
+                       silu_reference, 5.0e-4,
+                       "wide_stride_silu");
+
+    qwen::Tensor rope_reference = input.reshape({4, 2, 4});
+    qwen::Tensor rope_key = rope_reference;
+    qwen::apply_rope(rope_reference, rope_key, 2, 10000.0);
+    const qwen::he::EncryptedTensor rope = qwen::he::encrypted_rope(
+        encrypted, 2, 4, 2, 10000.0, runtime);
+    expect_true(rope.ciphertexts().size() == 1,
+                "wide-stride RoPE must preserve one ciphertext");
+    expect_tensor_near(qwen::he::decrypt_tensor(rope, runtime),
+                       rope_reference.reshape({4, 8}), 2.0e-4,
+                       "wide_stride_rope");
+
+    const qwen::Tensor rms_weight(
+        {8}, {1.0, 0.9, 1.1, 0.8, 1.2, 0.75, 1.25, 0.95});
+    const qwen::he::ApproximationConfig rms_config{0.01, 1.0, 16};
+    const qwen::Tensor rms_reference =
+        qwen::he::approximate_rms_norm_plain(
+            input, rms_weight, 1.0e-5, rms_config);
+    const qwen::he::EncryptedTensor rms = qwen::he::encrypted_rms_norm(
+        encrypted, rms_weight, 1.0e-5, rms_config, runtime);
+    expect_true(rms.ciphertexts().size() == 1,
+                "wide-stride RMSNorm must preserve one ciphertext");
+    expect_tensor_near(qwen::he::decrypt_tensor(rms, runtime),
+                       rms_reference, 2.0e-3,
+                       "wide_stride_rms_norm");
+
+    const qwen::QwenConfig attention_config = qwen::demo_config();
+    qwen::Tensor query({4, 4, 2});
+    qwen::Tensor key({4, 2, 2});
+    qwen::Tensor value({4, 2, 2});
+    for (std::size_t index = 0; index < query.numel(); ++index)
+    {
+        query.data()[index] =
+            0.35 * std::sin(0.31 * static_cast<double>(index + 1));
+    }
+    for (std::size_t index = 0; index < key.numel(); ++index)
+    {
+        key.data()[index] =
+            0.40 * std::cos(0.27 * static_cast<double>(index + 2));
+        value.data()[index] =
+            0.65 * std::sin(0.19 * static_cast<double>(index + 3));
+    }
+    const qwen::he::StableAttentionApproximationConfig attention_approximation{
+        {2.0}, {-2.0, 0.1, 32}, {0.75, 4.5, 32}};
+    const qwen::Tensor attention_reference =
+        qwen::he::approximate_stable_causal_gqa_attention(
+            query, key, value, attention_config,
+            attention_approximation);
+    runtime.set_operation_context("wide_stride");
+    runtime.set_operation_logging(true);
+    std::ostringstream attention_log;
+    std::streambuf *original_output =
+        std::cout.rdbuf(attention_log.rdbuf());
+    qwen::he::EncryptedTensor attention;
+    try
+    {
+        attention = qwen::he::encrypted_stable_causal_gqa_attention(
+            qwen::he::encrypt_tensor(query.reshape({4, 8}), runtime),
+            qwen::he::encrypt_tensor(key.reshape({4, 4}), runtime),
+            qwen::he::encrypt_tensor(value.reshape({4, 4}), runtime),
+            attention_config, attention_approximation, runtime,
+            qwen::he::RefreshMode::debug_bootstrap,
+            qwen::he::RefreshMode::debug_bootstrap);
+    }
+    catch (...)
+    {
+        std::cout.rdbuf(original_output);
+        throw;
+    }
+    std::cout.rdbuf(original_output);
+    runtime.set_operation_logging(false);
+    const std::size_t packed_delta_refreshes = count_occurrences(
+        attention_log.str(), ".delta_refresh event=start");
+    expect_true(packed_delta_refreshes == 3,
+                "four-token Attention must use three packed delta refreshes");
+    std::cout << "wide_stride_attention delta_refresh_batches="
+              << packed_delta_refreshes << '\n';
+    expect_true(attention.ciphertexts().size() == 1,
+                "wide-stride Attention must preserve one ciphertext");
+    expect_tensor_near(qwen::he::decrypt_tensor(attention, runtime),
+                       attention_reference.reshape({4, 8}), 3.0e-3,
+                       "wide_stride_attention");
 }
 
 void test_encrypt_round_trip(qwen::he::HeRuntime &runtime)
@@ -610,6 +782,10 @@ void test_packed_rotation_and_linear()
         attention_config, stable_config, encrypted_cache, runtime,
         qwen::he::RefreshMode::debug_bootstrap,
         qwen::he::RefreshMode::debug_bootstrap));
+    const std::size_t cached_key_level_before_append =
+        runtime.chain_index(encrypted_cache.key().cipher(0, 0));
+    const std::size_t cached_value_level_before_append =
+        runtime.chain_index(encrypted_cache.value().cipher(0, 0));
     const qwen::he::EncryptedTensor cached_attention =
         qwen::he::encrypted_stable_cached_gqa_attention(
             qwen::he::encrypt_tensor(
@@ -623,9 +799,76 @@ void test_packed_rotation_and_linear()
             qwen::he::RefreshMode::debug_bootstrap);
     expect_true(encrypted_cache.size() == 3,
                 "packed encrypted KV cache size");
+    expect_true(
+        runtime.chain_index(encrypted_cache.key().cipher(0, 0)) ==
+                cached_key_level_before_append &&
+            runtime.chain_index(encrypted_cache.value().cipher(0, 0)) ==
+                cached_value_level_before_append,
+        "packed KV append must preserve cache levels");
+    std::cout << "packed_kv_append level_key="
+              << cached_key_level_before_append
+              << " level_value="
+              << cached_value_level_before_append << '\n';
     expect_tensor_near(qwen::he::decrypt_tensor(cached_attention, runtime),
                        cached_reference.reshape({1, 8}), 3.0e-3,
                        "packed_encrypted_cached_attention");
+
+    const qwen::Tensor full_group_key(
+        {4, 4},
+        {0.10, 0.20, 0.30, 0.40,
+         0.50, 0.60, 0.70, 0.80,
+         0.90, 1.00, 1.10, 1.20,
+         1.30, 1.40, 1.50, 1.60});
+    const qwen::Tensor full_group_value(
+        {4, 4},
+        {-0.10, -0.20, -0.30, -0.40,
+         -0.50, -0.60, -0.70, -0.80,
+         -0.90, -1.00, -1.10, -1.20,
+         -1.30, -1.40, -1.50, -1.60});
+    const qwen::Tensor next_group_key(
+        {1, 4}, {1.70, 1.80, 1.90, 2.00});
+    const qwen::Tensor next_group_value(
+        {1, 4}, {-1.70, -1.80, -1.90, -2.00});
+    const qwen::Tensor expected_group_key(
+        {5, 4},
+        {0.10, 0.20, 0.30, 0.40,
+         0.50, 0.60, 0.70, 0.80,
+         0.90, 1.00, 1.10, 1.20,
+         1.30, 1.40, 1.50, 1.60,
+         1.70, 1.80, 1.90, 2.00});
+    const qwen::Tensor expected_group_value(
+        {5, 4},
+        {-0.10, -0.20, -0.30, -0.40,
+         -0.50, -0.60, -0.70, -0.80,
+         -0.90, -1.00, -1.10, -1.20,
+         -1.30, -1.40, -1.50, -1.60,
+         -1.70, -1.80, -1.90, -2.00});
+    qwen::he::EncryptedKVCache full_group_cache;
+    full_group_cache.append(
+        qwen::he::encrypt_tensor(full_group_key, runtime),
+        qwen::he::encrypt_tensor(full_group_value, runtime), runtime);
+    const std::size_t full_group_level = runtime.chain_index(
+        full_group_cache.key().cipher(0, 0));
+    full_group_cache.append(
+        qwen::he::encrypt_tensor(next_group_key, runtime),
+        qwen::he::encrypt_tensor(next_group_value, runtime), runtime);
+    expect_true(full_group_cache.size() == 5,
+                "packed KV full-group append size");
+    expect_true(full_group_cache.key().ciphertexts().size() == 2 &&
+                    full_group_cache.value().ciphertexts().size() == 2,
+                "packed KV full-group append cipher count");
+    expect_true(runtime.chain_index(
+                    full_group_cache.key().cipher(1, 0)) ==
+                    full_group_level,
+                "packed KV full-group append must preserve level");
+    expect_tensor_near(
+        qwen::he::decrypt_tensor(full_group_cache.key(), runtime),
+        expected_group_key, 2.0e-5,
+        "packed_kv_full_group_key");
+    expect_tensor_near(
+        qwen::he::decrypt_tensor(full_group_cache.value(), runtime),
+        expected_group_value, 2.0e-5,
+        "packed_kv_full_group_value");
 
     const qwen::DecoderLayerWeights decoder_weights =
         qwen::make_demo_layer_weights(attention_config, 29);
@@ -1524,10 +1767,13 @@ int main()
         };
         run("pack_round_trip", test_pack_round_trip);
         run("single_token_cipher_policy", test_single_token_cipher_policy);
+        run("qwen_wide_stride_cipher_counts",
+            test_qwen_wide_stride_cipher_counts);
         run("single_token_bootstrap_schedule",
             test_single_token_bootstrap_schedule);
         run("single_token_periodic_linear",
             test_single_token_periodic_linear);
+        run("wide_stride_operators", test_wide_stride_operators);
         // PoseidonFactory owns process-wide device/context state. Do not keep
         // the shared logN=11 runtime alive while this logN=13 test runs.
         run("packed_rotation_and_linear", test_packed_rotation_and_linear);

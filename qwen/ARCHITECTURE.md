@@ -692,8 +692,9 @@ softplus(x) = log(1 + exp(x))
 这组递推在实数域与标准 Softmax 完全等价。CKKS 路径使用 Chebyshev 多项式分别近似
 `sigmoid` 和 `softplus`，不解密 Q、K、V、分数、概率或 Attention 输出。
 
-每个 `delta` 在多项式之前执行一次真实 Bootstrap，并恢复到 level 18；当前
-degree-127 的 `sigmoid`/`softplus` 路径输出到 level 9。输出聚合每次密文乘法消耗
+同一在线递推 step 的多个 `delta` 会先打包到尽可能少的密文中，再共同执行真实
+Bootstrap。Bootstrap 输出为 level 18，拆回单行视图会再消耗 1 个 level；当前
+degree-127 的 `sigmoid`/`softplus` 路径随后继续求值。输出聚合每次密文乘法消耗
 1 个 level，在 level 不足时按需 Bootstrap。前 3 个 Decoder 层边界仍只保留：
 
 ```text
@@ -718,7 +719,8 @@ post-Attention RMSNorm 后执行 `mlp_input_refresh`，为 SiLU、SwiGLU 和 Dow
 官方 checkpoint 的 4 token layer 23 + Final RMSNorm 真实 Bootstrap
 ```
 
-启用 `--log-file` 后，每个在线 Softmax step 都输出 `delta_refresh`、`sigmoid`、
+启用 `--log-file` 后，每个在线 Softmax step 都输出 `batch_step_N.delta_refresh`、
+逐行的 `sigmoid`、
 `softplus`、`aggregate_update` 以及按需 `aggregate_refresh` 的开始时刻、耗时、
 密文数量和输入输出 level。
 
@@ -760,3 +762,185 @@ echo $! | tee Trident/qwen/validation_output/qwen_he_generate_4token_target.pid
 自举后的恢复乘法使用 Poseidon `multiply_const_direct`。恢复阶段不再额外消耗 level，
 因此缩放后的边界自举稳定返回 level 19。target 的 layer 2 会先执行
 `mlp_input_refresh`，避免 MLP 在 level 0 才进入 `output_refresh`。
+
+## 23. 模型权重保密下的生成边界
+
+最终协议要求客户端不能获得 embedding、LM Head 或其他模型参数。因此不能采用
+“客户端解密 final hidden，再用明文 LM Head 计算 logits”的部署方式。目标边界固定为：
+
+```text
+客户端持有：CKKS 私钥
+服务端持有：全部模型权重、CKKS 公钥、评估密钥和 Bootstrap 密钥
+
+服务端：Enc(final hidden) * plaintext LM Head -> Enc(logits)
+客户端：decrypt Enc(logits) -> plaintext logits -> argmax/sampling
+```
+
+LM Head 是密文与服务端明文权重的 Linear，输出仍在客户端公钥下加密，因此客户端
+不需要得到权重，服务端也不能解密 hidden 或 logits。客户端会看到 logits；如果模型
+隐私要求只暴露最终 token，还需要把 argmax/sampling 放入安全比较或双方计算协议中。
+
+当前 `qwen_he_generate` 在 Final RMSNorm 后调用 `decrypt_tensor()`，随后执行明文
+LM Head 和 `argmax`。这是单进程正确性验证边界，不满足这里定义的最终部署协议。
+下一阶段需要增加专用密态 LM Head：
+
+1. 从 packed final hidden 中密态提取最后一个 token；
+2. 在服务端用明文 `lm_head` 权重执行密态矩阵乘；
+3. 将 151936 个加密 logits 重新打包后交给客户端解密；
+4. 客户端只执行 `argmax` 或 sampling，不加载任何模型权重；
+5. 服务端继续持有并复用各层密态 KV-cache。
+
+直接沿用 `token_stride=1024` 的通用 Linear 会产生
+`ceil(151936 / 1024) = 149` 个 logits 密文，而且预编码全部对角线会占用大量内存。
+实现时应增加流式或全槽 logits packing：每次只编码一个输出分块并及时释放临时明文，
+或者使用 32768 个 slot 打包 logits，将返回密文数降低到约
+`ceil(151936 / 32768) = 5`。这是一项独立的性能工程，不应通过把 LM Head 权重交给
+客户端来绕过。
+
+生成下一步还涉及 embedding lookup。若只要求模型权重保密，可以让客户端把选出的
+token ID 发回服务端，由服务端查表并用客户端公钥加密 embedding；此方案会向服务端
+暴露 token。若同时要求输入和输出 token 对服务端保密，则还需要密态查表、PIR/OT 或
+其他安全双方计算协议，不能把 embedding 表复制给客户端。
+
+## 24. 宽 Token Packing 优化
+
+`qwen_he_generate` 支持通过 `--token-stride` 覆盖 profile 的逻辑 token block 宽度。
+该参数只改变 CKKS slot 布局，不改变 `logN`、模数链或 tc128 安全检查。
+
+对于 Qwen2.5-0.5B 的 4-token 输入，使用：
+
+```text
+slot_count        = 32768
+token_stride      = 8192
+tokens_per_cipher = 4
+```
+
+四个 token block 正好覆盖全部 slots。因为 `intermediate_size=4864 < 8192`，Gate、Up、
+SiLU 和 SwiGLU 的布局从：
+
+```text
+旧布局：ceil(4864 / 1024) = 5 个密文
+宽布局：ceil(4864 / 8192) = 1 个密文
+```
+
+Hidden、Q、K、V 和 Attention 输出原本就是一个密文，宽布局下仍保持一个密文。
+4-token MLP 中间张量的有效 slot 利用率从约 `11.88%` 提高到 `59.38%`。
+
+真实 target 运行命令在原命令上增加：
+
+```bash
+--token-stride 8192 --tokens-per-cipher 4
+```
+
+完整示例：
+
+```bash
+cd /home/guoshuai/github/poseidon
+
+RUN_ID=$(date +%Y%m%d_%H%M%S)
+
+nohup env OMP_NUM_THREADS=16 ./Trident/build/qwen/qwen_he_generate \
+  --model Trident/qwen/pretrained_parameters/Qwen2.5-0.5B \
+  --input-ids 9707,11,1246,525 \
+  --max-new-tokens 1 \
+  --max-layers 24 \
+  --he-mode bootstrap \
+  --bootstrap-layers 24 \
+  --profile target \
+  --token-stride 8192 \
+  --tokens-per-cipher 4 \
+  --log-file Trident/qwen/validation_output/qwen_he_generate_4token_wide.log \
+  > "Trident/qwen/validation_output/qwen_he_generate_4token_wide_nohup_${RUN_ID}.log" \
+  2>&1 < /dev/null &
+
+echo $! | tee Trident/qwen/validation_output/qwen_he_generate_4token_wide.pid
+```
+
+每条 Decoder 和 Attention 操作日志现在还会输出：
+
+```text
+active_slots=<逻辑有效元素数>
+slot_utilization=<active_slots / (ciphers * slot_count)>
+```
+
+例如 MLP Gate 的预期日志由：
+
+```text
+tokens=4 features=4864 ciphers=5 slot_utilization=0.11875
+```
+
+变为：
+
+```text
+tokens=4 features=4864 ciphers=1 slot_utilization=0.59375
+```
+
+宽布局已经通过小环 CKKS 的 Linear、SiLU、RoPE、RMSNorm、4-token Attention
+数值回归，以及
+Qwen2.5-0.5B 真实形状的密文数量检查。完整 24 层 target 宽布局尚未运行，因此实际
+CPU 加速比例和长栈误差必须由新的带时间戳日志确认。更进一步的 fused QKV、fused
+KV-cache 和 5-cipher LM Head 仍需要独立实现。
+
+## 25. Attention Delta 批量 Bootstrap
+
+4-token causal Attention 的四行分别包含 `0、1、2、3` 个在线更新，旧实现逐行执行：
+
+```text
+1 + 2 + 3 = 6 次 delta Bootstrap / layer
+```
+
+当前实现改为按 `key_token` 递推轮次调度。每一轮中所有已经可见该 key 的 query row
+共享一个 packed delta 密文：
+
+```text
+batch step 1: row 1, row 2, row 3
+batch step 2: row 2, row 3
+batch step 3: row 3
+```
+
+在 `tokens_per_cipher=4` 时，4-token Attention 因而只执行：
+
+```text
+3 次 packed delta Bootstrap / layer
+```
+
+两 token 行仍使用原来的 dual-token sigmoid 配置；三 token 及以上的行仍使用原来的
+online sigmoid/softplus 配置。批处理只共享 Bootstrap，不改变各行的 Softmax 公式或
+多项式配置。没有启用刷新、只有一个 active row，或者布局只能容纳一个 token 时，
+代码自动退回逐行路径。
+
+小环宽布局回归会捕获 operation log，并断言 4-token 路径恰好出现 3 次
+`.delta_refresh event=start`。当前回归结果为：
+
+```text
+wide_stride_attention delta_refresh_batches=3
+wide_stride_attention max_abs约5.2e-7，tolerance=3e-3
+```
+
+对单 query 的自回归 decode，在线更新存在前后依赖，缓存长度为 `C` 时仍需要 `C`
+个顺序 step；该场景要通过同时批处理多个独立请求来进一步提高 slot 利用率。
+
+## 26. KV-cache 单 Token 无损追加
+
+自回归 decode 每一步只会产生一个新的 K token 和一个新的 V token。旧的通用追加路径
+会先把整个 cache 拆成单 token view，再重新打包；每个二值 slot mask 都需要一次
+明文乘法和 rescale，因此会无谓消耗 level。
+
+当前单 token 快速路径直接利用新密文未使用 token block 为零这一布局约束：
+
+1. 若最后一个 cache 密文尚未装满，把新密文旋转到下一个 token block，直接执行密文
+   加法。
+2. 若最后一个 cache 密文已经装满，直接把新密文作为下一组追加。
+3. 若新旧密文 level 相同，不执行 mask、rescale 或 Bootstrap；若 level 不同，只把较高
+   level 的一方 drop 到共同的最低 level。
+
+以 `tokens_per_cipher=4` 为例：
+
+```text
+2 -> 3 tokens: 1 cipher -> 1 cipher，level 不变
+4 -> 5 tokens: 1 cipher -> 2 ciphers，level 不变
+```
+
+测试同时检查了解密值、cache token 数、密文数量以及 level 保持。prefill 直接写入空
+cache，同样没有额外重打包开销。一次批量追加多个 token 的通用兼容路径目前仍使用
+拆分和重打包；正常的逐 token decode 不会进入该路径。

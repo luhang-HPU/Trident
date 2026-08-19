@@ -37,8 +37,16 @@ void log_attention_tensor_metadata(const EncryptedTensor &tensor,
               << " ciphers=" << tensor.ciphertexts().size();
     if (!tensor.ciphertexts().empty())
     {
+        const std::size_t active_slots =
+            tensor.layout().tokens * tensor.layout().features;
+        const std::size_t available_slots =
+            tensor.ciphertexts().size() * tensor.layout().slot_count;
         std::cout << " level_min=" << minimum_level
-                  << " level_max=" << maximum_level;
+                  << " level_max=" << maximum_level
+                  << " active_slots=" << active_slots
+                  << " slot_utilization="
+                  << static_cast<double>(active_slots) /
+                         static_cast<double>(available_slots);
     }
 }
 
@@ -605,6 +613,79 @@ void EncryptedKVCache::append(const EncryptedTensor &key,
             "encrypted KV cache append layout mismatch");
     }
 
+    if (key.layout().token_capacity() > 1 &&
+        key.layout().tokens == 1)
+    {
+        const auto append_one = [&](const EncryptedTensor &cached,
+                                    const EncryptedTensor &added) {
+            const poseidon::Ciphertext *lowest =
+                &added.cipher(0, 0);
+            std::size_t lowest_level = runtime.chain_index(*lowest);
+            for (const poseidon::Ciphertext &cipher :
+                 cached.ciphertexts())
+            {
+                const std::size_t level =
+                    runtime.chain_index(cipher);
+                if (level < lowest_level)
+                {
+                    lowest = &cipher;
+                    lowest_level = level;
+                }
+            }
+            const auto lowest_parms_id = lowest->parms_id();
+            const auto align = [&](const poseidon::Ciphertext &cipher) {
+                if (cipher.parms_id() == lowest_parms_id)
+                {
+                    return cipher;
+                }
+                poseidon::Ciphertext aligned;
+                runtime.evaluator->drop_modulus(
+                    cipher, aligned, lowest_parms_id);
+                return aligned;
+            };
+
+            std::vector<poseidon::Ciphertext> ciphertexts;
+            ciphertexts.reserve(
+                cached.ciphertexts().size() + 1);
+            for (const poseidon::Ciphertext &cipher :
+                 cached.ciphertexts())
+            {
+                ciphertexts.push_back(align(cipher));
+            }
+            poseidon::Ciphertext placed =
+                align(added.cipher(0, 0));
+            const std::size_t local_token =
+                cached.layout().tokens %
+                cached.layout().token_capacity();
+            if (local_token == 0)
+            {
+                ciphertexts.push_back(std::move(placed));
+            }
+            else
+            {
+                placed = rotate_slots(
+                    placed,
+                    -static_cast<int>(
+                        local_token * cached.layout().token_stride),
+                    runtime);
+                runtime.evaluator->add(
+                    ciphertexts.back(), placed,
+                    ciphertexts.back());
+            }
+            EncryptedTensorLayout layout{
+                cached.layout().tokens + 1,
+                cached.layout().features,
+                cached.layout().token_stride,
+                cached.layout().slot_count,
+                cached.layout().token_capacity_limit};
+            return EncryptedTensor(
+                layout, std::move(ciphertexts));
+        };
+        key_ = append_one(key_, key);
+        value_ = append_one(value_, value);
+        return;
+    }
+
     if (key.layout().token_capacity() > 1)
     {
         std::vector<EncryptedTensor> keys =
@@ -1005,78 +1086,158 @@ EncryptedTensor encrypted_stable_attention_impl(
             query, key, value, model_config,
             query_position_offset, runtime);
 
-    std::vector<EncryptedTensor> output_tokens;
-    output_tokens.reserve(query.layout().tokens);
+    const ApproximationConfig online_config =
+        online_softmax_config(approximation);
+    const double online_value_scale = std::max(
+        approximation.dual_token_bootstrap_value_scale,
+        std::max(std::abs(online_config.minimum),
+                 std::abs(online_config.maximum)) /
+            16.0);
+    std::vector<std::optional<EncryptedTensor>> log_normalizers(
+        query.layout().tokens);
+    std::vector<std::optional<EncryptedTensor>> aggregates(
+        query.layout().tokens);
+    std::vector<std::optional<EncryptedTensor>> outputs(
+        query.layout().tokens);
+    std::size_t maximum_visible_tokens = 0;
     for (std::size_t query_token = 0;
          query_token < query.layout().tokens; ++query_token)
     {
-        // A one-token causal row has softmax probability exactly one. Skip
-        // the maximum/exp/reciprocal circuit; this both preserves the exact
-        // semantics and avoids spending bootstrap depth on a degenerate row.
-        if (attention.rows[query_token].size() == 1)
+        const std::size_t visible_tokens =
+            attention.rows[query_token].size();
+        maximum_visible_tokens = std::max(
+            maximum_visible_tokens, visible_tokens);
+        if (visible_tokens == 1)
         {
-            output_tokens.push_back(
-                attention.repeated_values[query_token]);
+            outputs[query_token] = attention.repeated_values.front();
+        }
+        else if (visible_tokens >= 3)
+        {
+            log_normalizers[query_token] =
+                attention.rows[query_token].front();
+            aggregates[query_token] = attention.repeated_values.front();
+        }
+    }
+
+    struct ActiveDelta
+    {
+        std::size_t query_token;
+        bool dual_token;
+    };
+    for (std::size_t key_token = 1;
+         key_token < maximum_visible_tokens; ++key_token)
+    {
+        std::vector<ActiveDelta> active;
+        std::vector<EncryptedTensor> deltas;
+        for (std::size_t query_token = 0;
+             query_token < query.layout().tokens; ++query_token)
+        {
+            const std::size_t visible_tokens =
+                attention.rows[query_token].size();
+            if (key_token >= visible_tokens)
+            {
+                continue;
+            }
+            const bool dual_token = visible_tokens == 2;
+            active.push_back({query_token, dual_token});
+            deltas.push_back(
+                dual_token
+                    ? encrypted_subtract(
+                          attention.rows[query_token][0],
+                          attention.rows[query_token][1], runtime)
+                    : encrypted_subtract(
+                          attention.rows[query_token][key_token],
+                          *log_normalizers[query_token], runtime));
+        }
+        if (active.empty())
+        {
             continue;
         }
-        if (attention.rows[query_token].size() == 2)
+
+        std::vector<EncryptedTensor> refreshed_deltas;
+        const bool packed_refresh =
+            maximum_refresh != RefreshMode::none &&
+            deltas.size() > 1 &&
+            deltas.front().layout().token_capacity() > 1;
+        if (packed_refresh)
         {
-            EncryptedTensor difference = encrypted_subtract(
-                attention.rows[query_token][0],
-                attention.rows[query_token][1], runtime);
-            const std::string prefix =
-                "row_" + std::to_string(query_token) + ".step_1.";
-            difference = logged_attention_tensor_operation(
-                prefix + "delta_refresh", difference, runtime, [&] {
+            bool contains_online_delta = false;
+            for (const ActiveDelta &entry : active)
+            {
+                contains_online_delta =
+                    contains_online_delta || !entry.dual_token;
+            }
+            EncryptedTensor packed =
+                stack_token_outputs(std::move(deltas), runtime);
+            const std::string operation =
+                "batch_step_" + std::to_string(key_token) +
+                ".delta_refresh";
+            packed = logged_attention_tensor_operation(
+                operation, packed, runtime, [&] {
                     return encrypted_refresh_at_scale(
-                        difference, maximum_refresh,
-                        approximation.dual_token_bootstrap_value_scale,
+                        packed, maximum_refresh,
+                        contains_online_delta
+                            ? online_value_scale
+                            : approximation
+                                  .dual_token_bootstrap_value_scale,
                         runtime);
                 });
-            const EncryptedTensor first_probability =
-                logged_attention_tensor_operation(
-                    prefix + "sigmoid", difference, runtime, [&] {
-                        return encrypted_sigmoid(
-                            difference,
-                            dual_token_sigmoid_config(approximation),
+            refreshed_deltas = split_token_views(packed, runtime);
+        }
+        else
+        {
+            refreshed_deltas.reserve(deltas.size());
+            for (std::size_t index = 0; index < deltas.size(); ++index)
+            {
+                EncryptedTensor delta = std::move(deltas[index]);
+                const std::string prefix =
+                    "row_" +
+                    std::to_string(active[index].query_token) +
+                    ".step_" + std::to_string(key_token) + '.';
+                delta = logged_attention_tensor_operation(
+                    prefix + "delta_refresh", delta, runtime, [&] {
+                        return encrypted_refresh_at_scale(
+                            delta, maximum_refresh,
+                            active[index].dual_token
+                                ? approximation
+                                      .dual_token_bootstrap_value_scale
+                                : online_value_scale,
                             runtime);
                     });
-            const EncryptedTensor value_difference = encrypted_subtract(
-                attention.repeated_values[0],
-                attention.repeated_values[1], runtime);
-            const EncryptedTensor weighted_difference = encrypted_multiply(
-                first_probability, value_difference, runtime);
-            output_tokens.push_back(encrypted_add(
-                attention.repeated_values[1], weighted_difference,
-                runtime));
-            continue;
+                refreshed_deltas.push_back(std::move(delta));
+            }
         }
-        const ApproximationConfig online_config =
-            online_softmax_config(approximation);
-        const double online_value_scale = std::max(
-            approximation.dual_token_bootstrap_value_scale,
-            std::max(std::abs(online_config.minimum),
-                     std::abs(online_config.maximum)) /
-                16.0);
-        EncryptedTensor log_normalizer =
-            attention.rows[query_token].front();
-        EncryptedTensor aggregate = attention.repeated_values.front();
-        for (std::size_t key_token = 1;
-             key_token < attention.rows[query_token].size();
-             ++key_token)
+
+        for (std::size_t index = 0; index < active.size(); ++index)
         {
+            const std::size_t query_token = active[index].query_token;
             const std::string prefix =
                 "row_" + std::to_string(query_token) + ".step_" +
                 std::to_string(key_token) + '.';
-            EncryptedTensor delta = encrypted_subtract(
-                attention.rows[query_token][key_token],
-                log_normalizer, runtime);
-            delta = logged_attention_tensor_operation(
-                prefix + "delta_refresh", delta, runtime, [&] {
-                    return encrypted_refresh_at_scale(
-                        delta, maximum_refresh, online_value_scale,
-                        runtime);
-                });
+            const EncryptedTensor &delta = refreshed_deltas[index];
+            if (active[index].dual_token)
+            {
+                const EncryptedTensor first_probability =
+                    logged_attention_tensor_operation(
+                        prefix + "sigmoid", delta, runtime, [&] {
+                            return encrypted_sigmoid(
+                                delta,
+                                dual_token_sigmoid_config(approximation),
+                                runtime);
+                        });
+                const EncryptedTensor value_difference =
+                    encrypted_subtract(
+                        attention.repeated_values[0],
+                        attention.repeated_values[1], runtime);
+                const EncryptedTensor weighted_difference =
+                    encrypted_multiply(
+                        first_probability, value_difference, runtime);
+                outputs[query_token] = encrypted_add(
+                    attention.repeated_values[1],
+                    weighted_difference, runtime);
+                continue;
+            }
+
             const EncryptedTensor new_probability =
                 logged_attention_tensor_operation(
                     prefix + "sigmoid", delta, runtime, [&] {
@@ -1089,31 +1250,54 @@ EncryptedTensor encrypted_stable_attention_impl(
                         return encrypted_softplus(
                             delta, online_config, runtime);
                     });
-            log_normalizer = encrypted_add(
-                log_normalizer, log_correction, runtime);
+            log_normalizers[query_token] = encrypted_add(
+                *log_normalizers[query_token], log_correction, runtime);
 
-            if (runtime.chain_index(aggregate.cipher(0, 0)) <= 2 &&
+            if (runtime.chain_index(
+                    aggregates[query_token]->cipher(0, 0)) <= 2 &&
                 denominator_refresh != RefreshMode::none)
             {
-                aggregate = logged_attention_tensor_operation(
-                    prefix + "aggregate_refresh", aggregate, runtime,
-                    [&] {
-                        return encrypted_refresh(
-                            aggregate, denominator_refresh, runtime);
-                    });
+                aggregates[query_token] =
+                    logged_attention_tensor_operation(
+                        prefix + "aggregate_refresh",
+                        *aggregates[query_token], runtime, [&] {
+                            return encrypted_refresh(
+                                *aggregates[query_token],
+                                denominator_refresh, runtime);
+                        });
             }
             const EncryptedTensor value_delta = encrypted_subtract(
-                attention.repeated_values[key_token], aggregate, runtime);
-            aggregate = logged_attention_tensor_operation(
-                prefix + "aggregate_update", aggregate, runtime, [&] {
+                attention.repeated_values[key_token],
+                *aggregates[query_token], runtime);
+            aggregates[query_token] = logged_attention_tensor_operation(
+                prefix + "aggregate_update",
+                *aggregates[query_token], runtime, [&] {
                     const EncryptedTensor weighted_delta =
                         encrypted_multiply(
                             new_probability, value_delta, runtime);
                     return encrypted_add(
-                        aggregate, weighted_delta, runtime);
+                        *aggregates[query_token], weighted_delta,
+                        runtime);
                 });
+            if (key_token + 1 ==
+                attention.rows[query_token].size())
+            {
+                outputs[query_token] =
+                    std::move(*aggregates[query_token]);
+            }
         }
-        output_tokens.push_back(std::move(aggregate));
+    }
+
+    std::vector<EncryptedTensor> output_tokens;
+    output_tokens.reserve(outputs.size());
+    for (std::optional<EncryptedTensor> &output : outputs)
+    {
+        if (!output.has_value())
+        {
+            throw std::logic_error(
+                "encrypted Attention row produced no output");
+        }
+        output_tokens.push_back(std::move(*output));
     }
     EncryptedTensor output =
         stack_token_outputs(std::move(output_tokens), runtime);
