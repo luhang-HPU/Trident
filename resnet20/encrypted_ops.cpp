@@ -322,30 +322,17 @@ void relu(const TensorCipher &cnn_in, TensorCipher &cnn_out, long comp_no,
 void bootstrap_tensor(const TensorCipher &cnn_in, TensorCipher &cnn_out,
                       PoseidonBootstrapContext &bootstrapper, CKKSEncoder &encoder)
 {
+    (void)encoder;
     if (!bootstrapper.evaluator || !bootstrapper.encoder || !bootstrapper.relin_keys ||
-        !bootstrapper.galois_keys || !bootstrapper.bootstrap_poly)
+        !bootstrapper.galois_keys || !bootstrapper.config)
     {
         throw std::invalid_argument("poseidon bootstrap context is incomplete");
     }
 
-    Ciphertext result = cnn_in.cipher();
-    bootstrapper.evaluator->bootstrap_high_precision(result, result, *bootstrapper.relin_keys,
-                                                     *bootstrapper.galois_keys,
-                                                     *bootstrapper.encoder,
-                                                     *bootstrapper.bootstrap_poly);
-
-    const double target_scale = result.scale();
-    Ciphertext conjugated;
-    bootstrapper.evaluator->conjugate(result, *bootstrapper.galois_keys, conjugated);
-    Ciphertext real_sum;
-    bootstrapper.evaluator->add(result, conjugated, real_sum);
-    Ciphertext real_projected;
-    bootstrapper.evaluator->multiply_const(real_sum, 0.5,
-                                           multiply_plain_scale(real_sum, encoder),
-                                           real_projected, encoder);
-    bootstrapper.evaluator->rescale_dynamic(real_projected, real_projected, target_scale);
-    real_projected.scale() = target_scale;
-    result = real_projected;
+    Ciphertext result;
+    bootstrapper.evaluator->bootstrap(
+        cnn_in.cipher(), result, *bootstrapper.relin_keys, *bootstrapper.galois_keys,
+        *bootstrapper.encoder, *bootstrapper.config);
 
     cnn_out = TensorCipher(cnn_in.logn(), cnn_in.k(), cnn_in.h(), cnn_in.w(), cnn_in.c(),
                            cnn_in.t(), cnn_in.p(), result);

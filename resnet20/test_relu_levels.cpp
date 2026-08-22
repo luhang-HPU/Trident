@@ -26,10 +26,7 @@ constexpr double kScaledVal = 1.7;
 
 vector<uint32_t> logq_chain()
 {
-    return {
-        46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 
-        46, 46, 46, 46, 46, 46, 46, 46, 46
-    };
+    return vector<uint32_t>(25, 40);
 }
 
 size_t chain_index_or_throw(const PoseidonContext &context, const Ciphertext &cipher)
@@ -101,7 +98,7 @@ void run_reference_relu_case(const string &label, const vector<double> &message,
     cout << "\n=== " << label << " ===\n";
     print_plain_preview("plaintext source preview:", message);
 
-    TensorCipher input(16, 1, 1, 1, 1, 1, 1, message, encryptor, encoder, 46);
+    TensorCipher input(16, 1, 1, 1, 1, 1, 1, message, encryptor, encoder, 40);
     while (static_cast<int>(chain_index_or_throw(context, input.cipher())) > target_level)
     {
         Ciphertext dropped;
@@ -126,8 +123,7 @@ void run_reference_relu_case(const string &label, const vector<double> &message,
     print_cipher_state("sign poly result state", sign_result, context, decryptor, encoder);
 
     Ciphertext mask = sign_result;
-    evaluator.add_const(mask, 0.5, mask, encoder);
-    print_cipher_state("mask add-const state", mask, context, decryptor, encoder);
+    print_cipher_state("ReLU mask state", mask, context, decryptor, encoder);
 
     Ciphertext relu_product;
     evaluator.multiply_relin_dynamic(input.cipher(), mask, relu_product, relin_keys);
@@ -157,7 +153,7 @@ int main(int argc, char **argv)
         target_level = stoi(argv[1]);
     }
 
-    ParametersLiteral ckks_param_literal{CKKS, 16, 15, 46, 5, 1, 0, {}, {}};
+    ParametersLiteral ckks_param_literal{CKKS, 16, 15, 40, 5, 1, 0, {}, {}};
     ckks_param_literal.set_log_modulus(logq_chain(), {51});
 
     PoseidonFactory::get_instance()->set_device_type(DEVICE_SOFTWARE);

@@ -249,7 +249,7 @@ encoder
 public_key / secret_key
 relin_keys / galois_keys
 encryptor / decryptor
-bootstrap_poly
+bootstrap_config
 scale
 slot_count
 ```
@@ -259,6 +259,65 @@ slot_count
 ```cpp
 PoseidonRuntime make_poseidon_runtime(const PoseidonInferPlan &plan);
 ```
+
+## CPU 模数链与层数预算
+
+CPU 推理现在使用 31 个 Q 模数：
+
+```text
+Q[0]       : 1 × 45 bit，ModRaise 的 q0
+Q[1..16]   : 16 × 40 bit，应用计算层（scale = 2^40）
+Q[17..30]  : 14 × 45 bit，14-level Bootstrap（scale = 2^45）
+P          : 1 × 51 bit，KeySwitch 特殊模数
+```
+
+`log_message_ratio = 5`，因此 Bootstrap 入口目标 scale 为
+`2^(45-5) = 2^40`，与应用计算 scale 直接匹配。KeySwitch 使用的 P
+不是计算/自举 Q 链的一部分，暂时保留 51 bit。
+
+Bootstrap 的内部多项式 scale 与输出 scale 分开配置：
+
+```cpp
+bootstrap_config.scaling_log = 45;         // EvalMod 内部工作 scale
+bootstrap_config.output_scaling_log = 40;  // S2C 输出给网络的 scale
+```
+
+输出 scale 会融合进 SlotToCoeff 系数，不通过事后改写 ciphertext scale，
+也不会额外消耗 level。
+
+对应关系是：
+
+```text
+完整链 level 30
+    Bootstrap 消耗 14 level
+Bootstrap 输出 level 16
+    ReLU 消耗 14 level
+ReLU 输出 level 2
+    卷积消耗 2 level
+下一次 Bootstrap 输入 level 0
+```
+
+网络开头在第一次 Bootstrap 前还多一个 stem 卷积，所以初始密文对齐到
+level 18：
+
+```text
+level 18 --stem conv(2)--> 16 --ReLU(14)--> 2
+         --first block conv(2)--> 0 --Bootstrap(14)--> 16
+```
+
+模数链在 `infer_config.cpp` 的 `logq_chain()` 中设置。推理使用
+`EvaluatorCkksBase::bootstrap(..., BootstrapConfig)`；参数在
+`infer_runtime.cpp` 中设置。运行日志会打印并检查：
+
+```text
+convolution level_consumption=2
+relu level_consumption=14
+bootstrap level_consumption=14
+batchnorm level_consumption=0
+```
+
+任何算子的实际消耗与预算不一致时，程序会立即报错，避免在链长度不足时继续
+产生无效密文。
 
 ### ModelWeights
 
@@ -404,7 +463,7 @@ plan.boundary = 40.0;
 plan.logN = 16;
 plan.log_slots = 15;
 plan.init_p = 8;
-plan.log_scale = 46;
+plan.log_scale = 40;
 plan.remaining_level = 16;
 plan.boot_level = 14;
 ```

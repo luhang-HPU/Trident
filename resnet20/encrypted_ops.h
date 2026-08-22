@@ -24,7 +24,8 @@ struct PoseidonBootstrapContext
     poseidon::CKKSEncoder *encoder = nullptr;
     const poseidon::RelinKeys *relin_keys = nullptr;
     const poseidon::GaloisKeys *galois_keys = nullptr;
-    poseidon::EvalModPoly *bootstrap_poly = nullptr;
+    const poseidon::BootstrapConfig *config = nullptr;
+    std::size_t expected_level_consumption = 0;
 };
 
 void multiplexed_convolution_print(

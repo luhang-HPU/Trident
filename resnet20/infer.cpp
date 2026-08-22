@@ -135,7 +135,8 @@ void maybe_bootstrap(TensorCipher &tensor, PoseidonRuntime &runtime, ofstream &o
     bootstrap_ctx.encoder = &runtime.encoder;
     bootstrap_ctx.relin_keys = &runtime.relin_keys;
     bootstrap_ctx.galois_keys = &runtime.galois_keys;
-    bootstrap_ctx.bootstrap_poly = runtime.bootstrap_poly.get();
+    bootstrap_ctx.config = &runtime.bootstrap_config;
+    bootstrap_ctx.expected_level_consumption = 14;
 
     TensorCipher bootstrapped;
     bootstrap_print(tensor, bootstrapped, bootstrap_ctx, output, runtime.decryptor,
@@ -380,6 +381,9 @@ void ResNet_cifar10_sparse(size_t start_image_id, size_t end_image_id)
     PoseidonRuntime runtime = make_poseidon_runtime(plan);
     cout << "Poseidon slot count: " << runtime.slot_count << endl;
     cout << "Poseidon scale: " << runtime.scale << endl;
+    cout << "Poseidon Q primes: " << plan.logq_chain.size()
+         << " (q0=1, application=" << plan.remaining_level
+         << ", bootstrap=" << plan.boot_level << ")" << endl;
 
     fs::create_directories(result_dir());
     const fs::path shared_result_path =
@@ -434,6 +438,16 @@ void ResNet_cifar10_sparse(size_t start_image_id, size_t end_image_id)
         state.plain = plain_input_tensor_from_image_slots(image_slots);
 
         output << "runtime: poseidon ready\n";
+        output << "ckks_config: log_scale=" << plan.log_scale
+               << ", q0_bits=" << plan.logq_chain.front()
+               << ", compute_q_bits=" << plan.logq_chain.at(plan.q0_level + 1)
+               << ", compute_levels=" << plan.remaining_level
+               << ", bootstrap_q_bits=" << plan.logq_chain.back()
+               << ", bootstrap_levels=" << plan.boot_level
+               << ", bootstrap_scaling_log=" << runtime.bootstrap_config.scaling_log
+               << ", bootstrap_output_scaling_log="
+               << runtime.bootstrap_config.output_scaling_log
+               << ", q_count=" << plan.logq_chain.size() << '\n';
         output << "weights: conv=" << weights.conv_weight.size()
                << ", bn=" << weights.bn_weight.size()
                << ", fc=" << weights.linear_weight.size() << '\n';
@@ -448,12 +462,18 @@ void ResNet_cifar10_sparse(size_t start_image_id, size_t end_image_id)
             log_plain_tensor("plain input", state.plain, output);
         }
 
-        for (int i = 0; i < plan.boot_level + 5; ++i)
+        // Before the first bootstrap the path is stem convolution (2), ReLU
+        // (14), then the first block convolution (2). After that bootstrap,
+        // every steady-state path is ReLU (14) plus convolution (2).
+        const std::size_t initial_level = static_cast<std::size_t>(
+            plan.remaining_level + plan.convolution_levels);
+        while (cipher_chain_index(runtime, state.cipher.cipher()) > initial_level)
         {
             runtime.evaluator->drop_modulus_to_next(state.cipher.cipher(), state.cipher.cipher());
         }
         output << "post-alignment ciphertext: level="
                << cipher_chain_index(runtime, state.cipher.cipher())
+               << ", initial_budget=" << initial_level
                << ", scale=" << state.cipher.cipher().scale() << '\n';
 
         run_stem(state, ctx, output);

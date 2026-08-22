@@ -10,20 +10,34 @@ using namespace poseidon;
 
 PoseidonRuntime::PoseidonRuntime(PoseidonContext ctx, std::unique_ptr<EvaluatorCkksBase> eva,
                                  PublicKey pk, SecretKey sk, RelinKeys rk, GaloisKeys gk,
-                                 std::unique_ptr<EvalModPoly> poly, double scale_value)
+                                 BootstrapConfig bootstrap, double scale_value)
     : context(std::move(ctx)), evaluator(std::move(eva)), encoder(context),
       public_key(std::move(pk)), secret_key(std::move(sk)), relin_keys(std::move(rk)),
       galois_keys(std::move(gk)), encryptor(context, public_key), decryptor(context, secret_key),
-      bootstrap_poly(std::move(poly)), scale(scale_value),
+      bootstrap_config(std::move(bootstrap)), scale(scale_value),
       slot_count(static_cast<int>(encoder.slot_count()))
 {
 }
 
 PoseidonRuntime make_poseidon_runtime(const PoseidonInferPlan &plan)
 {
+    if (plan.remaining_level != plan.convolution_levels + plan.relu_levels)
+    {
+        throw std::invalid_argument(
+            "application level budget must equal convolution plus ReLU levels");
+    }
+    const std::size_t expected_q_count =
+        static_cast<std::size_t>(plan.q0_level + 1 + plan.remaining_level +
+                                 plan.boot_level);
+    if (plan.logq_chain.size() != expected_q_count)
+    {
+        throw std::invalid_argument(
+            "Q chain must contain q0, application, and bootstrap level budgets");
+    }
     ParametersLiteral ckks_param_literal{
         CKKS, static_cast<std::uint32_t>(plan.logN), static_cast<std::uint32_t>(plan.logN - 1),
-        static_cast<std::uint32_t>(plan.log_scale), 5, 1, 0, {}, {}};
+        static_cast<std::uint32_t>(plan.log_scale), 5,
+        static_cast<std::uint32_t>(plan.q0_level), 0, {}, {}};
     ckks_param_literal.set_log_modulus(plan.logq_chain, {51});
 
     PoseidonFactory::get_instance()->set_device_type(DEVICE_SOFTWARE);
@@ -40,12 +54,18 @@ PoseidonRuntime make_poseidon_runtime(const PoseidonInferPlan &plan)
     GaloisKeys galois_keys;
     keygen.create_galois_keys(galois_keys);
 
-    auto bootstrap_poly = std::make_unique<EvalModPoly>(
-        context, CosDiscrete, static_cast<std::uint64_t>(1) << 51, 1, 5, 2, 7, 0, 59);
+    BootstrapConfig bootstrap_config;
+    bootstrap_config.boundary_k = 25;
+    bootstrap_config.log_message_ratio = 5;
+    bootstrap_config.double_angle = 2;
+    bootstrap_config.scaling_log = 45;
+    bootstrap_config.output_scaling_log = static_cast<std::uint32_t>(plan.log_scale);
+    bootstrap_config.output_ratio = 32;
+    bootstrap_config.project_real = true;
 
     return PoseidonRuntime(std::move(context), std::move(evaluator), std::move(public_key),
                            keygen.secret_key(), std::move(relin_keys), std::move(galois_keys),
-                           std::move(bootstrap_poly), ckks_param_literal.scale());
+                           std::move(bootstrap_config), ckks_param_literal.scale());
 }
 
 std::size_t cipher_chain_index(const PoseidonRuntime &runtime, const Ciphertext &cipher)

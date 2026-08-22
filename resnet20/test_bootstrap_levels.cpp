@@ -1,3 +1,5 @@
+#include "cnn.h"
+
 #include "poseidon/advance/homomorphic_dft.h"
 #include "poseidon/advance/homomorphic_mod.h"
 #include "poseidon/ckks_encoder.h"
@@ -30,18 +32,20 @@ bool read_env_bool(const char *name, bool fallback = false);
 vector<uint32_t> logq_chain()
 {
     const bool bootstrap_14 = read_env_bool("POSEIDON_BOOTSTRAP_14");
-    uint32_t low_level_46_count = 2;
-    if (const char *value = std::getenv("BOOTSTRAP_LOW_LEVEL_46_COUNT"))
+    uint32_t low_level_count = 2;
+    if (const char *value = std::getenv("BOOTSTRAP_LOW_LEVEL_COUNT"))
     {
         char *end = nullptr;
         const auto parsed = std::strtoul(value, &end, 10);
         if (end != value && *end == '\0')
         {
-            low_level_46_count = static_cast<uint32_t>(parsed);
+            low_level_count = static_cast<uint32_t>(parsed);
         }
     }
 
-    uint32_t total_prime_count = bootstrap_14 ? 16 : 20;
+    // The compact 14-level test still needs q0, two retained application
+    // primes, and fourteen dedicated bootstrap primes.
+    uint32_t total_prime_count = bootstrap_14 ? 17 : 20;
     if (const char *value = std::getenv("BOOTSTRAP_TOTAL_PRIME_COUNT"))
     {
         char *end = nullptr;
@@ -52,15 +56,19 @@ vector<uint32_t> logq_chain()
         }
     }
     const uint32_t low_level_start = bootstrap_14 ? 1 : 0;
-    low_level_46_count =
-        min(low_level_46_count, total_prime_count > low_level_start
-                                    ? total_prime_count - low_level_start
-                                    : 0);
-    const uint32_t bootstrap_prime_bits = read_env_u32("BOOTSTRAP_Q_BITS", 51);
+    low_level_count = min(low_level_count, total_prime_count > low_level_start
+                                               ? total_prime_count - low_level_start
+                                               : 0);
+    const uint32_t compute_prime_bits = read_env_u32("BOOTSTRAP_COMPUTE_Q_BITS", 40);
+    const uint32_t bootstrap_prime_bits = read_env_u32("BOOTSTRAP_Q_BITS", 45);
     vector<uint32_t> chain(total_prime_count, bootstrap_prime_bits);
-    for (uint32_t i = 0; i < low_level_46_count; ++i)
+    if (bootstrap_14 && !chain.empty())
     {
-        chain[low_level_start + i] = 46;
+        chain.front() = read_env_u32("BOOTSTRAP_Q0_BITS", bootstrap_prime_bits);
+    }
+    for (uint32_t i = 0; i < low_level_count; ++i)
+    {
+        chain[low_level_start + i] = compute_prime_bits;
     }
     return chain;
 }
@@ -526,21 +534,23 @@ void run_manual_bootstrap(Ciphertext bootstrap_input, const vector<complex<doubl
     print_error_stats("manual bootstrap output error vs source:", decoded, message);
 }
 
-void run_bootstrap_14(Ciphertext bootstrap_input,
-                      const vector<complex<double>> &message,
-                      const PoseidonContext &context,
-                      EvaluatorCkksBase &evaluator,
-                      const RelinKeys &relin_keys,
-                      const GaloisKeys &rot_keys,
-                      CKKSEncoder &encoder,
-                      Decryptor &decryptor)
+Ciphertext run_bootstrap_14(Ciphertext bootstrap_input,
+                           const vector<complex<double>> &message,
+                           const PoseidonContext &context,
+                           EvaluatorCkksBase &evaluator,
+                           const RelinKeys &relin_keys,
+                           const GaloisKeys &rot_keys,
+                           CKKSEncoder &encoder,
+                           Decryptor &decryptor)
 {
     BootstrapConfig config;
     config.boundary_k = read_env_u32("POSEIDON_BOOTSTRAP_BOUNDARY_K", 25);
     config.log_message_ratio =
         read_env_u32("POSEIDON_BOOTSTRAP_LOG_MESSAGE_RATIO", 5);
     config.double_angle = read_env_u32("POSEIDON_BOOTSTRAP_DOUBLE_ANGLE", 2);
-    config.scaling_log = read_env_u32("POSEIDON_BOOTSTRAP_SCALING_LOG", 51);
+    config.scaling_log = read_env_u32("POSEIDON_BOOTSTRAP_SCALING_LOG", 45);
+    config.output_scaling_log =
+        read_env_u32("POSEIDON_BOOTSTRAP_OUTPUT_SCALING_LOG", 40);
     config.output_ratio = read_env_u32("POSEIDON_BOOTSTRAP_OUTPUT_RATIO", 32);
     config.project_real = read_env_bool("POSEIDON_BOOTSTRAP_PROJECT_REAL", true);
     config.inverse_coeff =
@@ -555,6 +565,7 @@ void run_bootstrap_14(Ciphertext bootstrap_input,
          << " log_message_ratio=" << config.log_message_ratio
          << " double_angle=" << config.double_angle
          << " scaling_log=" << config.scaling_log
+         << " output_scaling_log=" << config.output_scaling_log
          << " output_ratio=" << config.output_ratio
          << " project_real=" << config.project_real << '\n';
 
@@ -570,6 +581,7 @@ void run_bootstrap_14(Ciphertext bootstrap_input,
     print_plain_preview("bootstrap output decrypt preview:", decoded);
     print_value_stats("bootstrap output stats:", decoded);
     print_error_stats("bootstrap output error vs source:", decoded, message);
+    return output;
 }
 
 } // namespace
@@ -582,23 +594,39 @@ int main(int argc, char **argv)
     const uint32_t log_n = read_env_u32("BOOTSTRAP_LOG_N", 16);
     const uint32_t q0_level = read_env_u32(
         "BOOTSTRAP_Q0_LEVEL", read_env_bool("POSEIDON_BOOTSTRAP_14") ? 0 : 1);
-    ParametersLiteral ckks_param_literal{CKKS, log_n, log_n - 1, 46, 5, q0_level, 0, {}, {}};
+    const uint32_t log_scale = read_env_u32("BOOTSTRAP_LOG_SCALE", 40);
+    ParametersLiteral ckks_param_literal{
+        CKKS, log_n, log_n - 1, log_scale, 5, q0_level, 0, {}, {}};
     const auto q_chain = logq_chain();
     const uint32_t special_prime_bits = read_env_u32("BOOTSTRAP_P_BITS", 51);
     ckks_param_literal.set_log_modulus(q_chain, {special_prime_bits});
-    size_t low_level_46_count = 0;
+    const uint32_t compute_prime_bits = read_env_u32("BOOTSTRAP_COMPUTE_Q_BITS", 40);
+    size_t low_level_count = 0;
     for (auto bits : q_chain)
     {
-        low_level_46_count += bits == 46;
+        low_level_count += bits == compute_prime_bits;
     }
     cout << "logq chain summary: total=" << q_chain.size()
          << " q0_bits=" << (q_chain.empty() ? 0 : q_chain.front())
-         << " low_level_46_count=" << low_level_46_count
-         << " bootstrap_q_bits=" << read_env_u32("BOOTSTRAP_Q_BITS", 51)
+         << " log_scale=" << log_scale
+         << " compute_q_bits=" << compute_prime_bits
+         << " low_level_count=" << low_level_count
+         << " bootstrap_q_bits=" << read_env_u32("BOOTSTRAP_Q_BITS", 45)
          << " special_p_bits=" << special_prime_bits << '\n';
 
     PoseidonFactory::get_instance()->set_device_type(DEVICE_SOFTWARE);
     auto context = PoseidonFactory::get_instance()->create_poseidon_context(ckks_param_literal);
+    cout << setprecision(17)
+         << "q0 scale relation: q0=" << context.crt_context()->q0()
+         << " target_2^scaling_log="
+         << ldexp(1.0, static_cast<int>(read_env_u32(
+                "POSEIDON_BOOTSTRAP_SCALING_LOG", 45)))
+         << " relative_delta="
+         << ldexp(1.0, static_cast<int>(read_env_u32(
+                "POSEIDON_BOOTSTRAP_SCALING_LOG", 45))) /
+                context.crt_context()->q0() -
+                1.0
+         << '\n';
     auto ckks_eva = PoseidonFactory::get_instance()->create_ckks_evaluator(context);
 
     KeyGenerator kgen(context);
@@ -643,12 +671,57 @@ int main(int argc, char **argv)
     if (read_env_bool("POSEIDON_BOOTSTRAP_14"))
     {
         const auto time_start = chrono::high_resolution_clock::now();
-        run_bootstrap_14(bootstrap_input, message, context, *ckks_eva, relin_keys,
-                         rot_keys, encoder, decryptor);
+        Ciphertext bootstrap_output =
+            run_bootstrap_14(bootstrap_input, message, context, *ckks_eva, relin_keys,
+                             rot_keys, encoder, decryptor);
         const auto time_end = chrono::high_resolution_clock::now();
         cout << "bootstrap time (ms) : "
              << chrono::duration_cast<chrono::milliseconds>(time_end - time_start).count()
              << '\n';
+
+        if (read_env_bool("POSEIDON_BOOTSTRAP_TEST_RELU"))
+        {
+            if (chain_index_or_throw(context, bootstrap_output) < 14)
+            {
+                throw runtime_error(
+                    "Bootstrap->ReLU test needs at least fourteen output levels");
+            }
+
+            vector<int> degrees{15, 15, 27};
+            vector<Tree> trees;
+            trees.reserve(degrees.size());
+            for (int degree : degrees)
+            {
+                Tree tree(EvalType::OddBaby);
+                upgrade_oddbaby(degree, tree);
+                trees.emplace_back(std::move(tree));
+            }
+
+            TensorCipher relu_input(static_cast<int>(log_n), 1, 1, 1, 1, 1, 1,
+                                    bootstrap_output);
+            TensorCipher relu_output;
+            const auto relu_level_before = chain_index_or_throw(context, bootstrap_output);
+            relu(relu_input, relu_output, 3, degrees, 13, trees, 1.7, encryptor,
+                 *ckks_eva, encoder, relin_keys,
+                 ldexp(1.0, static_cast<int>(log_scale)));
+            const auto relu_level_after =
+                chain_index_or_throw(context, relu_output.cipher());
+            print_cipher_state("post-bootstrap ReLU output", context,
+                               relu_output.cipher());
+            cout << "post-bootstrap ReLU level consumption : "
+                 << relu_level_before - relu_level_after << " ("
+                 << relu_level_before << " -> " << relu_level_after << ")\n";
+
+            auto relu_decoded = decrypt_and_decode(relu_output.cipher(), decryptor, encoder);
+            vector<complex<double>> relu_expected = message;
+            for (auto &value : relu_expected)
+            {
+                value = {max(0.0, value.real()), 0.0};
+            }
+            print_plain_preview("post-bootstrap ReLU decrypt preview:", relu_decoded);
+            print_error_stats("post-bootstrap ReLU error vs exact ReLU:",
+                              relu_decoded, relu_expected);
+        }
         return 0;
     }
 
@@ -665,7 +738,7 @@ int main(int argc, char **argv)
     const uint32_t arcsine_degree = read_env_u32("BOOTSTRAP_ARCSINE_DEGREE", 0);
     const uint32_t sine_degree = read_env_u32("BOOTSTRAP_SINE_DEGREE", 59);
     const uint32_t scaling_log = read_env_u32(
-        "BOOTSTRAP_SCALING_LOG", read_env_u32("BOOTSTRAP_Q_BITS", 51));
+        "BOOTSTRAP_SCALING_LOG", read_env_u32("BOOTSTRAP_Q_BITS", 45));
     cout << "bootstrap polynomial params:"
          << " high_precision=" << high_precision
          << " level_efficient=" << level_efficient

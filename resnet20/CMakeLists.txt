@@ -15,6 +15,10 @@ add_executable(
 )
 add_executable(
   resnet20_test_bootstrap
+  tensor_cipher.cpp
+  relu_approx.cpp
+  encrypted_ops.cpp
+  encrypted_ops_trace.cpp
   test_bootstrap_levels.cpp
 )
 add_executable(
