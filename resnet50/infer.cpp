@@ -705,14 +705,28 @@ void ResNet50_imagenet_sparse(size_t start_image_id, size_t end_image_id, size_t
         return make_poseidon_runtime(plan);
     });
     resnet18_progress_log() << "[startup] Poseidon runtime ready" << endl;
-    resnet18_progress_log() << "[startup] Poseidon hybrid key-switch: dnum="
-                            << plan.dnum << ", q_count=" << plan.logq_chain.size()
-                            << ", p_count="
-                            << logp_chain(plan.logq_chain.size(), plan.dnum).size() << endl;
+    resnet18_progress_log()
+        << "[startup] Poseidon modulus config: Q=1x45 + 20x40 + 14x45 "
+           "(35 primes, 1475 bits), P="
+        << logp_chain(plan.logq_chain.size(), plan.dnum).size()
+        << "x51, dnum=" << plan.dnum << endl;
+    resnet18_progress_log()
+        << "[startup] Poseidon scales: compute=" << plan.log_scale
+        << " bits, bootstrap_evalmod=" << runtime.bootstrap_config.scaling_log
+        << " bits, bootstrap_output="
+        << runtime.bootstrap_config.output_scaling_log << " bits" << endl;
 
     run_log << "ResNet50 ImageNet encrypted inference\n";
     run_log << "images=" << start_image_id << ".." << end_image_id
             << ", dnum=" << plan.dnum
+            << ", q_config=1x45+20x40+14x45"
+            << ", p_count="
+            << logp_chain(plan.logq_chain.size(), plan.dnum).size()
+            << ", p_prime_bits=51"
+            << ", compute_scale_bits=" << plan.log_scale
+            << ", bootstrap_scale_bits=" << runtime.bootstrap_config.scaling_log
+            << ", bootstrap_output_scale_bits="
+            << runtime.bootstrap_config.output_scaling_log
             << ", mock_relu=" << options.mock_relu
             << ", mock_bootstrap=" << options.mock_bootstrap << '\n';
 

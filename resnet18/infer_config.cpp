@@ -41,18 +41,18 @@ std::vector<std::uint32_t> logq_chain()
 
 std::vector<std::uint32_t> logp_chain(std::size_t q_count, std::size_t dnum)
 {
-    if (dnum != 3 && dnum != 4)
-    {
-        throw std::invalid_argument("ResNet18 dnum must be 3 or 4");
-    }
     if (q_count == 0)
     {
         throw std::invalid_argument("ResNet18 Q modulus chain must not be empty");
     }
+    if (dnum != 3 && dnum != 4)
+    {
+        throw std::invalid_argument("ResNet18 dnum must be 3 or 4");
+    }
 
     // Poseidon's hybrid key switching uses dnum = ceil(|Q| / |P|).
     const std::size_t p_count = (q_count + dnum - 1) / dnum;
-    return std::vector<std::uint32_t>(p_count, kResNet18BootstrapPrimeBits);
+    return std::vector<std::uint32_t>(p_count, kResNet18SpecialPrimeBits);
 }
 
 PoseidonInferPlan default_poseidon_plan(std::size_t dnum)

@@ -13,32 +13,43 @@ namespace
 
 void validate_bootstrap_modulus_chain(const PoseidonInferPlan &plan)
 {
-    if (plan.logq_chain.size() < static_cast<std::size_t>(plan.boot_level + 2))
+    const std::size_t expected_size = 1 + kResNet50ComputePrimeCount +
+                                      kResNet50BootstrapPrimeCount;
+    if (plan.remaining_level != 16)
     {
-        throw std::invalid_argument("ResNet50 modulus chain is too short for 14-level bootstrap");
+        throw std::invalid_argument("ResNet50 application level budget must be 16");
+    }
+    if (plan.boot_level != static_cast<int>(kResNet50BootstrapPrimeCount))
+    {
+        throw std::invalid_argument("ResNet50 uses the 14-level bootstrap configuration");
+    }
+    if (plan.logq_chain.size() != expected_size)
+    {
+        throw std::invalid_argument(
+            "ResNet50 modulus chain must contain q0, twenty compute primes, and fourteen bootstrap primes");
     }
     if (plan.logq_chain.front() != kResNet50BootstrapPrimeBits)
     {
-        throw std::invalid_argument("ResNet50 bootstrap requires a 51-bit single-prime q0");
+        throw std::invalid_argument("ResNet50 bootstrap requires a 45-bit single-prime q0");
     }
-    if (plan.logq_chain.at(1) != static_cast<std::uint32_t>(plan.log_scale))
+    if (plan.log_scale != static_cast<int>(kResNet50ComputePrimeBits))
     {
-        throw std::invalid_argument("ResNet50 bootstrap requires a 46-bit prime above q0");
+        throw std::invalid_argument("ResNet50 CKKS scale must use 40 bits");
     }
-    const std::size_t bootstrap_start =
-        plan.logq_chain.size() - static_cast<std::size_t>(plan.boot_level);
-    if (plan.logq_chain.at(bootstrap_start - 1) == kResNet50BootstrapPrimeBits)
+    for (std::size_t i = 1; i <= kResNet50ComputePrimeCount; ++i)
     {
-        throw std::invalid_argument(
-            "ResNet50 modulus chain must reserve exactly fourteen trailing bootstrap primes");
+        if (plan.logq_chain.at(i) != kResNet50ComputePrimeBits)
+        {
+            throw std::invalid_argument("ResNet50 requires twenty 40-bit compute primes");
+        }
     }
-    for (std::size_t i = bootstrap_start;
+    for (std::size_t i = 1 + kResNet50ComputePrimeCount;
          i < plan.logq_chain.size(); ++i)
     {
         if (plan.logq_chain.at(i) != kResNet50BootstrapPrimeBits)
         {
             throw std::invalid_argument(
-                "ResNet50 bootstrap requires fourteen 51-bit primes at the top of the chain");
+                "ResNet50 bootstrap requires fourteen 45-bit primes at the top of the chain");
         }
     }
 
@@ -90,6 +101,13 @@ PoseidonRuntime make_poseidon_runtime(const PoseidonInferPlan &plan, bool genera
     }
 
     BootstrapConfig bootstrap_config;
+    bootstrap_config.boundary_k = 25;
+    bootstrap_config.log_message_ratio = 5;
+    bootstrap_config.double_angle = 2;
+    bootstrap_config.scaling_log = kResNet50BootstrapPrimeBits;
+    bootstrap_config.output_scaling_log = static_cast<std::uint32_t>(plan.log_scale);
+    bootstrap_config.output_ratio = 32;
+    bootstrap_config.project_real = true;
 
     return PoseidonRuntime(std::move(context), std::move(evaluator), std::move(public_key),
                            keygen.secret_key(), std::move(relin_keys), std::move(galois_keys),

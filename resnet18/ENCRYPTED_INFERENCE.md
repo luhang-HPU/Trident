@@ -198,7 +198,7 @@ x ──────────────────────────
 | --- | ---: | --- |
 | `logN` | 16 | 环维度 `N = 2^16` |
 | `log_slots` | 15 | CKKS slot 数为 `2^15 = 32768` |
-| `log_scale` | 46 | 常规计算 scale 约为 `2^46` |
+| `log_scale` | 40 | 常规计算 scale 约为 `2^40` |
 | `init_p` | 8 | 推理计划中保留的初始 packing 参数 |
 | `boot_level` | 14 | 推理计划中的 Bootstrap 层级配置 |
 | `B` | 20 | 激活边界缩放 |
@@ -206,48 +206,45 @@ x ──────────────────────────
 Q 模数链按从低层到高层的顺序由以下素数组成：
 
 ```text
-q0:                   1 × 51-bit prime
-常规计算区:          20 × 46-bit primes
-Bootstrap 专用尾部: 14 × 51-bit primes
+q0:                   1 × 45-bit prime
+常规计算区:          20 × 40-bit primes
+Bootstrap 专用尾部: 14 × 45-bit primes
 ```
 
-也就是 Q 一共 35 个素数。这里“14 个 51-bit 模数”专指 Bootstrap 使用的尾部
-模数；新 Bootstrap 还要求一个独立的 51-bit `q0`，所以若按整个 Q 链统计，51-bit
-条目总数是 15 个。`q0` 是自举输入基准层，不属于 14-level 自举预算。
+也就是 Q 一共 35 个素数、合计 1475 bit。`q0` 是自举输入基准层，不属于
+14-level 自举预算。常规计算 scale 为 `2^40`，Bootstrap EvalMod scale 为
+`2^45`，Bootstrap 输出重新归一到 `2^40`。
 
 ResNet-18 的首段现在与 ResNet-50 使用相同的 level 策略：新密文不立即丢弃顶部
-14 个 51-bit 模数，而是先让 stem 卷积和 multiplexed 重排消耗其中 3 层。到第一
-个 ReLU 前，`drop_trailing_51_bit_primes()` 再丢弃剩余的 11 个连续 51-bit
-模数，使密文落到 46-bit 常规计算区顶部。
+14 个 45-bit 模数，而是先让 stem 卷积和 multiplexed 重排消耗其中 3 层。到第一
+个 ReLU 前，`drop_trailing_bootstrap_primes()` 再丢弃剩余的 11 个连续 45-bit
+模数，使密文落到 40-bit 常规计算区顶部。
 
 第一次 Bootstrap 前的实际 level 变化如下：
 
 ```text
 新加密的 stem im2col 密文                 chain_index 34
-stem 7×7 conv（消耗顶部 51-bit 模数）    34 -> 33
+stem 7×7 conv（消耗顶部 45-bit 模数）    34 -> 33
 stem 输出重排为 multiplexed k=1（2 层）   33 -> 31
-ReLU 前丢弃剩余 11 个 51-bit 模数          31 -> 20
+ReLU 前丢弃剩余 11 个 45-bit 模数          31 -> 20
 stem 复合多项式 ReLU（14 层）              20 -> 6
 stem 3×3 average-pool（2 层）               6 -> 4
 layer1 block0 conv1（含 BN scale，2 层）     4 -> 2
 第一次 Bootstrap 输入                       chain_index 2
 ```
 
-因此首段虽然在第一次 Bootstrap 前总共发生 21 次 rescale，但其中最前面的 3 次
-由 Bootstrap 尾部的 51-bit 模数承担；46-bit 常规计算区只需 20 个模数，并且在
-第一次 Bootstrap 前仍保留到 `chain_index=2`。这比“输入阶段立即丢弃全部 51-bit
-尾部”的方案节省了一个 46-bit 模数，同时避免 layer1 block0 conv1 在 q0 上编码
-明文时出现 `scale out of bounds`。
+首段沿用原来的 20-level 预算，因此 stem ReLU、average-pool 和首个 BasicBlock
+卷积完成后仍保留到 `chain_index=2`，无需增加额外 Bootstrap。
 
 特殊模数 P 为：
 
 ```text
-1 × 51-bit prime
+默认 `dnum=3`：12 × 51-bit primes
+`dnum=4`：9 × 51-bit primes
 ```
 
-新加密的输入位于模数链顶部。首段特意保留 51-bit 尾部供 stem 卷积和重排使用，
-在第一个 ReLU 前才调用 `drop_trailing_51_bit_primes()`。Bootstrap 会把密文刷新
-回较高层级，后续 ReLU 仍会执行相同的 51-bit 尾部处理。
+新加密的输入位于模数链顶部。首段特意保留 45-bit 尾部供 stem 卷积和重排使用，在第一个 ReLU 前才调用
+`drop_trailing_bootstrap_primes()`。Bootstrap 会把密文刷新回较高层级。
 
 每次密文乘明文权重或密文乘密文后都要结合 rescale 管理 scale；纯加法、rotation
 和使用 scale 对齐的 `add_plain` 不消耗相同的乘法深度。
@@ -608,7 +605,7 @@ inverse_coeff         = 0.0
 ```
 
 模数参数同时设置 `q0_level=0`，并由运行时在创建 context 前强制校验 Q 链必须严格
-满足 `1×51 + 20×46 + 14×51`，避免配置看似能启动、实际在自举中途耗尽 level。
+满足 `1×45 + 20×40 + 14×45`，避免配置看似能启动、实际在自举中途耗尽 level。
 
 ### 11.3 14-level Bootstrap 和输出 scale 归一化
 
@@ -623,7 +620,7 @@ evaluator.bootstrap(..., BootstrapConfig)
 一次 `(x + conjugate(x)) / 2`。
 
 Bootstrap 返回后，`normalize_bootstrap_output_scale()` 检查输出 scale 是否等于
-context 的常规 `2^46` scale。若不一致，它用当前层最后一个模数计算保持明文值不变
+context 的常规 `2^40` scale。若不一致，它用当前层最后一个模数计算保持明文值不变
 的常数 scale，执行一次 `multiply_const + rescale`，再验证并固定到目标 scale。
 这样后续复合多项式 ReLU 始终从统一 scale 开始。
 
@@ -667,7 +664,9 @@ B / (7×7) = 20 / 49
 
 ### 12.2 512→1000 全连接
 
-`matrix_multiplication()` 使用对角线法计算：
+`matrix_multiplication()` 使用对角线法计算，并按 `RESNET18_THREADS` 把对角线均分给
+多个工作线程。每个线程先在本地累加一段连续的对角线，主线程最后只合并各线程的
+部分和，避免同时保存 1511 个临时密文：
 
 ```text
 logits = W(1000×512) × features(512) + bias(1000)
@@ -742,14 +741,16 @@ Trident/resnet18/result/resnet18_imagenet_run_<start>_<end>_<timestamp>.txt
 - 每层误差和最终预测；
 - 单张图片及整个区间的总时间。
 
-卷积、BN、残差和部分布局转换会按 pack 并行。默认线程数是硬件线程数与 8 的较小值，
-可以显式控制：
+Bootstrap、同态 ReLU、BN、残差和部分布局转换会在不同 pack 之间并行。卷积会根据
+当前层的 packing 自动选择并行粒度：pack 足够多时按输出 pack 并行；Layer 3/4 等
+pack 数不足时，改为在单个 pack 内按输出通道并行。分类头的 1511 条 FC 对角线也会
+分块并行。默认线程数是硬件线程数与 8 的较小值，可以显式控制：
 
 ```bash
 RESNET18_THREADS=4 ./Trident/build/resnet18/resnet18 0 0
 ```
 
-增加线程数会提高并发内存占用，不一定线性加速。
+Bootstrap 的单线程临时内存较大；增加线程数会明显提高峰值内存占用，不一定线性加速。
 
 ## 15. Mock 模式
 

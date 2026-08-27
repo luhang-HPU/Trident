@@ -47,9 +47,11 @@ degree(P1, P2, P3) = (15, 15, 27)
 | --- | ---: |
 | 多项式模数次数 | `N = 2^16` |
 | CKKS slots | `2^15 = 32768` |
-| 默认 scale | 约 `2^46` |
-| Q 链 | `1 x 51-bit + 20 x 46-bit + 14 x 51-bit` |
-| 特殊模数 P | `1 x 51-bit` |
+| 默认 scale | 约 `2^40` |
+| Bootstrap EvalMod scale | 约 `2^45` |
+| Q 链 | `1 x 45-bit + 20 x 40-bit + 14 x 45-bit`（35 primes / 1475 bit） |
+| 特殊模数 P | 默认 `12 x 51-bit` |
+| dnum | 默认 `3`，可选 `4` |
 | 输入/激活边界 | `B = 20` |
 | 逻辑 bootstrap 位置 | 16 |
 | 当前 packing 下单密文 bootstrap 调用 | 60 |
@@ -188,7 +190,7 @@ ct_out[o,r,c]
 
 ### 步骤 5：Bootstrap 与 ReLU
 
-乘法和 rescale 会逐步消耗 Q 链。除 stem 的第一个 ReLU 外，每个激活点之前都进行 bootstrap，恢复后续多项式所需的层级，并把 scale 归一化到约 `2^46`。
+乘法和 rescale 会逐步消耗 Q 链。除 stem 的第一个 ReLU 外，每个激活点之前都进行 bootstrap，恢复后续多项式所需的层级，并把 scale 归一化到约 `2^40`。
 
 ![Bootstrap 与多项式 ReLU](assets/benchmark/06_bootstrap.png)
 
@@ -217,7 +219,7 @@ normalize_bootstrap_output_scale(result, bootstrap_context);
 | Layer 4 | 2 | 2 | 1 | 4 |
 | 合计 | 8 | 16 个逻辑位置 | - | **60** |
 
-因此，“逻辑 bootstrap 位置 16”描述网络计算图，“单密文 bootstrap 60次”描述当前 packing 下 evaluator 实际执行的次数。
+因此，“逻辑 bootstrap 位置 16”描述网络计算图，“单密文 bootstrap 60 次”描述当前 packing 下 evaluator 实际执行的次数。
 
 ### 步骤 6：密态分类头
 
@@ -231,7 +233,7 @@ pooled[c] = (B / 49) * sum_(r=0..6,c=0..6) feature[c,r,c]
 
 ![密态分类头](assets/benchmark/07_head.png)
 
-FC 权重形状为 `1000 x 512`。代码不为每个类别生成一个密文，而是使用1511 条矩阵对角线，把 1000 个 logits 写进同一个输出密文的前 1000 个slots：
+FC 权重形状为 `1000 x 512`。代码不为每个类别生成一个密文，而是使用1511 条矩阵对角线，把 1000 个 logits 写进同一个输出密文的前 1000 个slots。对角线按 `RESNET18_THREADS` 分块并行，各线程只保留一个局部密文和，最后再合并：
 
 ```text
 logits
@@ -284,9 +286,14 @@ cmake -S Trident -B Trident/build \
   -DRESNET18=ON
 
 cmake --build Trident/build --target resnet18 resnet18_plain -j4
-RESNET18_THREADS=16 \
+RESNET18_THREADS=4 \
 ./Trident/build/resnet18/resnet18 0 0
 ```
+
+`RESNET18_THREADS` 同时控制不同密文 pack 之间的 Bootstrap、ReLU、布局操作，以及
+卷积和全连接的并行度。卷积在 pack 数足够时按输出 pack 并行；Layer 3/4 的 pack
+较少时自动切换为单 pack 内输出通道并行。全连接按矩阵对角线分块并行。
+Bootstrap 并行会显著增加峰值内存，建议从 2 或 4 个线程开始测试；内存充足时再试 8。
 
 输出日志位于：
 

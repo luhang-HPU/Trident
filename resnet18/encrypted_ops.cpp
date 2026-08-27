@@ -1,7 +1,11 @@
 #include "encrypted_ops.h"
 
+#include "parallel_utils.h"
+#include "progress_log.h"
+
 #include "poseidon/plaintext.h"
 
+#include <algorithm>
 #include <cmath>
 #include <stdexcept>
 #include <utility>
@@ -163,7 +167,8 @@ void normalize_bootstrap_output_scale(Ciphertext &cipher,
 }
 
 void matrix_multiplication(const TensorCipher &input, TensorCipher &output,
-                           vector<double> matrix, vector<double> bias, int rows, int columns,
+                           const vector<double> &matrix, const vector<double> &bias,
+                           int rows, int columns,
                            EvaluatorCkksBase &evaluator, GaloisKeys &galois_keys,
                            CKKSEncoder &encoder)
 {
@@ -197,23 +202,68 @@ void matrix_multiplication(const TensorCipher &input, TensorCipher &output,
         return weights;
     };
 
+    const size_t diagonal_count = static_cast<size_t>(rows + columns - 1);
+    const size_t thread_count = resnet18_parallel_thread_count(diagonal_count);
+    const size_t diagonals_per_thread =
+        (diagonal_count + thread_count - 1) / thread_count;
+    vector<Ciphertext> partial_sums(thread_count);
+    vector<unsigned char> has_partial_sum(thread_count, 0);
+
+    resnet18_progress_log() << "fully connected diagonal parallel threads: "
+                            << thread_count << ", diagonals=" << diagonal_count
+                            << endl;
+
+    resnet18_parallel_for(thread_count, [&](size_t thread_index) {
+        const size_t begin = thread_index * diagonals_per_thread;
+        const size_t end = min(diagonal_count, begin + diagonals_per_thread);
+        Ciphertext local_sum;
+        bool has_local_sum = false;
+        for (size_t diagonal = begin; diagonal < end; ++diagonal)
+        {
+            Ciphertext term;
+            rotate_with_power_of_two_keys(
+                input.cipher(), term,
+                columns - 1 - static_cast<int>(diagonal), evaluator, galois_keys);
+            multiply_by_vector_inplace(
+                term, make_diagonal(static_cast<int>(diagonal)), encoder, evaluator);
+            if (!has_local_sum)
+            {
+                local_sum = std::move(term);
+                has_local_sum = true;
+            }
+            else
+            {
+                add_assign_dynamic(local_sum, term, encoder, evaluator);
+            }
+        }
+        if (has_local_sum)
+        {
+            partial_sums.at(thread_index) = std::move(local_sum);
+            has_partial_sum.at(thread_index) = 1;
+        }
+    });
+
     Ciphertext sum;
     bool has_sum = false;
-    for (int diagonal = 0; diagonal < rows + columns - 1; ++diagonal)
+    for (size_t thread_index = 0; thread_index < thread_count; ++thread_index)
     {
-        Ciphertext term;
-        rotate_with_power_of_two_keys(input.cipher(), term, columns - 1 - diagonal,
-                                      evaluator, galois_keys);
-        multiply_by_vector_inplace(term, make_diagonal(diagonal), encoder, evaluator);
+        if (!has_partial_sum.at(thread_index))
+        {
+            continue;
+        }
         if (!has_sum)
         {
-            sum = std::move(term);
+            sum = std::move(partial_sums.at(thread_index));
             has_sum = true;
         }
         else
         {
-            add_assign_dynamic(sum, term, encoder, evaluator);
+            add_assign_dynamic(sum, partial_sums.at(thread_index), encoder, evaluator);
         }
+    }
+    if (!has_sum)
+    {
+        throw runtime_error("fully connected layer produced no encrypted terms");
     }
 
     Plaintext bias_plain;

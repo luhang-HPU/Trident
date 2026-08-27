@@ -26,17 +26,17 @@ void validate_bootstrap_modulus_chain(const PoseidonInferPlan &plan)
     }
     if (plan.logq_chain.front() != kResNet18BootstrapPrimeBits)
     {
-        throw std::invalid_argument("ResNet18 bootstrap requires a 51-bit single-prime q0");
+        throw std::invalid_argument("ResNet18 bootstrap requires a 45-bit single-prime q0");
     }
     if (plan.log_scale != static_cast<int>(kResNet18ComputePrimeBits))
     {
-        throw std::invalid_argument("ResNet18 CKKS scale must use 46 bits");
+        throw std::invalid_argument("ResNet18 CKKS scale must use 40 bits");
     }
     for (std::size_t i = 1; i <= kResNet18ComputePrimeCount; ++i)
     {
         if (plan.logq_chain.at(i) != kResNet18ComputePrimeBits)
         {
-            throw std::invalid_argument("ResNet18 requires twenty 46-bit compute primes");
+            throw std::invalid_argument("ResNet18 requires twenty 40-bit compute primes");
         }
     }
     for (std::size_t i = 1 + kResNet18ComputePrimeCount;
@@ -45,7 +45,7 @@ void validate_bootstrap_modulus_chain(const PoseidonInferPlan &plan)
         if (plan.logq_chain.at(i) != kResNet18BootstrapPrimeBits)
         {
             throw std::invalid_argument(
-                "ResNet18 bootstrap requires fourteen trailing 51-bit primes");
+                "ResNet18 bootstrap requires fourteen trailing 45-bit primes");
         }
     }
 
@@ -96,6 +96,13 @@ PoseidonRuntime make_poseidon_runtime(const PoseidonInferPlan &plan, bool genera
         keygen.create_galois_keys(galois_keys);
     }
     BootstrapConfig bootstrap_config;
+    bootstrap_config.boundary_k = 25;
+    bootstrap_config.log_message_ratio = 5;
+    bootstrap_config.double_angle = 2;
+    bootstrap_config.scaling_log = kResNet18BootstrapPrimeBits;
+    bootstrap_config.output_scaling_log = static_cast<std::uint32_t>(plan.log_scale);
+    bootstrap_config.output_ratio = 32;
+    bootstrap_config.project_real = true;
 
     return PoseidonRuntime(std::move(context), std::move(evaluator), std::move(public_key),
                            keygen.secret_key(), std::move(relin_keys), std::move(galois_keys),

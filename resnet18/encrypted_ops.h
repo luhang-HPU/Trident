@@ -35,6 +35,7 @@ void normalize_bootstrap_output_scale(poseidon::Ciphertext &cipher,
                                       PoseidonBootstrapContext &bootstrapper);
 
 void matrix_multiplication(const TensorCipher &cnn_in, TensorCipher &cnn_out,
-                           std::vector<double> matrix, std::vector<double> bias, int q,
-                           int r, poseidon::EvaluatorCkksBase &evaluator,
+                           const std::vector<double> &matrix,
+                           const std::vector<double> &bias, int q, int r,
+                           poseidon::EvaluatorCkksBase &evaluator,
                            poseidon::GaloisKeys &gal_keys, poseidon::CKKSEncoder &encoder);

@@ -420,10 +420,11 @@ int next_rescale_prime_bits(const Ciphertext &cipher, PoseidonRuntime &runtime)
     return modulus.back().bit_count();
 }
 
-size_t drop_trailing_51_bit_primes(Ciphertext &cipher, PoseidonRuntime &runtime)
+size_t drop_trailing_bootstrap_primes(Ciphertext &cipher, PoseidonRuntime &runtime)
 {
     size_t dropped = 0;
-    while (next_rescale_prime_bits(cipher, runtime) == 51)
+    while (next_rescale_prime_bits(cipher, runtime) ==
+           static_cast<int>(kResNet18BootstrapPrimeBits))
     {
         Ciphertext next;
         runtime.evaluator->drop_modulus_to_next(cipher, next);
@@ -433,12 +434,13 @@ size_t drop_trailing_51_bit_primes(Ciphertext &cipher, PoseidonRuntime &runtime)
     return dropped;
 }
 
-size_t drop_trailing_51_bit_primes(vector<Ciphertext> &ciphers, PoseidonRuntime &runtime)
+size_t drop_trailing_bootstrap_primes(vector<Ciphertext> &ciphers,
+                                      PoseidonRuntime &runtime)
 {
     size_t max_dropped = 0;
     for (Ciphertext &cipher : ciphers)
     {
-        max_dropped = max(max_dropped, drop_trailing_51_bit_primes(cipher, runtime));
+        max_dropped = max(max_dropped, drop_trailing_bootstrap_primes(cipher, runtime));
     }
     return max_dropped;
 }
@@ -1181,10 +1183,6 @@ MultiplexedCipherGroup multiplexed_channel_conv2d_all_channels(
     MultiplexedCipherGroup output =
         make_multiplexed_shape(input.h / stride, input.w / stride, out_channels, out_k,
                                input.slot_count);
-    const size_t output_pack_threads = resnet18_parallel_thread_count(output.packs.size());
-    resnet18_progress_log()
-        << "multiplexed dense conv compact-vector output pack threads: "
-        << output_pack_threads << endl;
     size_t max_output_channels_per_pack = 0;
     for (size_t output_pack_index = 0; output_pack_index < output.packs.size();
          ++output_pack_index)
@@ -1193,6 +1191,24 @@ MultiplexedCipherGroup multiplexed_channel_conv2d_all_channels(
             max(max_output_channels_per_pack,
                 multiplexed_channels_for_pack(output, output_pack_index).size());
     }
+    const size_t available_threads = resnet18_parallel_thread_count(
+        max(output.packs.size(), max_output_channels_per_pack));
+    const bool parallelize_output_channels =
+        output.packs.size() < available_threads && max_output_channels_per_pack > 1;
+    const size_t output_pack_threads = parallelize_output_channels
+                                           ? 1
+                                           : resnet18_parallel_thread_count(
+                                                 output.packs.size());
+    const size_t output_channel_threads =
+        parallelize_output_channels
+            ? min(available_threads, max_output_channels_per_pack)
+            : 1;
+    resnet18_progress_log()
+        << "multiplexed dense conv compact-vector parallel mode: "
+        << (parallelize_output_channels ? "output_channels_within_pack"
+                                        : "output_packs")
+        << ", pack_threads=" << output_pack_threads
+        << ", channel_threads=" << output_channel_threads << endl;
     resnet18_progress_log()
         << "multiplexed dense conv compact-vector estimate: output_packs="
         << output.packs.size() << ", input_packs=" << input.packs.size()
@@ -1212,12 +1228,23 @@ MultiplexedCipherGroup multiplexed_channel_conv2d_all_channels(
         }
 
         vector<Ciphertext> output_channel_terms(output_channels.size());
-        vector<bool> has_output_channel_terms(output_channels.size(), false);
+        vector<unsigned char> has_output_channel_terms(output_channels.size(), 0);
         vector<vector<double>> select_vectors(output_channels.size(),
                                               vector<double>(output.slot_count, 0.0));
-        for (size_t output_channel_index = 0;
-             output_channel_index < output_channels.size(); ++output_channel_index)
-        {
+        auto for_each_output_channel = [&](auto fn) {
+            if (parallelize_output_channels && output_channels.size() > 1)
+            {
+                resnet18_parallel_for(output_channels.size(), std::move(fn));
+                return;
+            }
+            for (size_t output_channel_index = 0;
+                 output_channel_index < output_channels.size(); ++output_channel_index)
+            {
+                fn(output_channel_index);
+            }
+        };
+
+        for_each_output_channel([&](size_t output_channel_index) {
             const int output_channel = output_channels.at(output_channel_index);
             const double folded_bn_scale =
                 constant_weight[output_channel] /
@@ -1238,13 +1265,13 @@ MultiplexedCipherGroup multiplexed_channel_conv2d_all_channels(
                         folded_bn_scale;
                 }
             }
-        }
+        });
 
         for (size_t input_pack_index = 0; input_pack_index < input.packs.size();
              ++input_pack_index)
         {
             vector<Ciphertext> input_pack_channel_sums(output_channels.size());
-            vector<bool> has_input_pack_channel_sums(output_channels.size(), false);
+            vector<unsigned char> has_input_pack_channel_sums(output_channels.size(), 0);
             const vector<int> input_channels =
                 multiplexed_channels_for_pack(input, input_pack_index);
             for (int kh = 0; kh < fh; ++kh)
@@ -1257,10 +1284,7 @@ MultiplexedCipherGroup multiplexed_channel_conv2d_all_channels(
                         multiplexed_spatial_kernel_rotation_step(input, fh, fw, kh, kw),
                         runtime);
 
-                    for (size_t output_channel_index = 0;
-                         output_channel_index < output_channels.size();
-                         ++output_channel_index)
-                    {
+                    for_each_output_channel([&](size_t output_channel_index) {
                         const int output_channel =
                             output_channels.at(output_channel_index);
                         vector<double> compact_weight(output.slot_count, 0.0);
@@ -1301,7 +1325,7 @@ MultiplexedCipherGroup multiplexed_channel_conv2d_all_channels(
                         }
                         if (!has_compact_weight)
                         {
-                            continue;
+                            return;
                         }
 
                         Ciphertext weighted = multiply_plain_vector_rescale(
@@ -1310,7 +1334,7 @@ MultiplexedCipherGroup multiplexed_channel_conv2d_all_channels(
                         {
                             input_pack_channel_sums.at(output_channel_index) =
                                 std::move(weighted);
-                            has_input_pack_channel_sums.at(output_channel_index) = true;
+                            has_input_pack_channel_sums.at(output_channel_index) = 1;
                         }
                         else
                         {
@@ -1321,16 +1345,14 @@ MultiplexedCipherGroup multiplexed_channel_conv2d_all_channels(
                             input_pack_channel_sums.at(output_channel_index) =
                                 std::move(next_sum);
                         }
-                    }
+                    });
                 }
             }
 
-            for (size_t output_channel_index = 0;
-                 output_channel_index < output_channels.size(); ++output_channel_index)
-            {
+            for_each_output_channel([&](size_t output_channel_index) {
                 if (!has_input_pack_channel_sums.at(output_channel_index))
                 {
-                    continue;
+                    return;
                 }
 
                 Ciphertext folded =
@@ -1348,7 +1370,7 @@ MultiplexedCipherGroup multiplexed_channel_conv2d_all_channels(
                 if (!has_output_channel_terms.at(output_channel_index))
                 {
                     output_channel_terms.at(output_channel_index) = std::move(selected);
-                    has_output_channel_terms.at(output_channel_index) = true;
+                    has_output_channel_terms.at(output_channel_index) = 1;
                 }
                 else
                 {
@@ -1358,7 +1380,7 @@ MultiplexedCipherGroup multiplexed_channel_conv2d_all_channels(
                         runtime.encoder);
                     output_channel_terms.at(output_channel_index) = std::move(next_sum);
                 }
-            }
+            });
         }
 
         Ciphertext sum;
@@ -1391,7 +1413,7 @@ MultiplexedCipherGroup multiplexed_channel_conv2d_all_channels(
         output.packs.at(output_pack_index) = std::move(sum);
     };
 
-    if (output_pack_threads > 1)
+    if (!parallelize_output_channels && output_pack_threads > 1)
     {
         resnet18_parallel_for(output.packs.size(), compute_output_pack);
     }
@@ -1491,28 +1513,36 @@ MultiplexedCipherGroup multiplexed_channel_bootstrap(
         resnet18_progress_log() << label
                                 << " bootstrap MOCK decrypt-reencrypt evaluation" << endl;
         output = encrypt_multiplexed_group_values(input, bootstrap_input_real, runtime);
-        const size_t dropped_51 = drop_trailing_51_bit_primes(output.packs, runtime);
-        if (dropped_51 > 0)
+        const size_t dropped_bootstrap =
+            drop_trailing_bootstrap_primes(output.packs, runtime);
+        if (dropped_bootstrap > 0)
         {
             resnet18_progress_log() << label
-                                    << " bootstrap MOCK drop trailing 51-bit primes after "
+                                    << " bootstrap MOCK drop trailing bootstrap primes after "
                                        "reencrypt: "
-                                    << dropped_51 << endl;
+                                    << dropped_bootstrap << endl;
         }
     }
     else
     {
-        PoseidonBootstrapContext bootstrap_ctx = make_resnet18_bootstrap_context(runtime);
-        for (size_t pack_index = 0; pack_index < input.packs.size(); ++pack_index)
-        {
+        const size_t thread_count =
+            resnet18_parallel_thread_count(input.packs.size());
+        atomic<size_t> completed_packs{0};
+        resnet18_progress_log() << label << " bootstrap parallel threads: "
+                                << thread_count << endl;
+        resnet18_parallel_for(input.packs.size(), [&](size_t pack_index) {
+            PoseidonBootstrapContext bootstrap_ctx =
+                make_resnet18_bootstrap_context(runtime);
             TensorCipher tensor_in(static_cast<int>(logn), input.k, input.h, input.w, input.c,
                                    1, input.pages_per_cipher, input.packs.at(pack_index));
             TensorCipher tensor_out;
             bootstrap_tensor(tensor_in, tensor_out, bootstrap_ctx);
             output.packs.at(pack_index) = tensor_out.cipher();
+            const size_t done = completed_packs.fetch_add(1) + 1;
             resnet18_progress_log() << label << " bootstrap ciphertext progress: "
-                                    << (pack_index + 1) << "/" << input.packs.size() << endl;
-        }
+                                    << done << "/" << input.packs.size()
+                                    << ", pack=" << pack_index << endl;
+        });
     }
     log_multiplexed_group_cipher_state(label + " bootstrap output", output, runtime);
     const vector<complex<double>> bootstrap_output_values =
@@ -1534,12 +1564,13 @@ MultiplexedCipherGroup multiplexed_channel_homomorphic_relu(
     MultiplexedCipherGroup relu_input = input;
     if (!mock_options.mock_relu)
     {
-        const size_t dropped_51 = drop_trailing_51_bit_primes(relu_input.packs, runtime);
-        if (dropped_51 > 0)
+        const size_t dropped_bootstrap =
+            drop_trailing_bootstrap_primes(relu_input.packs, runtime);
+        if (dropped_bootstrap > 0)
         {
             resnet18_progress_log() << label
-                                    << " drop trailing 51-bit primes before ReLU: "
-                                    << dropped_51 << endl;
+                                    << " drop trailing bootstrap primes before ReLU: "
+                                    << dropped_bootstrap << endl;
         }
     }
     log_multiplexed_group_cipher_state(
@@ -1563,19 +1594,24 @@ MultiplexedCipherGroup multiplexed_channel_homomorphic_relu(
                                 << " ReLU MOCK decrypt-polynomial-reencrypt evaluation"
                                 << endl;
         output = encrypt_multiplexed_group_values(relu_input, relu_output_values, runtime);
-        const size_t dropped_51 = drop_trailing_51_bit_primes(output.packs, runtime);
-        if (dropped_51 > 0)
+        const size_t dropped_bootstrap =
+            drop_trailing_bootstrap_primes(output.packs, runtime);
+        if (dropped_bootstrap > 0)
         {
             resnet18_progress_log() << label
-                                    << " ReLU MOCK drop trailing 51-bit primes after "
+                                    << " ReLU MOCK drop trailing bootstrap primes after "
                                        "reencrypt: "
-                                    << dropped_51 << endl;
+                                    << dropped_bootstrap << endl;
         }
     }
     else
     {
-        for (size_t pack_index = 0; pack_index < relu_input.packs.size(); ++pack_index)
-        {
+        const size_t thread_count =
+            resnet18_parallel_thread_count(relu_input.packs.size());
+        atomic<size_t> completed_packs{0};
+        resnet18_progress_log() << label << " homomorphic ReLU parallel threads: "
+                                << thread_count << endl;
+        resnet18_parallel_for(relu_input.packs.size(), [&](size_t pack_index) {
             TensorCipher tensor_in(static_cast<int>(logn), relu_input.k, relu_input.h,
                                    relu_input.w, relu_input.c, 1,
                                    relu_input.pages_per_cipher,
@@ -1586,10 +1622,11 @@ MultiplexedCipherGroup multiplexed_channel_homomorphic_relu(
                  runtime.encryptor, *runtime.evaluator, runtime.encoder, runtime.relin_keys,
                  runtime.scale);
             output.packs.at(pack_index) = tensor_out.cipher();
+            const size_t done = completed_packs.fetch_add(1) + 1;
             resnet18_progress_log() << label << " homomorphic ReLU ciphertext progress: "
-                                    << (pack_index + 1) << "/" << relu_input.packs.size()
-                                    << endl;
-        }
+                                    << done << "/" << relu_input.packs.size()
+                                    << ", pack=" << pack_index << endl;
+        });
     }
     log_multiplexed_group_cipher_state(
         label + (mock_options.mock_relu ? " mock ReLU output" : " homomorphic ReLU output"),
@@ -2950,15 +2987,28 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id, size_t d
     PoseidonRuntime runtime = make_poseidon_runtime(plan, false);
     resnet18_progress_log() << "Poseidon slot count: " << runtime.slot_count << endl;
     resnet18_progress_log() << "Poseidon scale: " << runtime.scale << endl;
-    resnet18_progress_log() << "Poseidon hybrid key-switch: dnum=" << plan.dnum
-                            << ", q_count=" << plan.logq_chain.size()
-                            << ", p_count="
-                            << logp_chain(plan.logq_chain.size(), plan.dnum).size() << endl;
+    resnet18_progress_log()
+        << "Poseidon modulus config: Q=1x45 + 20x40 + 14x45 (35 primes, 1475 bits)"
+        << ", P=" << logp_chain(plan.logq_chain.size(), plan.dnum).size()
+        << "x51, dnum=" << plan.dnum << endl;
+    resnet18_progress_log()
+        << "Poseidon scales: compute=" << plan.log_scale
+        << " bits, bootstrap_evalmod=" << runtime.bootstrap_config.scaling_log
+        << " bits, bootstrap_output="
+        << runtime.bootstrap_config.output_scaling_log << " bits" << endl;
     resnet18_progress_log() << "ImageNet input values: " << image_value_count << endl;
 
     out_log << "run_start: start_image_id=" << start_image_id
             << ", end_image_id=" << end_image_id
             << ", dnum=" << plan.dnum
+            << ", q_config=1x45+20x40+14x45"
+            << ", p_count="
+            << logp_chain(plan.logq_chain.size(), plan.dnum).size()
+            << ", p_prime_bits=51"
+            << ", compute_scale_bits=" << plan.log_scale
+            << ", bootstrap_scale_bits=" << runtime.bootstrap_config.scaling_log
+            << ", bootstrap_output_scale_bits="
+            << runtime.bootstrap_config.output_scaling_log
             << ", plain_relu_reference=homomorphic_polynomial"
             << ", mock_relu=" << (mock_options.mock_relu ? 1 : 0)
             << ", mock_bootstrap=" << (mock_options.mock_bootstrap ? 1 : 0)

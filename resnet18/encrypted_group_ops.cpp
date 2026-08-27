@@ -236,6 +236,7 @@ ChannelCipherGroup encrypted_conv2d_im2col_all_channels(
     output.spatial_count = im2col.spatial_count;
     output.slot_count = im2col.slot_count;
     vector<Ciphertext> output_channels(static_cast<size_t>(out_channels));
+    vector<unsigned char> quantized_zero_channels(static_cast<size_t>(out_channels), 0);
 
     resnet18_progress_log() << "conv im2col encrypted channel parallel threads: "
                             << resnet18_parallel_thread_count(static_cast<size_t>(out_channels))
@@ -299,10 +300,32 @@ ChannelCipherGroup encrypted_conv2d_im2col_all_channels(
 
         if (!has_sum)
         {
-            throw runtime_error("im2col output channel produced no encrypted terms");
+            // A near-zero folded BN scale can make every convolution coefficient
+            // encode to zero at the current CKKS plaintext scale. The mathematically
+            // correct convolution output is then zero. Materialize a fresh encrypted
+            // zero and drop the same modulus that multiply+rescale would consume so
+            // its parms_id and scale match the nonzero output channels.
+            Ciphertext encrypted_zero;
+            runtime.encryptor.encrypt_zero(im2col.patches.front().parms_id(),
+                                           encrypted_zero);
+            encrypted_zero.scale() = im2col.patches.front().scale();
+            runtime.evaluator->drop_modulus_to_next(encrypted_zero, sum);
+            sum.scale() = im2col.patches.front().scale();
+            quantized_zero_channels.at(output_channel_index) = 1;
         }
         output_channels.at(output_channel_index) = std::move(sum);
     });
+
+    for (size_t output_channel_index = 0;
+         output_channel_index < quantized_zero_channels.size(); ++output_channel_index)
+    {
+        if (quantized_zero_channels.at(output_channel_index) != 0)
+        {
+            resnet18_progress_log()
+                << "conv im2col output channel " << output_channel_index
+                << " quantized to encrypted zero at the current plaintext scale" << endl;
+        }
+    }
 
     output.channels = std::move(output_channels);
     resnet18_progress_log() << "conv im2col encrypted channel progress: " << out_channels << "/"

@@ -21,8 +21,9 @@ constexpr double kBatchNormEpsilon = 1.0e-5;
 constexpr bool kEnableHomomorphicRelu = true;
 constexpr bool kBootstrapBeforeReluExceptFirst = true;
 constexpr std::uint32_t kResNet18BootstrapQ0Level = 0;
-constexpr std::uint32_t kResNet18BootstrapPrimeBits = 51;
-constexpr std::uint32_t kResNet18ComputePrimeBits = 46;
+constexpr std::uint32_t kResNet18BootstrapPrimeBits = 45;
+constexpr std::uint32_t kResNet18ComputePrimeBits = 40;
+constexpr std::uint32_t kResNet18SpecialPrimeBits = 51;
 constexpr std::size_t kResNet18ComputePrimeCount = 20;
 constexpr std::size_t kResNet18BootstrapPrimeCount = 14;
 
