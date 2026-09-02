@@ -262,31 +262,6 @@ double multiply_plain_scale(const Ciphertext &input, const CKKSEncoder &encoder)
     return std::pow(2.0, static_cast<double>(rescale_prime_bits));
 }
 
-void multiply_by_vector(const Ciphertext &input, const vector<double> &weights, Ciphertext &output,
-                        CKKSEncoder &encoder, EvaluatorCkksBase &evaluator)
-{
-    Plaintext plain;
-    encoder.encode(weights, input.parms_id(), multiply_plain_scale(input, encoder), plain);
-    evaluator.multiply_plain(input, plain, output);
-    evaluator.rescale_dynamic(output, output, input.scale());
-}
-
-void multiply_by_vector_inplace(Ciphertext &input, const vector<double> &weights,
-                                CKKSEncoder &encoder, EvaluatorCkksBase &evaluator)
-{
-    Plaintext plain;
-    const double original_scale = input.scale();
-    encoder.encode(weights, input.parms_id(), multiply_plain_scale(input, encoder), plain);
-    evaluator.multiply_plain_inplace(input, plain);
-    evaluator.rescale_dynamic(input, input, original_scale);
-}
-
-void add_assign_dynamic(Ciphertext &accumulator, const Ciphertext &term, CKKSEncoder &encoder,
-                        EvaluatorCkksBase &evaluator)
-{
-    evaluator.add_dynamic(accumulator, term, accumulator, encoder);
-}
-
 } // namespace
 
 void relu(const TensorCipher &cnn_in, TensorCipher &cnn_out, long comp_no,
@@ -503,30 +478,33 @@ void multiplexed_convolution(
         }
     }
 
-    Ciphertext total_sum;
-    bool has_total_sum = false;
+    Ciphertext total_sum_high_scale;
     for (int i9 = 0; i9 < q; ++i9)
     {
-        Ciphertext sum;
-        bool has_sum = false;
+        // All kernel terms have the same parms_id and scale. Accumulate them
+        // before rescaling so a q-group pays for one rescale instead of one
+        // rescale per kernel position.
+        Ciphertext kernel_sum_high_scale;
         for (int i1 = 0; i1 < fh; ++i1)
         {
             for (int i2 = 0; i2 < fw; ++i2)
             {
-                Ciphertext temp;
-                multiply_by_vector(ctxt_rot[i1][i2], compact_weight_vec[i1][i2][i9], temp, encoder,
-                                   evaluator);
-                if (!has_sum)
-                {
-                    sum = temp;
-                    has_sum = true;
-                }
-                else
-                {
-                    add_assign_dynamic(sum, temp, encoder, evaluator);
-                }
+                Plaintext kernel_plain;
+                encoder.encode(compact_weight_vec[i1][i2][i9],
+                               ctxt_rot[i1][i2].parms_id(),
+                               multiply_plain_scale(ctxt_rot[i1][i2], encoder),
+                               kernel_plain);
+                evaluator.multiply_plain_accumulate(
+                    ctxt_rot[i1][i2], kernel_plain, kernel_sum_high_scale);
             }
         }
+        if (!kernel_sum_high_scale.is_valid())
+        {
+            throw runtime_error("multiplexed convolution kernel accumulation produced no terms");
+        }
+
+        Ciphertext sum;
+        evaluator.rescale_dynamic(kernel_sum_high_scale, sum, ctxt_in.scale());
 
         Ciphertext var = sum;
         const int d = log2_long(ki);
@@ -536,13 +514,13 @@ void multiplexed_convolution(
         {
             Ciphertext temp = var;
             memory_save_rotate(temp, temp, pow2(x), evaluator, gal_keys);
-            add_assign_dynamic(var, temp, encoder, evaluator);
+            evaluator.add(var, temp, var);
         }
         for (int x = 0; x < d; ++x)
         {
             Ciphertext temp = var;
             memory_save_rotate(temp, temp, pow2(x) * ki * wi, evaluator, gal_keys);
-            add_assign_dynamic(var, temp, encoder, evaluator);
+            evaluator.add(var, temp, var);
         }
 
         if (c == -1)
@@ -560,7 +538,7 @@ void multiplexed_convolution(
                 }
                 else
                 {
-                    add_assign_dynamic(grouped, temp, encoder, evaluator);
+                    evaluator.add(grouped, temp, grouped);
                 }
             }
             var = grouped;
@@ -571,7 +549,7 @@ void multiplexed_convolution(
             {
                 Ciphertext temp = var;
                 memory_save_rotate(temp, temp, pow2(x) * ki * ki * hi * wi, evaluator, gal_keys);
-                add_assign_dynamic(var, temp, encoder, evaluator);
+                evaluator.add(var, temp, var);
             }
         }
 
@@ -583,20 +561,23 @@ void multiplexed_convolution(
                                (n / pi) * (j4 % pi) - j4 % ko - (j4 / (ko * ko)) * ko * ko * ho * wo -
                                    ((j4 % (ko * ko)) / ko) * ko * wo,
                                evaluator, gal_keys);
-            multiply_by_vector_inplace(temp, select_one_vec[j4], encoder, evaluator);
-            if (!has_total_sum)
-            {
-                total_sum = temp;
-                has_total_sum = true;
-            }
-            else
-            {
-                add_assign_dynamic(total_sum, temp, encoder, evaluator);
-            }
+            Plaintext select_plain;
+            encoder.encode(select_one_vec[j4], temp.parms_id(),
+                           multiply_plain_scale(temp, encoder), select_plain);
+            // Output placement and folded BN scaling are also linear. Keep
+            // every output channel at high scale, then rescale the complete
+            // output once instead of rescaling each channel independently.
+            evaluator.multiply_plain_accumulate(
+                temp, select_plain, total_sum_high_scale);
         }
     }
 
-    Ciphertext var = total_sum;
+    if (!total_sum_high_scale.is_valid())
+    {
+        throw runtime_error("multiplexed convolution output accumulation produced no terms");
+    }
+    Ciphertext var;
+    evaluator.rescale_dynamic(total_sum_high_scale, var, ctxt_in.scale());
     if (!end)
     {
         Ciphertext sum = var;
@@ -604,7 +585,7 @@ void multiplexed_convolution(
         {
             Ciphertext temp = var;
             memory_save_rotate(temp, temp, -u6 * (n / po), evaluator, gal_keys);
-            add_assign_dynamic(sum, temp, encoder, evaluator);
+            evaluator.add(sum, temp, sum);
         }
         var = sum;
     }
@@ -743,14 +724,17 @@ void multiplexed_downsampling(const TensorCipher &cnn_in, TensorCipher &cnn_out,
     }
 
     Ciphertext ct = cnn_in.cipher();
-    Ciphertext sum;
+    Ciphertext sum_high_scale;
     bool has_sum = false;
     for (int w1 = 0; w1 < ki; ++w1)
     {
         for (int w2 = 0; w2 < ti; ++w2)
         {
-            Ciphertext temp = ct;
-            multiply_by_vector_inplace(temp, select_one_vec[w1][w2], encoder, evaluator);
+            Plaintext select_plain;
+            encoder.encode(select_one_vec[w1][w2], ct.parms_id(),
+                           multiply_plain_scale(ct, encoder), select_plain);
+            Ciphertext temp;
+            evaluator.multiply_plain(ct, select_plain, temp);
 
             const int w3 = ((ki * w2 + w1) % (2 * ko)) / 2;
             const int w4 = (ki * w2 + w1) % 2;
@@ -762,23 +746,27 @@ void multiplexed_downsampling(const TensorCipher &cnn_in, TensorCipher &cnn_out,
 
             if (!has_sum)
             {
-                sum = temp;
+                sum_high_scale = std::move(temp);
                 has_sum = true;
             }
             else
             {
-                add_assign_dynamic(sum, temp, encoder, evaluator);
+                evaluator.add(sum_high_scale, temp, sum_high_scale);
             }
         }
     }
-    ct = sum;
+    if (!has_sum)
+    {
+        throw runtime_error("multiplexed downsampling produced no encrypted terms");
+    }
+    evaluator.rescale_dynamic(sum_high_scale, ct, cnn_in.cipher().scale());
 
-    sum = ct;
+    Ciphertext sum = ct;
     for (int u6 = 1; u6 < po; ++u6)
     {
         Ciphertext temp = ct;
         memory_save_rotate(temp, temp, -(n / po) * u6, evaluator, gal_keys);
-        add_assign_dynamic(sum, temp, encoder, evaluator);
+        evaluator.add(sum, temp, sum);
     }
 
     cnn_out = TensorCipher(logn, ko, ho, wo, co, to, po, sum);
@@ -808,20 +796,19 @@ void averagepooling_scale(const TensorCipher &cnn_in, TensorCipher &cnn_out,
     {
         Ciphertext temp = ct;
         memory_save_rotate(temp, temp, pow2(x) * ki, evaluator, gal_keys);
-        add_assign_dynamic(ct, temp, encoder, evaluator);
+        evaluator.add(ct, temp, ct);
     }
     for (int x = 0; x < log2_long(hi); ++x)
     {
         Ciphertext temp = ct;
         memory_save_rotate(temp, temp, pow2(x) * ki * ki * wi, evaluator, gal_keys);
-        add_assign_dynamic(ct, temp, encoder, evaluator);
+        evaluator.add(ct, temp, ct);
     }
 
     const size_t n = slot_count_from_logn(logn);
     vector<double> select_one(n, 0.0);
     vector<double> zero(n, 0.0);
-    Ciphertext sum;
-    bool has_sum = false;
+    Ciphertext sum_high_scale;
 
     for (int s = 0; s < ki; ++s)
     {
@@ -838,18 +825,19 @@ void averagepooling_scale(const TensorCipher &cnn_in, TensorCipher &cnn_out,
                     B / static_cast<double>(hi * wi);
             }
 
-            multiply_by_vector_inplace(temp, select_one, encoder, evaluator);
-            if (!has_sum)
-            {
-                sum = temp;
-                has_sum = true;
-            }
-            else
-            {
-                add_assign_dynamic(sum, temp, encoder, evaluator);
-            }
+            Plaintext select_plain;
+            encoder.encode(select_one, temp.parms_id(),
+                           multiply_plain_scale(temp, encoder), select_plain);
+            evaluator.multiply_plain_accumulate(temp, select_plain, sum_high_scale);
         }
     }
+
+    if (!sum_high_scale.is_valid())
+    {
+        throw runtime_error("average pool produced no encrypted terms");
+    }
+    Ciphertext sum;
+    evaluator.rescale_dynamic(sum_high_scale, sum, cnn_in.cipher().scale());
 
     cnn_out = TensorCipher(logn, 1, 1, 1, ci, ti, 1, sum);
 }
@@ -893,23 +881,22 @@ void matrix_multiplication(const TensorCipher &cnn_in, TensorCipher &cnn_out,
     }
 
     Ciphertext ct = cnn_in.cipher();
-    Ciphertext sum;
-    bool has_sum = false;
+    Ciphertext sum_high_scale;
     for (int s = 0; s < q + r - 1; ++s)
     {
         Ciphertext temp = ct;
         memory_save_rotate(temp, temp, r - 1 - s, evaluator, gal_keys);
-        multiply_by_vector_inplace(temp, W[s], encoder, evaluator);
-        if (!has_sum)
-        {
-            sum = temp;
-            has_sum = true;
-        }
-        else
-        {
-            add_assign_dynamic(sum, temp, encoder, evaluator);
-        }
+        Plaintext diagonal_plain;
+        encoder.encode(W[s], temp.parms_id(), multiply_plain_scale(temp, encoder),
+                       diagonal_plain);
+        evaluator.multiply_plain_accumulate(temp, diagonal_plain, sum_high_scale);
     }
+    if (!sum_high_scale.is_valid())
+    {
+        throw runtime_error("fully connected layer produced no encrypted terms");
+    }
+    Ciphertext sum;
+    evaluator.rescale_dynamic(sum_high_scale, sum, ct.scale());
 
     Plaintext bias_plain;
     encoder.encode(b, sum.parms_id(), sum.scale(), bias_plain);

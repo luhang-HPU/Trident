@@ -1,6 +1,7 @@
 #include "infer.h"
 
 #include "encrypted_ops.h"
+#include "execution_mode.h"
 #include "infer_config.h"
 #include "infer_runtime.h"
 #include "parameter_loader.h"
@@ -153,10 +154,13 @@ void run_relu(TensorCipher &input, TensorCipher &output, PlainTensor &plain_inpu
                       relu_config.tree, relu_config.scaled_val, runtime.encryptor,
                       *runtime.evaluator, runtime.decryptor, runtime.encoder,
                       runtime.relin_keys, runtime.scale, log, runtime.context, stage);
-    plain_output = plain_relu_reference(plain_input);
-    if (kLogPlainIntermediate)
+    if (!resnet20_execution::inference_only())
     {
-        log_plain_tensor("plain relu output", plain_output, log);
+        plain_output = plain_relu_reference(plain_input);
+        if (kLogPlainIntermediate)
+        {
+            log_plain_tensor("plain relu output", plain_output, log);
+        }
     }
 }
 
@@ -179,13 +183,17 @@ void run_stem(InferenceState &state, RunContext &ctx, ofstream &output)
         kBatchNormEpsilon, runtime.encoder, runtime.encryptor,
         *runtime.evaluator, runtime.galois_keys, cipher_pool, output, runtime.decryptor,
         runtime.context, 0, false);
-    plain_conv_out =
-        plain_convolution(state.plain, 16, 1, 3, 3, weights.conv_weight.at(state.conv_idx),
-                          weights.bn_running_var.at(state.bn_idx),
-                          weights.bn_weight.at(state.bn_idx), kBatchNormEpsilon);
-    if (kLogPlainIntermediate)
+    if (!resnet20_execution::inference_only())
     {
-        log_plain_tensor("plain conv output", plain_conv_out, output);
+        plain_conv_out =
+            plain_convolution(state.plain, 16, 1, 3, 3,
+                              weights.conv_weight.at(state.conv_idx),
+                              weights.bn_running_var.at(state.bn_idx),
+                              weights.bn_weight.at(state.bn_idx), kBatchNormEpsilon);
+        if (kLogPlainIntermediate)
+        {
+            log_plain_tensor("plain conv output", plain_conv_out, output);
+        }
     }
     ++state.conv_idx;
 
@@ -194,20 +202,26 @@ void run_stem(InferenceState &state, RunContext &ctx, ofstream &output)
         weights.bn_running_mean.at(state.bn_idx), weights.bn_running_var.at(state.bn_idx),
         weights.bn_weight.at(state.bn_idx), kBatchNormEpsilon, runtime.encoder, runtime.encryptor,
         *runtime.evaluator, 40.0, output, runtime.decryptor, runtime.context, 0, false);
-    plain_bn_out =
-        plain_batch_norm(plain_conv_out, weights.bn_bias.at(state.bn_idx),
-                         weights.bn_running_mean.at(state.bn_idx),
-                         weights.bn_running_var.at(state.bn_idx),
-                         weights.bn_weight.at(state.bn_idx), kBatchNormEpsilon, 40.0);
-    if (kLogPlainIntermediate)
+    if (!resnet20_execution::inference_only())
     {
-        log_plain_tensor("plain batchnorm output", plain_bn_out, output);
+        plain_bn_out =
+            plain_batch_norm(plain_conv_out, weights.bn_bias.at(state.bn_idx),
+                             weights.bn_running_mean.at(state.bn_idx),
+                             weights.bn_running_var.at(state.bn_idx),
+                             weights.bn_weight.at(state.bn_idx), kBatchNormEpsilon, 40.0);
+        if (kLogPlainIntermediate)
+        {
+            log_plain_tensor("plain batchnorm output", plain_bn_out, output);
+        }
     }
     ++state.bn_idx;
 
     run_relu(bn_out, relu_out, plain_bn_out, plain_relu_out, ctx, output, 0);
     state.cipher = std::move(relu_out);
-    state.plain = std::move(plain_relu_out);
+    if (!resnet20_execution::inference_only())
+    {
+        state.plain = std::move(plain_relu_out);
+    }
 }
 
 void run_residual_block(InferenceState &state, const PoseidonStagePlan &stage_plan,
@@ -225,7 +239,11 @@ void run_residual_block(InferenceState &state, const PoseidonStagePlan &stage_pl
     TensorCipher shortcut_down;
     TensorCipher added;
     TensorCipher block_output;
-    PlainTensor plain_shortcut = state.plain;
+    PlainTensor plain_shortcut;
+    if (!resnet20_execution::inference_only())
+    {
+        plain_shortcut = state.plain;
+    }
     PlainTensor plain_branch_conv1;
     PlainTensor plain_branch_bn1;
     PlainTensor plain_branch_relu1;
@@ -246,14 +264,17 @@ void run_residual_block(InferenceState &state, const PoseidonStagePlan &stage_pl
         weights.bn_weight.at(state.bn_idx), kBatchNormEpsilon, runtime.encoder,
         runtime.encryptor, *runtime.evaluator, runtime.galois_keys, cipher_pool, output,
         runtime.decryptor, runtime.context, state.logical_layer, false);
-    plain_branch_conv1 =
-        plain_convolution(state.plain, stage_plan.out_channels, stride, 3, 3,
-                          weights.conv_weight.at(state.conv_idx),
-                          weights.bn_running_var.at(state.bn_idx),
-                          weights.bn_weight.at(state.bn_idx), kBatchNormEpsilon);
-    if (kLogPlainIntermediate)
+    if (!resnet20_execution::inference_only())
     {
-        log_plain_tensor("plain conv1 output", plain_branch_conv1, output);
+        plain_branch_conv1 =
+            plain_convolution(state.plain, stage_plan.out_channels, stride, 3, 3,
+                              weights.conv_weight.at(state.conv_idx),
+                              weights.bn_running_var.at(state.bn_idx),
+                              weights.bn_weight.at(state.bn_idx), kBatchNormEpsilon);
+        if (kLogPlainIntermediate)
+        {
+            log_plain_tensor("plain conv1 output", plain_branch_conv1, output);
+        }
     }
     ++state.conv_idx;
 
@@ -263,14 +284,17 @@ void run_residual_block(InferenceState &state, const PoseidonStagePlan &stage_pl
         weights.bn_weight.at(state.bn_idx), kBatchNormEpsilon, runtime.encoder,
         runtime.encryptor, *runtime.evaluator, 40.0, output, runtime.decryptor, runtime.context,
         state.logical_layer, false);
-    plain_branch_bn1 =
-        plain_batch_norm(plain_branch_conv1, weights.bn_bias.at(state.bn_idx),
-                         weights.bn_running_mean.at(state.bn_idx),
-                         weights.bn_running_var.at(state.bn_idx),
-                         weights.bn_weight.at(state.bn_idx), kBatchNormEpsilon, 40.0);
-    if (kLogPlainIntermediate)
+    if (!resnet20_execution::inference_only())
     {
-        log_plain_tensor("plain bn1 output", plain_branch_bn1, output);
+        plain_branch_bn1 =
+            plain_batch_norm(plain_branch_conv1, weights.bn_bias.at(state.bn_idx),
+                             weights.bn_running_mean.at(state.bn_idx),
+                             weights.bn_running_var.at(state.bn_idx),
+                             weights.bn_weight.at(state.bn_idx), kBatchNormEpsilon, 40.0);
+        if (kLogPlainIntermediate)
+        {
+            log_plain_tensor("plain bn1 output", plain_branch_bn1, output);
+        }
     }
     ++state.bn_idx;
 
@@ -285,14 +309,17 @@ void run_residual_block(InferenceState &state, const PoseidonStagePlan &stage_pl
         weights.bn_weight.at(state.bn_idx), kBatchNormEpsilon, runtime.encoder,
         runtime.encryptor, *runtime.evaluator, runtime.galois_keys, cipher_pool, output,
         runtime.decryptor, runtime.context, state.logical_layer, false);
-    plain_branch_conv2 =
-        plain_convolution(plain_branch_relu1, stage_plan.out_channels, 1, 3, 3,
-                          weights.conv_weight.at(state.conv_idx),
-                          weights.bn_running_var.at(state.bn_idx),
-                          weights.bn_weight.at(state.bn_idx), kBatchNormEpsilon);
-    if (kLogPlainIntermediate)
+    if (!resnet20_execution::inference_only())
     {
-        log_plain_tensor("plain conv2 output", plain_branch_conv2, output);
+        plain_branch_conv2 =
+            plain_convolution(plain_branch_relu1, stage_plan.out_channels, 1, 3, 3,
+                              weights.conv_weight.at(state.conv_idx),
+                              weights.bn_running_var.at(state.bn_idx),
+                              weights.bn_weight.at(state.bn_idx), kBatchNormEpsilon);
+        if (kLogPlainIntermediate)
+        {
+            log_plain_tensor("plain conv2 output", plain_branch_conv2, output);
+        }
     }
     ++state.conv_idx;
 
@@ -302,14 +329,17 @@ void run_residual_block(InferenceState &state, const PoseidonStagePlan &stage_pl
         weights.bn_weight.at(state.bn_idx), kBatchNormEpsilon, runtime.encoder,
         runtime.encryptor, *runtime.evaluator, 40.0, output, runtime.decryptor, runtime.context,
         state.logical_layer, false);
-    plain_branch_bn2 =
-        plain_batch_norm(plain_branch_conv2, weights.bn_bias.at(state.bn_idx),
-                         weights.bn_running_mean.at(state.bn_idx),
-                         weights.bn_running_var.at(state.bn_idx),
-                         weights.bn_weight.at(state.bn_idx), kBatchNormEpsilon, 40.0);
-    if (kLogPlainIntermediate)
+    if (!resnet20_execution::inference_only())
     {
-        log_plain_tensor("plain bn2 output", plain_branch_bn2, output);
+        plain_branch_bn2 =
+            plain_batch_norm(plain_branch_conv2, weights.bn_bias.at(state.bn_idx),
+                             weights.bn_running_mean.at(state.bn_idx),
+                             weights.bn_running_var.at(state.bn_idx),
+                             weights.bn_weight.at(state.bn_idx), kBatchNormEpsilon, 40.0);
+        if (kLogPlainIntermediate)
+        {
+            log_plain_tensor("plain bn2 output", plain_branch_bn2, output);
+        }
     }
     ++state.bn_idx;
 
@@ -318,29 +348,41 @@ void run_residual_block(InferenceState &state, const PoseidonStagePlan &stage_pl
         multiplexed_downsampling_print(shortcut, shortcut_down, *runtime.evaluator,
                                                      runtime.decryptor, runtime.encoder,
                                                      runtime.context, runtime.galois_keys, output);
-        plain_shortcut_down = plain_downsample_shortcut(plain_shortcut);
-        if (kLogPlainIntermediate)
+        if (!resnet20_execution::inference_only())
         {
-            log_plain_tensor("plain shortcut output", plain_shortcut_down, output);
+            plain_shortcut_down = plain_downsample_shortcut(plain_shortcut);
+            if (kLogPlainIntermediate)
+            {
+                log_plain_tensor("plain shortcut output", plain_shortcut_down, output);
+            }
         }
         shortcut = std::move(shortcut_down);
-        plain_shortcut = std::move(plain_shortcut_down);
+        if (!resnet20_execution::inference_only())
+        {
+            plain_shortcut = std::move(plain_shortcut_down);
+        }
     }
 
     align_for_add(branch_bn2, shortcut, runtime);
     cipher_add_stage_print(branch_bn2, shortcut, added, *runtime.evaluator, output,
                           runtime.decryptor, runtime.encoder, runtime.context);
-    plain_added = plain_add(plain_branch_bn2, plain_shortcut);
-    if (kLogPlainIntermediate)
+    if (!resnet20_execution::inference_only())
     {
-        log_plain_tensor("plain add output", plain_added, output);
+        plain_added = plain_add(plain_branch_bn2, plain_shortcut);
+        if (kLogPlainIntermediate)
+        {
+            log_plain_tensor("plain add output", plain_added, output);
+        }
     }
 
     maybe_bootstrap(added, runtime, output, state.logical_layer);
     run_relu(added, block_output, plain_added, plain_block_output, ctx, output,
              state.logical_layer);
     state.cipher = std::move(block_output);
-    state.plain = std::move(plain_block_output);
+    if (!resnet20_execution::inference_only())
+    {
+        state.plain = std::move(plain_block_output);
+    }
 }
 
 vector<double> run_head(InferenceState &state, RunContext &ctx, ofstream &output,
@@ -354,26 +396,35 @@ vector<double> run_head(InferenceState &state, RunContext &ctx, ofstream &output
 
     averagepooling_scale_print(state.cipher, pooled, *runtime.evaluator, runtime.galois_keys, 40.0,
                                     output, runtime.decryptor, runtime.encoder, runtime.context);
-    plain_pooled = plain_average_pool(state.plain, 40.0);
-    if (kLogPlainIntermediate)
+    if (!resnet20_execution::inference_only())
     {
-        log_plain_tensor("plain average pool output", plain_pooled, output);
+        plain_pooled = plain_average_pool(state.plain, 40.0);
+        if (kLogPlainIntermediate)
+        {
+            log_plain_tensor("plain average pool output", plain_pooled, output);
+        }
     }
     fully_connected_print(pooled, logits, weights.linear_weight, weights.linear_bias, 10, 64,
                                *runtime.evaluator, runtime.galois_keys, output, runtime.decryptor,
                                runtime.encoder, runtime.context);
+    state.cipher = std::move(logits);
+    if (resnet20_execution::inference_only())
+    {
+        return {};
+    }
     plain_logits =
         plain_fully_connected(plain_pooled, weights.linear_weight, weights.linear_bias, 10, 64);
-    state.cipher = std::move(logits);
     state.plain = std::move(plain_pooled);
     return decode_real_slots(state.cipher, runtime, 10);
 }
 
 } // namespace
 
-void ResNet_cifar10_sparse(size_t start_image_id, size_t end_image_id)
+void ResNet_cifar10_sparse(size_t start_image_id, size_t end_image_id,
+                           const ResNet20RunOptions &options)
 {
     const PoseidonInferPlan plan = default_poseidon_plan();
+    resnet20_execution::set_inference_only(options.inference_only);
     const string run_timestamp = make_run_timestamp();
     ReluConfig relu_config = default_relu_config(plan);
 
@@ -405,6 +456,7 @@ void ResNet_cifar10_sparse(size_t start_image_id, size_t end_image_id)
 
     out_status << "run_start: start_image_id=" << start_image_id
                << ", end_image_id=" << end_image_id
+               << ", inference_only=" << (options.inference_only ? 1 : 0)
                << ", run_timestamp=" << run_timestamp << '\n';
 
     ModelWeights weights = load_resnet20_parameters();
@@ -429,13 +481,17 @@ void ResNet_cifar10_sparse(size_t start_image_id, size_t end_image_id)
         output << "\n==================== run_start ====================\n";
         output << "image_id: " << image_id << '\n';
         output << "run_timestamp: " << run_timestamp << '\n';
+        output << "inference_only: " << (options.inference_only ? 1 : 0) << '\n';
         output << "log_file: " << image_result_path << '\n';
 
         vector<double> image_slots =
             read_image_slots(image_id, plan.log_slots, plan.init_p, plan.boundary);
         const int image_label = read_image_label(image_id);
         InferenceState state;
-        state.plain = plain_input_tensor_from_image_slots(image_slots);
+        if (!options.inference_only)
+        {
+            state.plain = plain_input_tensor_from_image_slots(image_slots);
+        }
 
         output << "runtime: poseidon ready\n";
         output << "ckks_config: log_scale=" << plan.log_scale
@@ -457,7 +513,7 @@ void ResNet_cifar10_sparse(size_t start_image_id, size_t end_image_id)
                                     runtime.encryptor, runtime.encoder, plan.log_scale);
         output << "input ciphertext: level=" << cipher_chain_index(runtime, state.cipher.cipher())
                << ", scale=" << state.cipher.cipher().scale() << '\n';
-        if (kLogPlainIntermediate)
+        if (!options.inference_only && kLogPlainIntermediate)
         {
             log_plain_tensor("plain input", state.plain, output);
         }
@@ -476,6 +532,13 @@ void ResNet_cifar10_sparse(size_t start_image_id, size_t end_image_id)
                << ", initial_budget=" << initial_level
                << ", scale=" << state.cipher.cipher().scale() << '\n';
 
+        // Input ciphertext construction and level alignment are complete.
+        // In --inference-only mode the following window contains only the
+        // encrypted network and lightweight trace formatting. On-demand
+        // operator plaintext construction/encoding is included; plaintext
+        // reference evaluation, intermediate decrypt/decode, key setup and
+        // final logits decryption are excluded.
+        const auto encrypted_inference_start = chrono::steady_clock::now();
         run_stem(state, ctx, output);
 
         for (size_t stage_index = 0; stage_index < plan.stages.size(); ++stage_index)
@@ -492,35 +555,51 @@ void ResNet_cifar10_sparse(size_t start_image_id, size_t end_image_id)
         output << "head: average_pool -> fully_connected -> argmax\n";
         vector<double> plain_logits;
         vector<double> logits = run_head(state, ctx, output, plain_logits);
-        const int predicted_label = argmax_index(logits);
-        const int plain_predicted_label = argmax_index(plain_logits);
+        const auto encrypted_inference_end = chrono::steady_clock::now();
+        const auto encrypted_inference_time_ms =
+            chrono::duration_cast<chrono::milliseconds>(
+                encrypted_inference_end - encrypted_inference_start).count();
+        const int predicted_label = options.inference_only ? -1 : argmax_index(logits);
+        const int plain_predicted_label =
+            options.inference_only ? -1 : argmax_index(plain_logits);
         const auto image_time_end = chrono::high_resolution_clock::now();
         const auto image_time_diff =
             chrono::duration_cast<chrono::milliseconds>(image_time_end - image_time_start);
 
-        output << "logits:";
-        for (double logit : logits)
+        if (!options.inference_only)
         {
-            output << ' ' << logit;
+            output << "logits:";
+            for (double logit : logits)
+            {
+                output << ' ' << logit;
+            }
+            output << endl;
+            output << "predicted label: " << predicted_label << endl;
+            log_plain_logits(plain_logits, output);
+            output << "plain predicted label: " << plain_predicted_label << '\n';
         }
-        output << endl;
-        output << "predicted label: " << predicted_label << endl;
-        log_plain_logits(plain_logits, output);
-        output << "plain predicted label: " << plain_predicted_label << '\n';
+        output << "encrypted inference time : "
+               << encrypted_inference_time_ms << " ms\n";
         output << "image time : " << image_time_diff.count() << " ms" << endl;
 
         out_share << "image_id: " << image_id << ", image label: " << image_label
                   << ", predicted label: " << predicted_label
                   << ", plain predicted label: " << plain_predicted_label
+                  << ", encrypted inference time : "
+                  << encrypted_inference_time_ms << " ms"
                   << ", image time : " << image_time_diff.count() << " ms" << endl;
         cout << "image_id: " << image_id << ", image label: " << image_label
              << ", predicted label: " << predicted_label
              << ", plain predicted label: " << plain_predicted_label
+             << ", encrypted inference time : "
+             << encrypted_inference_time_ms << " ms"
              << ", image time : " << image_time_diff.count() << " ms" << endl;
         out_status << "image_done: " << image_id
                    << ", image label: " << image_label
                    << ", predicted label: " << predicted_label
                    << ", plain predicted label: " << plain_predicted_label
+                   << ", encrypted_inference_time_ms="
+                   << encrypted_inference_time_ms
                    << ", image_time_ms=" << image_time_diff.count() << '\n';
         out_status.flush();
     }

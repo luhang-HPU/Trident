@@ -228,13 +228,13 @@ stem 7×7 conv（消耗顶部 45-bit 模数）    34 -> 33
 stem 输出重排为 multiplexed k=1（2 层）   33 -> 31
 ReLU 前丢弃剩余 11 个 45-bit 模数          31 -> 20
 stem 复合多项式 ReLU（14 层）              20 -> 6
-stem 3×3 average-pool（2 层）               6 -> 4
-layer1 block0 conv1（含 BN scale，2 层）     4 -> 2
-第一次 Bootstrap 输入                       chain_index 2
+stem 3×3 average-pool（融合 1/9，1 层）       6 -> 5
+layer1 block0 conv1（含 BN scale，2 层）     5 -> 3
+第一次 Bootstrap 输入                       chain_index 3
 ```
 
 首段沿用原来的 20-level 预算，因此 stem ReLU、average-pool 和首个 BasicBlock
-卷积完成后仍保留到 `chain_index=2`，无需增加额外 Bootstrap。
+卷积完成后仍保留到 `chain_index=3`，无需增加额外 Bootstrap。
 
 特殊模数 P 为：
 
@@ -266,30 +266,50 @@ layer1 block0 conv1（含 BN scale，2 层）     4 -> 2
 
 正式入口先用 `generate_evaluation_keys=false` 创建基础 runtime，再由
 `prepare_resnet18_evaluation_keys()` 一次性生成 relinearization keys 和完整的
-二次幂 rotation/conjugation Galois keys。这样不会在每个卷积、池化或 Bootstrap
-阶段重复创建密钥。
+ResNet-18 网络、自举 rotation/conjugation Galois keys。这样不会在每个卷积、
+池化、全连接或 Bootstrap 阶段重复创建密钥。
 
 ### 6.1 网络 rotation keys
 
-默认 Galois key 生成接口会准备：
+启动阶段会按固定的完整 ResNet-18 拓扑收集：
 
-- CKKS slot 数范围内的正负二次幂 rotation keys；
-- conjugation key。
+- stem 重排和池化使用的 rotation steps；
+- 19 次 BasicBlock 主支/shortcut 密文卷积使用的空间、通道折叠和通道选择 steps；
+- head average pool 和 1000×512 全连接使用的 steps。
 
-`rotate_with_power_of_two_keys()` 会把任意 rotation step 分解成若干二进制位，依次
-应用已有的二次幂 Galois keys。因此网络中的 `±112×112` 页面移动和全连接 rotation
-不需要逐个生成直接 key。
+默认启用融合 BSGS 时，Layer3/4 首块的 stride-2 主分支和 projection shortcut、
+Layer3/4 的 stride-1 目标卷积不再收集旧的逐输出通道折叠/选择 steps，而是按每个
+input/output pack 矩阵收集 BSGS baby/giant steps。相同形状的层完全复用 rotation
+key 集合；所有密钥仍在计算第一张图片之前生成。`RESNET18_FUSED_CONV_BSGS=0`
+恢复全部旧路径；`RESNET18_TRANSITION_BSGS`、`RESNET18_LAYER3_BSGS`和
+`RESNET18_LAYER4_BSGS`可分别控制三个路径组。Layer2 transition 默认使用优化后的
+compact 路径；`RESNET18_LAYER2_TRANSITION_BSGS=1`仅用于显式A/B。
+
+FC 使用 BSGS 后，`1000×512` 分类头本身只需要 78 个不同的直接 rotation steps，
+而不是逐对角线实现的 1510 个。完整网络集合还会与卷积、池化和 Bootstrap 所需 steps
+去重，实际数量由启动日志中的 `network_rotation_key_count` 和
+`merged_galois_key_count` 给出。它们全部在第一张图片开始前生成直接 Galois key。
+`rotate_with_direct_key()` 对每个非零逻辑旋转只调用一次
+`EvaluatorCkksBase::rotate()`；不再由 ResNet-18 主路径把一次逻辑旋转拆成多次
+二次幂 rotation/key-switch。
 
 ### 6.2 Bootstrap rotation keys
 
-Bootstrap 内部的 CoeffToSlot、SlotToCoeff 和实数投影同样使用上述二次幂 rotation
-及 conjugation keys。rotation 分解和自举内部矩阵均由 Poseidon 最新 Bootstrap
-实现负责，ResNet-18 不再维护独立的 DFT rotation-key 规划逻辑。
+ResNet-18 按 Poseidon 当前 BSGS CoeffToSlot/SlotToCoeff 规划预先收集 38 个非零
+Bootstrap rotation steps，并生成实数投影需要的 conjugation key。除此之外仍保留
+完整的正负二次幂 key 集合作为诊断和旧布局路径的兼容后备。
+
+直接密钥把推理阶段的任意旋转从多个 key-switch 降为一个，但会显著增加启动密钥
+生成时间和常驻内存；密钥生成耗时仍在完整运行总时间中单独记录，不属于网络层计算。
 
 日志会记录：
 
 ```text
-galois_key_mode=power_of_two_rotations_and_conjugation
+prepare evaluation key plan: galois_key_mode=direct_resnet18_and_bootstrap_rotations
+network_rotation_key_count=<按当前拓扑去重后的数量>
+bootstrap_rotation_key_count=38
+merged_galois_key_count=<网络、自举、兼容 key 去重后的数量>
+prepare evaluation keys: ready before first image
 prepare evaluation keys time
 ```
 
@@ -465,9 +485,10 @@ stem BN → polynomial ReLU
 `multiplexed_average_pool2d_stride2()` 对 3×3 窗口的 9 个位置分别：
 
 1. rotation 对齐源 slot 与目标 slot；
-2. binary mask 保留有效位置；
+2. mask 保留有效位置，并把平均系数 `1/9` 一起编码；
 3. 将 9 项相加；
-4. 乘以 `1/9` 并 rescale。
+
+因此池化只执行已有 mask PMult/rescale，不再追加一次 scalar PMult/rescale。
 
 输出从：
 
@@ -520,6 +541,82 @@ ResNet-18 有 8 个 BasicBlock，每个 block 有两个激活点，因此网络�
 
 相比“每个输入通道、每个输出通道、每个 kernel 点各做一次独立密文操作”，
 compact vector 会在同一次 `multiply_plain` 中利用 SIMD slots 承载多个权重位置。
+
+空间卷积 rotation 还使用层内只读缓存：先对每个 `input pack × kernel position`
+计算一次旋转结果，再让该层所有 output packs/output channels 共享。对于输入 pack 数为
+`I`、输出 pack 数为 `O`、卷积核为 `fh × fw` 的一层，空间变换次数由
+`O × I × fh × fw` 降为 `I × fh × fw`；其中中心点是一次密文复制，其余位置才是
+直接 Galois rotation。缓存只活到当前卷积返回，峰值为 `I × fh × fw` 个临时密文。
+运行日志中的 `multiplexed dense conv spatial rotation cache` 会给出该层优化前后的
+变换数、非零 rotation 数和缓存密文数。
+
+密文乘明文使用跨 input-pack lazy rescale。同一输出通道的所有 3×3 kernel 和 input
+pack 乘积具有相同的 `parms_id` 和 scale，因此先在高 scale 下完成全部 pack 的
+kernel 累加，再统一执行一次局部通道归约和输出位置 rotation，随后 rescale 一次；
+输出通道选择和折叠 BN scale 只执行一次，再消耗一次 rescale。按固定 ResNet-18
+拓扑（16 个 3×3 主分支卷积和 3 个 1×1 projection shortcut），全部采用 compact
+路径时，multiplexed 卷积 rescale 上界由原始 103424 次降为 9472 次。默认融合 BSGS
+把 Layer3/4 的 7680 次替换成 35 个 pack-matrix rescale，所以当前默认上界为 1827
+次；compact 层消耗两个 level，融合 BSGS 层消耗一个 level。
+
+把局部通道归约移到跨 pack 累加之后不会改变结果，因为 rotation、加法和通道归约
+都是线性算子，而且所有 input packs 使用相同的物理局部通道位置。Layer1 的
+`归约+放置` rotation 上界由 2048 降为256，Layer2 stride-1由3072降为768。
+这也使Layer1/2的compact路径比增加大量PMult的BSGS更合适。
+
+同 level/scale 的卷积累加使用公开 `add(lhs, rhs, lhs)` 别名路径，使 evaluator 内部
+直接原地相加，避免为每个 kernel、input pack 和输出通道另外创建 `next_sum`
+密文。运行日志 `multiplexed dense conv cross-pack lazy rescale` 会同时报告原始、
+kernel-lazy 和 cross-pack 三种 rescale 上界，以及输出选择明文乘法的前后数量。
+
+kernel 乘积进一步使用 Poseidon CPU evaluator 的
+`multiply_plain_accumulate(source, plain, accumulator)`，在 RNS/NTT 多项式层将乘积
+直接加入 accumulator，只分配一个多项式 scratch，不生成完整的两分量临时密文。
+
+目标卷积采用另一条默认路径：将空间位移、通道矩阵和 BN 的
+`gamma/sqrt(var+epsilon)` 合成一个 slot 线性变换。其结构计数如下：
+
+| 路径（单层） | pack矩阵数 | 对角/PMult | sharing前/后rotation | n1 |
+| --- | ---: | ---: | ---: | ---: |
+| Layer2 stride-2 3×3 / projection（可选） | 32 / 32 | 7776 / 2400 | 1760→1352 / 928→712 | 32 / 32 |
+| Layer3 stride-2 3×3 / projection | 8 / 8 | 8664 / 2904 | 912→788 / 544→460 | 32 / 32 |
+| Layer4 stride-2 3×3 / projection | 2 / 2 | 9126 / 3174 | 462→462 / 264→264 | 128 / 32 |
+| Layer3 stride-1 3×3 | 4 | 11532 | 672→610 | 32 |
+| Layer4 stride-1 3×3 | 1 | 11907 | 294→294 | 128 |
+
+求值器会按 `input pack + n1` 建立一次baby rotation并让该组所有输出矩阵共享，
+各 giant group 内使用`multiply_plain_accumulate`融合乘加。每个 input/output pack 矩阵各执行一次
+rescale；这些矩阵并行处于同一 level，因此一个卷积层仍只消耗一个 level，而旧
+compact 路径消耗两个 level。rotation 上界是各 pack 矩阵实际计算次数之和，不是
+唯一 rotation key 数。
+
+对角明文以 `(weights.data(), parms_id)` 标识。为避免构造完整的“对角数×32768”临时
+double 矩阵，准备器只保留紧凑 term 列表，每条对角编码时才建立一个 slot vector。
+日志 `fused convolution BSGS plaintext plan` 记录 matrix、diagonal、rotation、编码
+字节、缓存状态和准备耗时。准备器位于密态算子计时器之外，所以冷准备不计入
+`encrypted_inference_time_ms`，但仍会反映在图片端到端 `image_time_ms` 中。
+
+全网目标路径合计超过10万条编码对角，不能在当前内存容量下无上限累计。默认
+`RESNET18_FUSED_BSGS_CACHE_MB=0`，每个计划仅在本层求值期间存活，计算结束即释放；
+设置非零 MiB 值后使用LRU跨图片复用，且只有 `encoded_bytes` 不超过缓存上限的完整
+计划才会进入缓存。`RESNET18_PREP_THREADS`只控制这些对角明文的编码准备，可在保持
+`RESNET18_THREADS=1`单线程密态推理时单独设为8；日志会记录`prepare_threads`。
+
+这里没有启用标准 Winograd `F(2×2,3×3)`。当前 SIMD packing 的直接卷积只需9个
+空间分量，而 Winograd 需要16个变换域分量并引入额外线性变换/level；没有配套的
+全网 tile packing 时不会减少本实现的密文乘法。
+
+Stem 的 7×7 im2col 卷积有 `3×7×7=147` 个输入项和 64 个输出通道。当前路径先把
+同一输出通道的全部147个常数乘积保持在高 scale 下融合累加，最后统一 rescale，
+使首层 rescale 上界从 `147×64=9408` 次降为64次。因为每个Stem权重是作用于全部
+slots的实数常量，`multiply_const_accumulate` 直接计算 `round(weight×scale)` 在各
+Q 模数下的 residue 并执行 NTT 域乘加，避免为每项运行通用 CKKS Encoder。
+
+卷积明文由有界 LRU 缓存管理。key 包含层权重身份、`parms_id`、input pack、kernel
+位置和输出通道；同一层的选择/BN 明文只编码一次，kernel 明文按计算批次准备，多张
+图片可以直接命中复用。默认保留上限为 2048 MiB，超过上限时按 LRU 淘汰，因此不会
+让整网约 1 TiB 的编码明文同时常驻。日志 `multiplexed dense conv plaintext cache`
+记录每层 hits、misses、编码字节、当前驻留量和 evictions。
 
 ### 9.2 stride 2 与 projection shortcut
 
@@ -598,7 +695,7 @@ ReLU_approx(x) = x × p(x)
 boundary_k            = 25
 log_message_ratio     = 5
 double_angle          = 2
-scaling_log           = 51
+scaling_log           = 45
 output_ratio          = 32
 project_real          = true
 inverse_coeff         = 0.0
@@ -623,6 +720,13 @@ Bootstrap 返回后，`normalize_bootstrap_output_scale()` 检查输出 scale �
 context 的常规 `2^40` scale。若不一致，它用当前层最后一个模数计算保持明文值不变
 的常数 scale，执行一次 `multiply_const + rescale`，再验证并固定到目标 scale。
 这样后续复合多项式 ReLU 始终从统一 scale 开始。
+
+中间激活不需要让14-level ReLU从`chain_index=20`开始。默认情况下，Bootstrap和
+scale归一化完成后先用纯`drop_modulus`降到`chain_index=16`，再执行恰好消耗14个
+level的ReLU，输出位于`chain_index=2`。这样减少ReLU每次RNS/NTT处理的Q素数数量，
+不增加PMult或rotation。最终Layer4 block1输出为了兼容当前global-average-pool和
+FC的预编码level，保留完整Bootstrap输出。`RESNET18_POST_BOOTSTRAP_LEVEL=20`
+可以恢复旧行为；允许的设置范围为16到20。
 
 ### 11.4 执行粒度
 
@@ -653,20 +757,21 @@ layer4 最终输出为：
 2. 对 7 行做 rotation、mask 和累加；
 3. 把每个通道的 `(row=0,col=0)` slot 移动到连续 slots `0..511`。
 
-最后乘：
+平均与边界系数为：
 
 ```text
 B / (7×7) = 20 / 49
 ```
 
-其中 `/49` 是全局平均，乘 `B` 用于撤销网络主体的边界缩放。结果是一个
-`TensorCipher`，前 512 个 slots 保存分类特征。
+其中 `/49` 是全局平均，乘 `B` 用于撤销网络主体的边界缩放。该系数直接融合进
+第2步的行选择mask，不再在末尾追加scalar PMult+rescale；之后只做一次纯modulus
+drop以保持FC计划的固定输入level。结果是一个`TensorCipher`，前512个slots保存
+分类特征。
 
 ### 12.2 512→1000 全连接
 
-`matrix_multiplication()` 使用对角线法计算，并按 `RESNET18_THREADS` 把对角线均分给
-多个工作线程。每个线程先在本地累加一段连续的对角线，主线程最后只合并各线程的
-部分和，避免同时保存 1511 个临时密文：
+`matrix_multiplication()` 使用 BSGS 对角线法，并按 `RESNET18_THREADS` 把 giant
+groups 分给多个工作线程：
 
 ```text
 logits = W(1000×512) × features(512) + bias(1000)
@@ -678,13 +783,28 @@ logits = W(1000×512) × features(512) + bias(1000)
 1000 + 512 - 1 = 1511 个对角线位置
 ```
 
-每个位置执行：
+令逻辑对角线 rotation step 为 `s`。当前形状自动选择 `baby_step=32`，并分解为：
 
-1. 将特征密文 rotation 到对应对角线；
-2. 构造一个明文对角权重向量；
-3. `multiply_plain` 并 rescale；
-4. 累加所有对角线结果；
-5. 通过 `add_plain` 加入 1000 维 bias。
+```text
+s = giant + baby,  0 <= baby < 32
+```
+
+计算过程为：
+
+1. 预先计算并缓存 `Rot(features, baby)`，共 31 次非零 baby rotation；
+2. 将 1511 条明文对角线按 giant step 分成 48 组，并预旋转明文对角线；
+3. 每组复用对应的 baby 密文完成 `multiply_plain` 和局部累加；
+4. 对 47 个非零 giant groups 各 rotation 一次，再合并所有 groups；
+5. 所有乘积具有相同 scale，因此整体只 rescale 一次；
+6. 通过 `add_plain` 加入 1000 维 bias。
+
+因此密文 rotation 从逐对角线的 1510 次降为 `31 + 47 = 78` 次，rescale 从
+1511 次降为 1 次；1511 次明文乘法仍然保留。缓存包含 32 个 baby-step 密文，
+giant groups 使用线程局部和，不会同时保存 1511 个结果密文。
+
+1511 条预旋转对角明文和 bias 在图片循环开始前按 FC 固定的
+`chain_index=2 → chain_index=1` 编码为 `FullyConnectedBsgsPlainPlan`。计划约占
+2.27 GiB，多张图片共享；因此 FC 密态计时中不再包含 `CKKSEncoder::encode()`。
 
 输出密文的前 1000 个 slots 即 1000 个 logits。程序解密这些 slots，计算
 `argmax`，并与明文分类头和真实标签比较。
@@ -739,12 +859,29 @@ Trident/resnet18/result/resnet18_imagenet_run_<start>_<end>_<timestamp>.txt
 - 每个算子的开始时间、结束时间和耗时；
 - Bootstrap、ReLU 和卷积的 pack 进度；
 - 每层误差和最终预测；
-- 单张图片及整个区间的总时间。
+- 单张图片及整个区间的总时间；
+- `encrypted_inference_time_ms`：输入 patch 密文已经准备好后，stem 密态卷积到
+  密态 FC logits 的 69 个顶层密态算子累计墙钟时间。
+
+`encrypted_inference_time_ms` 不包含 Context/密钥生成、图片和权重文件读取、输入
+编码加密、提前完成的 FC BSGS 明文计划及融合卷积 BSGS 对角明文冷准备。默认验证模式下，个别外层算子计时仍可能
+覆盖其内部 Bootstrap 自检；需要纯推理数据时应使用 `--inference-only`，此模式会跳过
+全部逐层明文参考、解密误差校验和最终预测检查。卷积缓存 miss 时发生的明文编码仍
+属于该张图片的冷缓存时间，cache hit 则直接复用。与之
+相比，`image_time_ms` 是单张图片的端到端验证时间，`total_time_ms` 还包括 runtime
+及 evaluation-key 准备时间。
+
+纯推理运行示例：
+
+```bash
+RESNET18_THREADS=8 ./Trident/build/resnet18/resnet18 0 0 4 \
+  --inference-only --conv-plaintext-cache-mb=2048
+```
 
 Bootstrap、同态 ReLU、BN、残差和部分布局转换会在不同 pack 之间并行。卷积会根据
 当前层的 packing 自动选择并行粒度：pack 足够多时按输出 pack 并行；Layer 3/4 等
-pack 数不足时，改为在单个 pack 内按输出通道并行。分类头的 1511 条 FC 对角线也会
-分块并行。默认线程数是硬件线程数与 8 的较小值，可以显式控制：
+pack 数不足时，改为在单个 pack 内按输出通道并行。分类头的 48 个 FC BSGS giant
+groups 也会分块并行。默认线程数是硬件线程数与 8 的较小值，可以显式控制：
 
 ```bash
 RESNET18_THREADS=4 ./Trident/build/resnet18/resnet18 0 0
@@ -875,7 +1012,10 @@ for image_id in [start, end]:
    ResNet-18 变体。
 4. CKKS 和多项式 ReLU 都是近似计算，逐层误差和最终 argmax 稳定性都应结合日志判断。
 5. Mock 模式包含主动解密和重新加密，不能作为真实同态执行。
-6. 当前全连接采用直接对角线法，便于验证，但不是所有矩阵乘实现中操作数最少的方案。
+6. FC 的1511条 BSGS 对角明文在图片循环前常驻；Layer3/4融合BSGS计划默认只在
+   对应层计算期间驻留。设置 `RESNET18_FUSED_BSGS_CACHE_MB` 后才会
+   在上限内跨图片缓存。它们用更多主机内存换取单线程密态计算时间，实际字节数应以
+   日志中的 `encoded_bytes` 为准。
 
 在这些边界下，当前代码已经覆盖从 ImageNet 预处理输入、CKKS 加密、完整 18 层
 网络、Bootstrap、多项式激活，到 1000 类密文 logits 和预测结果的端到端流程。

@@ -1,5 +1,7 @@
 #include "encrypted_group_ops.h"
 
+#include "encrypted_inference_timer.h"
+
 #include "parallel_utils.h"
 #include "progress_log.h"
 
@@ -51,12 +53,6 @@ double multiply_plain_scale(const Ciphertext &input, const CKKSEncoder &encoder)
         throw runtime_error("failed to locate ciphertext parms_id for plain scale selection");
     }
     return pow(2.0, static_cast<double>(context_data->coeff_modulus().back().bit_count()));
-}
-
-void add_assign_dynamic(Ciphertext &accumulator, const Ciphertext &term,
-                        CKKSEncoder &encoder, EvaluatorCkksBase &evaluator)
-{
-    evaluator.add_dynamic(accumulator, term, accumulator, encoder);
 }
 
 void log_channel_group_cipher_state(const string &label, const ChannelCipherGroup &group,
@@ -127,17 +123,6 @@ void log_im2col_cipher_state(const string &label, const Im2ColCipherGroup &group
         << first_chain << "/" << min_chain << "/" << max_chain
         << ", scale(first/min/max)=" << first_scale << "/" << min_scale << "/" << max_scale
         << endl;
-}
-
-Ciphertext multiply_by_constant_scalar(const Ciphertext &input, double coefficient,
-                                       CKKSEncoder &encoder, EvaluatorCkksBase &evaluator)
-{
-    Plaintext plain;
-    encoder.encode(coefficient, input.parms_id(), multiply_plain_scale(input, encoder), plain);
-    Ciphertext output;
-    evaluator.multiply_plain(input, plain, output);
-    evaluator.rescale_dynamic(output, output, input.scale());
-    return output;
 }
 
 bool coefficient_encodes_to_zero(const Ciphertext &input, double coefficient,
@@ -226,6 +211,7 @@ ChannelCipherGroup encrypted_conv2d_im2col_all_channels(
     const vector<double> &running_var, const vector<double> &constant_weight, double epsilon,
     PoseidonRuntime &runtime)
 {
+    resnet18_timing::ScopedEncryptedInferenceOperation inference_timer;
     ScopedDurationLog duration("conv_im2col_all_channels");
     log_im2col_cipher_state("conv_im2col_all_channels input", im2col, runtime);
 
@@ -241,6 +227,15 @@ ChannelCipherGroup encrypted_conv2d_im2col_all_channels(
     resnet18_progress_log() << "conv im2col encrypted channel parallel threads: "
                             << resnet18_parallel_thread_count(static_cast<size_t>(out_channels))
                             << endl;
+    const size_t dense_stem_term_count =
+        static_cast<size_t>(out_channels) * im2col.patches.size();
+    const double stem_plain_scale =
+        multiply_plain_scale(im2col.patches.front(), runtime.encoder);
+    resnet18_progress_log()
+        << "conv im2col lazy rescale: before<=" << dense_stem_term_count
+        << ", after<=" << out_channels
+        << ", saved<=" << dense_stem_term_count - static_cast<size_t>(out_channels)
+        << endl;
     resnet18_parallel_for(static_cast<size_t>(out_channels), [&](size_t output_channel_index) {
         const int output_channel = static_cast<int>(output_channel_index);
         Ciphertext sum;
@@ -268,12 +263,12 @@ ChannelCipherGroup encrypted_conv2d_im2col_all_channels(
                         continue;
                     }
 
-                    Ciphertext term;
                     try
                     {
-                        term = multiply_by_constant_scalar(im2col.patches.at(patch_index),
-                                                           coefficient, runtime.encoder,
-                                                           *runtime.evaluator);
+                        const Ciphertext &patch = im2col.patches.at(patch_index);
+                        runtime.evaluator->multiply_const_accumulate(
+                            patch, coefficient, stem_plain_scale, sum);
+                        has_sum = true;
                     }
                     catch (const exception &exception)
                     {
@@ -285,20 +280,16 @@ ChannelCipherGroup encrypted_conv2d_im2col_all_channels(
                         throw runtime_error(message.str());
                     }
 
-                    if (!has_sum)
-                    {
-                        sum = std::move(term);
-                        has_sum = true;
-                    }
-                    else
-                    {
-                        add_assign_dynamic(sum, term, runtime.encoder, *runtime.evaluator);
-                    }
                 }
             }
         }
 
-        if (!has_sum)
+        if (has_sum)
+        {
+            runtime.evaluator->rescale_dynamic(
+                sum, sum, im2col.patches.front().scale());
+        }
+        else
         {
             // A near-zero folded BN scale can make every convolution coefficient
             // encode to zero at the current CKKS plaintext scale. The mathematically

@@ -17,6 +17,17 @@ cmake --build Trident/build --target resnet20 -j2
 ./Trident/build/resnet20/resnet20 0 9
 ```
 
+只统计完整密态网络、不运行逐层明文参考、中间解密 preview 和最终 logits 解密：
+
+```bash
+./Trident/build/resnet20/resnet20 0 0 --inference-only
+```
+
+该模式在输入密文和初始 level 对齐完成后开始计时，在密文 FC logits 生成后停止，
+日志字段为 `encrypted inference time`。密钥生成、权重/图片读取、输入编码加密和最终
+解密均不计入；当前卷积内部按需进行的权重/mask向量构造与CKKS编码仍计入该时间。
+普通验证模式仍保留原来的逐层解密和最终预测检查。
+
 注意：图片区间是闭区间，`0 9` 会跑 10 张图片，`0 49` 会跑 50 张图片。当前程序按图片顺序串行执行，不会并行跑多张图片。
 
 ## 目录结构
@@ -50,10 +61,10 @@ Trident/resnet20/
 int main(int argc, char **argv)
 ```
 
-它只负责解析 `START_IMAGE_ID` 和 `END_IMAGE_ID`，然后调用：
+它负责解析 `START_IMAGE_ID`、`END_IMAGE_ID` 和可选的 `--inference-only`，然后调用：
 
 ```cpp
-ResNet_cifar10_sparse(start_image_id, end_image_id);
+ResNet_cifar10_sparse(start_image_id, end_image_id, options);
 ```
 
 真正的推理流程在 `infer.cpp` 的 `ResNet_cifar10_sparse()` 中：
@@ -552,6 +563,35 @@ cmake --build Trident/build --target resnet20_test_bootstrap -j2
 ```
 
 用于单独检查 bootstrap 的层级变化和输出状态。
+
+## 从 ResNet18 移植的计算优化
+
+ResNet20 的特征始终装在一个 `TensorCipher` 中，没有 ResNet18 的多 input-pack
+结构，因此不能照搬“跨 pack 后再通道归约”或“多个输出矩阵共享 BSGS baby
+rotation”。当前移植的是与 packing 无关的线性融合累加：
+
+- 3×3 卷积：同一个输出组的9个 kernel PMult在高scale下用
+  `multiply_plain_accumulate`累加，只rescale一次；所有输出通道的放置与折叠BN
+  scale也先融合累加，再统一rescale一次。
+- Downsample shortcut：所有mask PMult和rotation先在同一level/scale下相加，最后
+  统一rescale。
+- Global average pool：16个输出选择项统一融合累加和rescale。
+- FC：73条对角线PMult统一融合累加和rescale。
+- rotation-add等已知同level/scale的线性归约直接使用原地`add`，不再进入动态
+  level/scale对齐路径。
+
+这些改动不改变乘法深度：卷积仍消耗2个level，downsample、pool和FC仍各消耗1个
+level。完整网络上述线性算子的rescale调用上界由2267次降为185次，减少2082次；
+每层日志中的`lazy_rescale`会给出该层优化前后的操作数。
+
+ResNet20当前Bootstrap本来就输出`chain_index=16`，复合ReLU恰好消耗14个level并
+输出到2，因此不需要ResNet18的“Bootstrap输出20再裁到16”优化。Bootstrap明文
+矩阵的编码和融合累加也没有在本次修改范围内。
+
+旧日志`resnet20_cifar10_image0_20260822_151823.txt`的单图阶段时间约为：Bootstrap
+4,344,630 ms、ReLU 192,943 ms、卷积143,129 ms，其余线性层约9,600 ms。也就是说
+Bootstrap约占92.5%，本次优化针对的是剩余约3.2%的卷积/线性热区；完整端到端收益
+需要用新的单图日志实测，不能按rescale数量线性估算。
 
 ## 常见问题
 

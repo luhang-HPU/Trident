@@ -11,6 +11,7 @@ add_executable(
   relu_approx.cpp
   encrypted_ops.cpp
   encrypted_ops_trace.cpp
+  execution_mode.h
   plain_cnn.cpp
 )
 add_executable(

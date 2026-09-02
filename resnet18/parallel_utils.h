@@ -6,6 +6,7 @@
 #include <string>
 #include <stdexcept>
 #include <thread>
+#include <utility>
 #include <vector>
 
 inline std::size_t resnet18_parallel_thread_count(std::size_t work_items)
@@ -42,9 +43,12 @@ inline std::size_t resnet18_parallel_thread_count(std::size_t work_items)
 }
 
 template <class Fn>
-void resnet18_parallel_for(std::size_t work_items, Fn fn)
+void resnet18_parallel_for_with_thread_count(std::size_t work_items,
+                                             std::size_t requested_threads,
+                                             Fn fn)
 {
-    const std::size_t thread_count = resnet18_parallel_thread_count(work_items);
+    const std::size_t thread_count = std::max<std::size_t>(
+        1, std::min(requested_threads, work_items == 0 ? 1 : work_items));
     if (thread_count <= 1)
     {
         for (std::size_t i = 0; i < work_items; ++i)
@@ -77,4 +81,11 @@ void resnet18_parallel_for(std::size_t work_items, Fn fn)
     {
         future.get();
     }
+}
+
+template <class Fn>
+void resnet18_parallel_for(std::size_t work_items, Fn fn)
+{
+    resnet18_parallel_for_with_thread_count(
+        work_items, resnet18_parallel_thread_count(work_items), std::move(fn));
 }

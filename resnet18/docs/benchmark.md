@@ -66,7 +66,7 @@ degree(P1, P2, P3) = (15, 15, 27)
 -> multiplexed packing
 -> 8 个密态 BasicBlock
 -> 全局平均池化
--> 对角线矩阵法 FC
+-> BSGS 对角线矩阵法 FC
 -> 解密 logits 与 argmax
 ```
 
@@ -184,13 +184,51 @@ ct_out[o,r,c]
 执行含义为：
 
 1. rotation 把卷积核所需的相邻位置和输入通道贡献对齐；
-2. 与包含卷积权重、BN scale 和选择 mask 的明文向量相乘；
-3. rescale 后累加所有输入 pack 与核偏移；
-4. 把结果放入目标输出 pack；stride-2 时同时把 `k` 更新为 `2k`。
+2. 先将同一输出通道的 kernel 乘积以及所有输入 pack 贡献保持在同一高 scale 下累加；
+3. 跨 input-pack 累加完成后统一 rescale，再执行一次包含 BN scale 的输出选择和第二次 rescale；
+4. 同 level/scale 的累加通过 `add(lhs, rhs, lhs)` 原地完成，避免反复分配中间密文；
+5. 把结果放入目标输出 pack；stride-2 时同时把 `k` 更新为 `2k`。
+
+compact 路径不改变每层两级乘法深度，但把固定网络的 multiplexed 卷积 rescale 上界
+从原始103424次降到9472次；默认融合BSGS再把Layer3/4的7680次替换为35个
+pack-matrix rescale，使当前默认上界为1827次。
+
+每个 kernel 项通过 Poseidon CPU evaluator 的融合 PMult-Accumulate 直接加入 RNS
+accumulator，避免完整临时密文。Stem 的147个 im2col常数项同样先融合累加再统一
+rescale，使Stem的理论 rescale 数由9408降为64；常数权重使用专用 residue 快路径，
+不再逐项构造通用 CKKS 明文。
+
+compact路径先跨全部input packs累加，再统一做局部通道归约和输出位置旋转，
+Layer1/2因此默认使用compact。Layer3/4的stride-2主分支3×3及projection 1×1、
+Layer3/4的3个stride-1卷积默认进一步把空间位移、通道矩阵和BN乘法缩放融合成
+稀疏对角BSGS。同一个input pack和n1下的多个输出矩阵共享baby rotations：
+
+| 路径（单层） | BSGS对角/PMult | sharing前rotation | sharing后rotation |
+| --- | ---: | ---: | ---: |
+| Layer2 stride-2 3×3 / projection（可选） | 7776 / 2400 | 1760 / 928 | 1352 / 712 |
+| Layer3 stride-2 3×3 / projection | 8664 / 2904 | 912 / 544 | 788 / 460 |
+| Layer4 stride-2 3×3 / projection | 9126 / 3174 | 462 / 264 | 462 / 264 |
+| Layer3 stride-1 3×3 | 11532 | 672 | 610 |
+| Layer4 stride-1 3×3 | 11907 | 294 | 294 |
+
+新路径针对单线程中更昂贵的rotation/key-switch换取额外PMult，并让同源baby rotations
+由所有对角线复用。每个input/output pack矩阵各rescale一次，但整层都处于同一个输出
+level，所以乘法深度从2降为1。对角明文到达该层时编码，准备时间与实际字节数会写入
+日志，且不计入`encrypted_inference_time_ms`。默认在该层结束后释放计划，避免全网
+10万余条大明文累计常驻；`RESNET18_FUSED_BSGS_CACHE_MB`可设置跨图片LRU缓存上限。用
+`RESNET18_FUSED_CONV_BSGS=0`可关闭全部新路径；也可以通过
+`RESNET18_TRANSITION_BSGS`、`RESNET18_LAYER3_BSGS`和`RESNET18_LAYER4_BSGS`
+分别A/B测试。Layer2 transition默认保留compact，可用
+`RESNET18_LAYER2_TRANSITION_BSGS=1`仅做同机A/B。标准Winograd没有启用：在当前packing下，直接3×3只有9个空间分量，
+`F(2×2,3×3)`反而需要16个变换域分量及额外输入/输出变换。
 
 ### 步骤 5：Bootstrap 与 ReLU
 
 乘法和 rescale 会逐步消耗 Q 链。除 stem 的第一个 ReLU 外，每个激活点之前都进行 bootstrap，恢复后续多项式所需的层级，并把 scale 归一化到约 `2^40`。
+中间激活默认把Bootstrap输出从`chain_index=20`直接drop到16，再执行恰好消耗
+14 level的复合ReLU，输出位于2，减少多项式在高层Q前缀上的RNS/NTT工作。
+最终Layer4输出保留完整Bootstrap层级供分类头使用；`RESNET18_POST_BOOTSTRAP_LEVEL=20`
+可回退旧行为。
 
 ![Bootstrap 与多项式 ReLU](assets/benchmark/06_bootstrap.png)
 
@@ -233,14 +271,18 @@ pooled[c] = (B / 49) * sum_(r=0..6,c=0..6) feature[c,r,c]
 
 ![密态分类头](assets/benchmark/07_head.png)
 
-FC 权重形状为 `1000 x 512`。代码不为每个类别生成一个密文，而是使用1511 条矩阵对角线，把 1000 个 logits 写进同一个输出密文的前 1000 个slots。对角线按 `RESNET18_THREADS` 分块并行，各线程只保留一个局部密文和，最后再合并：
+FC 权重形状为 `1000 x 512`。代码不为每个类别生成一个密文，而是使用 1511 条矩阵对角线和 BSGS，把 1000 个 logits 写进同一个输出密文的前 1000 个 slots。当前形状自动选择 `baby_step=32`：先缓存 32 个 baby-step 密文，再把对角线组成 48 个 giant groups，按 `RESNET18_THREADS` 分块并行。
 
 ```text
 logits
-  = sum_(d=0..1510)
-      Rot(features, 511-d) * pt(diagonal_d(W))
+  = sum_g Rot(
+      sum_b Rot(features, b) * pt(Rot(diagonal_(g+b)(W), -g)),
+      g)
     + bias
 ```
+
+这使非零密文 rotation 从 1510 次降为 78 次（31 次 baby、47 次 giant），并将
+逐对角线的 1511 次 rescale 合并为最终 1 次；明文乘法仍为 1511 次。
 
 实现入口：
 
@@ -262,7 +304,7 @@ matrix_multiplication(
 | `infer_config.*` | 网络常量、CKKS 模数链和 ReLU 参数 |
 | `infer_runtime.*` | Poseidon context、encoder、evaluator 和密钥 |
 | `encrypted_group_ops.*` | Stem im2col 与首层卷积 |
-| `encrypted_ops.*` | 单密文 bootstrap 和对角线矩阵乘 |
+| `encrypted_ops.*` | 单密文 bootstrap 和 BSGS 对角线矩阵乘 |
 | `relu_approx.*` | 复合多项式 ReLU |
 | `parameter_loader.*` | torchvision 参数和 ImageNet 输入加载 |
 | `plain_cnn.*` | 同步的明文参考计算 |
@@ -292,7 +334,7 @@ RESNET18_THREADS=4 \
 
 `RESNET18_THREADS` 同时控制不同密文 pack 之间的 Bootstrap、ReLU、布局操作，以及
 卷积和全连接的并行度。卷积在 pack 数足够时按输出 pack 并行；Layer 3/4 的 pack
-较少时自动切换为单 pack 内输出通道并行。全连接按矩阵对角线分块并行。
+较少时自动切换为单 pack 内输出通道并行。全连接按 BSGS giant groups 分块并行。
 Bootstrap 并行会显著增加峰值内存，建议从 2 或 4 个线程开始测试；内存充足时再试 8。
 
 输出日志位于：

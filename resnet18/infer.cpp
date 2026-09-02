@@ -2,12 +2,15 @@
 
 #include "encrypted_ops.h"
 #include "encrypted_group_ops.h"
+#include "encrypted_inference_timer.h"
+#include "execution_mode.h"
 #include "infer_config.h"
 #include "infer_runtime.h"
 #include "parallel_utils.h"
 #include "parameter_loader.h"
 #include "plain_cnn.h"
 #include "progress_log.h"
+#include "poseidon/advance/homomorphic_linear_transform.h"
 
 #include <algorithm>
 #include <atomic>
@@ -21,11 +24,16 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <list>
+#include <limits>
+#include <memory>
+#include <mutex>
 #include <set>
 #include <stdexcept>
 #include <sstream>
 #include <string>
 #include <utility>
+#include <unordered_map>
 #include <vector>
 
 using namespace std;
@@ -44,6 +52,158 @@ struct MockExecutionOptions
     bool mock_bootstrap = false;
 };
 
+struct ConvPlaintextCacheKey
+{
+    uintptr_t layer_identity = 0;
+    parms_id_type parms_id{};
+    uint32_t kind = 0;
+    uint32_t input_pack = 0;
+    uint32_t kernel_position = 0;
+    uint32_t output_channel = 0;
+
+    bool operator==(const ConvPlaintextCacheKey &other) const noexcept
+    {
+        return layer_identity == other.layer_identity &&
+               parms_id == other.parms_id && kind == other.kind &&
+               input_pack == other.input_pack &&
+               kernel_position == other.kernel_position &&
+               output_channel == other.output_channel;
+    }
+};
+
+struct ConvPlaintextCacheKeyHash
+{
+    size_t operator()(const ConvPlaintextCacheKey &key) const noexcept
+    {
+        size_t hash = std::hash<uintptr_t>{}(key.layer_identity);
+        auto mix = [&](size_t value) {
+            hash ^= value + 0x9e3779b97f4a7c15ULL + (hash << 6) + (hash >> 2);
+        };
+        for (uint64_t word : key.parms_id)
+        {
+            mix(std::hash<uint64_t>{}(word));
+        }
+        mix(key.kind);
+        mix(key.input_pack);
+        mix(key.kernel_position);
+        mix(key.output_channel);
+        return hash;
+    }
+};
+
+class ConvPlaintextCache
+{
+public:
+    struct Stats
+    {
+        size_t resident_bytes = 0;
+        size_t entries = 0;
+        size_t hits = 0;
+        size_t misses = 0;
+        size_t evictions = 0;
+        size_t encoded_bytes = 0;
+    };
+
+    explicit ConvPlaintextCache(size_t max_bytes) : max_bytes_(max_bytes) {}
+
+    shared_ptr<const Plaintext> get_or_encode(
+        const ConvPlaintextCacheKey &key, const vector<double> &values,
+        parms_id_type parms_id, double scale, CKKSEncoder &encoder)
+    {
+        {
+            lock_guard<mutex> lock(mutex_);
+            auto found = entries_.find(key);
+            if (found != entries_.end())
+            {
+                lru_.splice(lru_.begin(), lru_, found->second.lru_position);
+                ++hits_;
+                return found->second.plaintext;
+            }
+        }
+
+        auto encoded = make_shared<Plaintext>();
+        encoder.encode(values, parms_id, scale, *encoded);
+        const size_t bytes = encoded->capacity() * sizeof(uint64_t);
+
+        lock_guard<mutex> lock(mutex_);
+        auto raced = entries_.find(key);
+        if (raced != entries_.end())
+        {
+            lru_.splice(lru_.begin(), lru_, raced->second.lru_position);
+            ++hits_;
+            return raced->second.plaintext;
+        }
+
+        ++misses_;
+        encoded_bytes_ += bytes;
+        if (max_bytes_ == 0 || bytes > max_bytes_)
+        {
+            return encoded;
+        }
+        while (!lru_.empty() && resident_bytes_ + bytes > max_bytes_)
+        {
+            const ConvPlaintextCacheKey &old_key = lru_.back();
+            auto old = entries_.find(old_key);
+            resident_bytes_ -= old->second.bytes;
+            entries_.erase(old);
+            lru_.pop_back();
+            ++evictions_;
+        }
+        lru_.push_front(key);
+        entries_.emplace(
+            key, Entry{encoded, bytes, lru_.begin()});
+        resident_bytes_ += bytes;
+        return encoded;
+    }
+
+    Stats stats() const
+    {
+        lock_guard<mutex> lock(mutex_);
+        return {resident_bytes_, entries_.size(), hits_, misses_, evictions_,
+                encoded_bytes_};
+    }
+
+    size_t max_bytes() const noexcept { return max_bytes_; }
+
+private:
+    struct Entry
+    {
+        shared_ptr<const Plaintext> plaintext;
+        size_t bytes = 0;
+        list<ConvPlaintextCacheKey>::iterator lru_position;
+    };
+
+    size_t max_bytes_ = 0;
+    mutable mutex mutex_;
+    list<ConvPlaintextCacheKey> lru_;
+    unordered_map<ConvPlaintextCacheKey, Entry, ConvPlaintextCacheKeyHash> entries_;
+    size_t resident_bytes_ = 0;
+    size_t hits_ = 0;
+    size_t misses_ = 0;
+    size_t evictions_ = 0;
+    size_t encoded_bytes_ = 0;
+};
+
+ConvPlaintextCache *active_conv_plaintext_cache = nullptr;
+
+class ScopedConvPlaintextCache
+{
+public:
+    explicit ScopedConvPlaintextCache(ConvPlaintextCache &cache)
+        : previous_(active_conv_plaintext_cache)
+    {
+        active_conv_plaintext_cache = &cache;
+    }
+
+    ~ScopedConvPlaintextCache()
+    {
+        active_conv_plaintext_cache = previous_;
+    }
+
+private:
+    ConvPlaintextCache *previous_ = nullptr;
+};
+
 bool parse_bool_env(const char *name)
 {
     const char *raw = std::getenv(name);
@@ -55,6 +215,85 @@ bool parse_bool_env(const char *name)
     transform(value.begin(), value.end(), value.begin(),
               [](unsigned char ch) { return static_cast<char>(tolower(ch)); });
     return value == "1" || value == "true" || value == "on" || value == "yes";
+}
+
+bool layer4_bsgs_enabled()
+{
+    const char *raw = std::getenv("RESNET18_LAYER4_BSGS");
+    if (raw == nullptr)
+    {
+        return true;
+    }
+    string value(raw);
+    transform(value.begin(), value.end(), value.begin(),
+              [](unsigned char ch) { return static_cast<char>(tolower(ch)); });
+    return value != "0" && value != "false" && value != "off" && value != "no";
+}
+
+bool layer3_bsgs_enabled()
+{
+    const char *raw = std::getenv("RESNET18_LAYER3_BSGS");
+    if (raw == nullptr)
+    {
+        return true;
+    }
+    string value(raw);
+    transform(value.begin(), value.end(), value.begin(),
+              [](unsigned char ch) { return static_cast<char>(tolower(ch)); });
+    return value != "0" && value != "false" && value != "off" && value != "no";
+}
+
+bool transition_bsgs_enabled()
+{
+    const char *raw = std::getenv("RESNET18_TRANSITION_BSGS");
+    if (raw == nullptr)
+    {
+        return true;
+    }
+    string value(raw);
+    transform(value.begin(), value.end(), value.begin(),
+              [](unsigned char ch) { return static_cast<char>(tolower(ch)); });
+    return value != "0" && value != "false" && value != "off" && value != "no";
+}
+
+bool layer2_transition_bsgs_enabled()
+{
+    return parse_bool_env("RESNET18_LAYER2_TRANSITION_BSGS");
+}
+
+bool fused_conv_bsgs_enabled()
+{
+    const char *raw = std::getenv("RESNET18_FUSED_CONV_BSGS");
+    if (raw == nullptr)
+    {
+        return true;
+    }
+    string value(raw);
+    transform(value.begin(), value.end(), value.begin(),
+              [](unsigned char ch) { return static_cast<char>(tolower(ch)); });
+    return value != "0" && value != "false" && value != "off" && value != "no";
+}
+
+size_t post_bootstrap_relu_input_level()
+{
+    static const size_t level = []() -> size_t {
+        const char *raw = std::getenv("RESNET18_POST_BOOTSTRAP_LEVEL");
+        if (raw == nullptr)
+        {
+            return static_cast<size_t>(16);
+        }
+        const string value(raw);
+        size_t parsed = 0;
+        const unsigned long long requested = stoull(value, &parsed, 10);
+        if (parsed != value.size() || requested < 16 ||
+            requested > kResNet18ComputePrimeCount)
+        {
+            throw invalid_argument(
+                "RESNET18_POST_BOOTSTRAP_LEVEL must be in [16, 20]");
+        }
+        return static_cast<size_t>(requested);
+    }();
+    return level;
 }
 
 MockExecutionOptions read_mock_execution_options()
@@ -554,13 +793,23 @@ Ciphertext multiply_mask_by_constant_rescale(const Ciphertext &input,
     return output;
 }
 
-Ciphertext multiply_plain_vector_rescale(const Ciphertext &input,
-                                         const vector<double> &plain_vector,
-                                         PoseidonRuntime &runtime)
+shared_ptr<const Plaintext> get_cached_conv_plaintext(
+    const ConvPlaintextCacheKey &key, const vector<double> &plain_vector,
+    parms_id_type parms_id, double scale, CKKSEncoder &encoder)
 {
-    Plaintext plain;
-    runtime.encoder.encode(plain_vector, input.parms_id(),
-                           local_multiply_plain_scale(input, runtime.encoder), plain);
+    if (active_conv_plaintext_cache != nullptr)
+    {
+        return active_conv_plaintext_cache->get_or_encode(
+            key, plain_vector, parms_id, scale, encoder);
+    }
+    auto plain = make_shared<Plaintext>();
+    encoder.encode(plain_vector, parms_id, scale, *plain);
+    return plain;
+}
+
+Ciphertext multiply_preencoded_plain_rescale(
+    const Ciphertext &input, const Plaintext &plain, PoseidonRuntime &runtime)
+{
     Ciphertext output;
     runtime.evaluator->multiply_plain(input, plain, output);
     runtime.evaluator->rescale_dynamic(output, output, input.scale());
@@ -581,30 +830,24 @@ int normalize_rotation_step(long long step, size_t slot_count)
     return static_cast<int>(normalized);
 }
 
-void rotate_with_power_of_two_keys(const Ciphertext &input, Ciphertext &output,
-                                   long long step, PoseidonRuntime &runtime)
+void rotate_with_direct_key(const Ciphertext &input, Ciphertext &output,
+                            long long step, PoseidonRuntime &runtime)
 {
-    int remaining = normalize_rotation_step(step, runtime.slot_count);
-    if (remaining == 0)
+    const int normalized_step = normalize_rotation_step(step, runtime.slot_count);
+    if (normalized_step == 0)
     {
         output = input;
         return;
     }
-
-    Ciphertext current = input;
-    int bit = 1;
-    while (remaining > 0)
+    const auto galois_elt = runtime.context.crt_context()
+                                ->galois_tool()
+                                ->get_elt_from_step(normalized_step);
+    if (!runtime.galois_keys.has_key(galois_elt))
     {
-        if ((remaining & bit) != 0)
-        {
-            Ciphertext rotated;
-            runtime.evaluator->rotate(current, rotated, bit, runtime.galois_keys);
-            current = std::move(rotated);
-            remaining -= bit;
-        }
-        bit <<= 1;
+        throw logic_error("direct ResNet18 rotation key is missing for step " +
+                          to_string(normalized_step));
     }
-    output = std::move(current);
+    runtime.evaluator->rotate(input, output, normalized_step, runtime.galois_keys);
 }
 
 bool local_coefficient_encodes_to_zero(const Ciphertext &input, double coeff,
@@ -628,6 +871,7 @@ vector<double> packed_channel_mask(size_t slot_count, size_t channel_stride,
 MultiplexedCipherGroup pack_channel_group_as_multiplexed_k1(
     const ChannelCipherGroup &input, PoseidonRuntime &runtime)
 {
+    resnet18_timing::ScopedEncryptedInferenceOperation inference_timer;
     if (input.spatial_count != static_cast<size_t>(input.h * input.w))
     {
         throw invalid_argument("multiplexed k=1 pack expects dense channel ciphertexts");
@@ -667,7 +911,7 @@ MultiplexedCipherGroup pack_channel_group_as_multiplexed_k1(
             encrypted_zero.scale() = masked.scale();
             runtime.evaluator->add_dynamic(masked, encrypted_zero, masked, runtime.encoder);
             Ciphertext shifted;
-            rotate_with_power_of_two_keys(
+            rotate_with_direct_key(
                 masked, shifted,
                 -static_cast<long long>(static_cast<size_t>(page) * input.spatial_count),
                 runtime);
@@ -773,6 +1017,10 @@ double multiplexed_group_max_abs_error(const MultiplexedCipherGroup &group,
                                        ostream *dump_output = nullptr,
                                        const string &dump_label = "")
 {
+    if (resnet18_execution::inference_only())
+    {
+        return -1.0;
+    }
     vector<complex<double>> decrypted_complex =
         decrypt_multiplexed_group_complex(group, runtime);
     vector<double> decrypted(decrypted_complex.size(), 0.0);
@@ -801,6 +1049,10 @@ double multiplexed_group_channel_max_abs_error(const MultiplexedCipherGroup &gro
                                                const PlainTensor &plain, int channel,
                                                PoseidonRuntime &runtime)
 {
+    if (resnet18_execution::inference_only())
+    {
+        return -1.0;
+    }
     vector<double> decrypted = decrypt_multiplexed_group(group, runtime);
     const size_t spatial_count = static_cast<size_t>(group.h * group.w);
     if (decrypted.size() != plain.values.size() || channel < 0 || channel >= group.c)
@@ -1097,35 +1349,683 @@ Ciphertext rotate_multiplexed_local_channel_sum_to_base(const Ciphertext &input_
     for (int x = 0; x < log_k; ++x)
     {
         Ciphertext rotated;
-        rotate_with_power_of_two_keys(sum, rotated, pow2_int(x), runtime);
-        Ciphertext next_sum;
-        runtime.evaluator->add_dynamic(sum, rotated, next_sum, runtime.encoder);
-        sum = std::move(next_sum);
+        rotate_with_direct_key(sum, rotated, pow2_int(x), runtime);
+        runtime.evaluator->add(sum, rotated, sum);
     }
     for (int x = 0; x < log_k; ++x)
     {
         Ciphertext rotated;
-        rotate_with_power_of_two_keys(
+        rotate_with_direct_key(
             sum, rotated,
             static_cast<long long>(pow2_int(x)) * static_cast<long long>(input.k) *
                 static_cast<long long>(input.w),
             runtime);
-        Ciphertext next_sum;
-        runtime.evaluator->add_dynamic(sum, rotated, next_sum, runtime.encoder);
-        sum = std::move(next_sum);
+        runtime.evaluator->add(sum, rotated, sum);
     }
     for (int page = 1; page < input.pages_per_cipher; ++page)
     {
         Ciphertext rotated;
-        rotate_with_power_of_two_keys(
+        rotate_with_direct_key(
             sum, rotated,
             static_cast<long long>(page) * static_cast<long long>(input.page_size),
             runtime);
-        Ciphertext next_sum;
-        runtime.evaluator->add_dynamic(sum, rotated, next_sum, runtime.encoder);
-        sum = std::move(next_sum);
+        runtime.evaluator->add(sum, rotated, sum);
     }
     return sum;
+}
+
+struct FusedConvBsgsTerm
+{
+    uint16_t output_channel = 0;
+    uint8_t kh = 0;
+    uint8_t kw = 0;
+    double coefficient = 0.0;
+};
+
+struct FusedConvBsgsMatrixPlan
+{
+    MatrixPlain matrix;
+    size_t input_pack_index = 0;
+    size_t output_pack_index = 0;
+    size_t diagonal_count = 0;
+    size_t baby_rotation_count = 0;
+    size_t giant_rotation_count = 0;
+    size_t encoded_bytes = 0;
+};
+
+struct FusedConvBsgsPlan
+{
+    parms_id_type parms_id{};
+    MultiplexedCipherGroup output_shape;
+    vector<shared_ptr<FusedConvBsgsMatrixPlan>> matrices;
+    size_t diagonal_count = 0;
+    size_t rotation_count = 0;
+    size_t encoded_bytes = 0;
+    size_t prepare_thread_count = 0;
+    int min_baby_step = 0;
+    int max_baby_step = 0;
+};
+
+struct FusedConvBsgsCacheEntry
+{
+    shared_ptr<FusedConvBsgsPlan> plan;
+    list<uintptr_t>::iterator lru_position;
+};
+
+size_t fused_conv_bsgs_cache_limit_bytes()
+{
+    static const size_t limit = []() -> size_t {
+        const char *raw = std::getenv("RESNET18_FUSED_BSGS_CACHE_MB");
+        if (raw == nullptr)
+        {
+            return static_cast<size_t>(0);
+        }
+        const string value(raw);
+        size_t parsed = 0;
+        const unsigned long long megabytes = stoull(value, &parsed, 10);
+        if (parsed != value.size() ||
+            megabytes > numeric_limits<size_t>::max() / (1024ULL * 1024ULL))
+        {
+            throw invalid_argument("invalid RESNET18_FUSED_BSGS_CACHE_MB");
+        }
+        return static_cast<size_t>(megabytes * 1024ULL * 1024ULL);
+    }();
+    return limit;
+}
+
+size_t fused_conv_bsgs_prepare_thread_count(size_t work_items)
+{
+    const char *raw = std::getenv("RESNET18_PREP_THREADS");
+    if (raw == nullptr)
+    {
+        return resnet18_parallel_thread_count(work_items);
+    }
+    try
+    {
+        const string value(raw);
+        size_t parsed = 0;
+        const unsigned long long requested = stoull(value, &parsed, 10);
+        if (parsed != value.size() || requested == 0)
+        {
+            throw invalid_argument("invalid thread count");
+        }
+        return max<size_t>(1, min<size_t>(static_cast<size_t>(requested),
+                                          max<size_t>(1, work_items)));
+    }
+    catch (const exception &)
+    {
+        throw invalid_argument("invalid RESNET18_PREP_THREADS");
+    }
+}
+
+mutex fused_conv_bsgs_plan_mutex;
+list<uintptr_t> fused_conv_bsgs_plan_lru;
+unordered_map<uintptr_t, FusedConvBsgsCacheEntry> fused_conv_bsgs_plans;
+size_t fused_conv_bsgs_cache_resident_bytes = 0;
+
+set<int> multiplexed_fused_conv_diagonal_steps_for_pack_pair(
+    const MultiplexedCipherGroup &input, const MultiplexedCipherGroup &output,
+    size_t input_pack_index, size_t output_pack_index, int fh, int fw)
+{
+    set<int> diagonal_steps;
+    const int pad_h = fh / 2;
+    const int pad_w = fw / 2;
+    const vector<int> input_channels =
+        multiplexed_channels_for_pack(input, input_pack_index);
+    const vector<int> output_channels =
+        multiplexed_channels_for_pack(output, output_pack_index);
+    for (int output_channel : output_channels)
+    {
+        const long long target_base = static_cast<long long>(
+            multiplexed_slot_index(output, output_channel, 0, 0));
+        for (int input_channel : input_channels)
+        {
+            const long long source_base = static_cast<long long>(
+                multiplexed_slot_index(input, input_channel, 0, 0));
+            for (int kh = 0; kh < fh; ++kh)
+            {
+                for (int kw = 0; kw < fw; ++kw)
+                {
+                    const long long spatial_step =
+                        static_cast<long long>(input.k) * input.k * input.w *
+                            (kh - pad_h) +
+                        static_cast<long long>(input.k) * (kw - pad_w);
+                    diagonal_steps.insert(normalize_rotation_step(
+                        source_base - target_base + spatial_step,
+                        input.slot_count));
+                }
+            }
+        }
+    }
+    return diagonal_steps;
+}
+
+int fused_conv_best_bsgs_baby_step(const set<int> &diagonal_steps,
+                                   size_t slot_count)
+{
+    if (diagonal_steps.empty() || slot_count == 0 ||
+        (slot_count & (slot_count - 1)) != 0)
+    {
+        throw invalid_argument("fused convolution BSGS diagonal set is invalid");
+    }
+    size_t best_rotation_count = numeric_limits<size_t>::max();
+    int best_baby_step = 1;
+    for (size_t candidate = 1; candidate <= slot_count; candidate <<= 1)
+    {
+        set<int> baby_rotations;
+        set<int> giant_rotations;
+        for (const int step : diagonal_steps)
+        {
+            const int baby = step & (static_cast<int>(candidate) - 1);
+            const int giant = step - baby;
+            if (baby != 0)
+            {
+                baby_rotations.insert(baby);
+            }
+            if (giant != 0)
+            {
+                giant_rotations.insert(giant);
+            }
+        }
+        const size_t rotation_count =
+            baby_rotations.size() + giant_rotations.size();
+        if (rotation_count < best_rotation_count)
+        {
+            best_rotation_count = rotation_count;
+            best_baby_step = static_cast<int>(candidate);
+        }
+    }
+    return best_baby_step;
+}
+
+MultiplexedCipherGroup collect_fused_conv_bsgs_rotation_steps(
+    set<int> &rotations, const MultiplexedCipherGroup &input,
+    int out_channels, int stride, int fh, int fw)
+{
+    const int out_k = stride == 1 ? input.k : input.k * stride;
+    MultiplexedCipherGroup output = make_multiplexed_shape(
+        input.h / stride, input.w / stride, out_channels, out_k,
+        input.slot_count);
+    for (size_t output_pack_index = 0;
+         output_pack_index < output.packs.size(); ++output_pack_index)
+    {
+        for (size_t input_pack_index = 0;
+             input_pack_index < input.packs.size(); ++input_pack_index)
+        {
+            const set<int> diagonal_steps =
+                multiplexed_fused_conv_diagonal_steps_for_pack_pair(
+                    input, output, input_pack_index, output_pack_index, fh, fw);
+            const int baby_step = fused_conv_best_bsgs_baby_step(
+                diagonal_steps, input.slot_count);
+            for (const int step : diagonal_steps)
+            {
+                const int baby = step & (baby_step - 1);
+                const int giant = step - baby;
+                if (baby != 0)
+                {
+                    rotations.insert(baby);
+                }
+                if (giant != 0)
+                {
+                    rotations.insert(giant);
+                }
+            }
+        }
+    }
+    return output;
+}
+
+shared_ptr<FusedConvBsgsPlan> prepare_fused_conv_bsgs_plan(
+    const MultiplexedCipherGroup &input, int out_channels, int stride,
+    int fh, int fw,
+    const vector<double> &weights, const vector<double> &running_var,
+    const vector<double> &constant_weight, double epsilon,
+    PoseidonRuntime &runtime)
+{
+    const uintptr_t layer_identity = reinterpret_cast<uintptr_t>(weights.data());
+    {
+        lock_guard<mutex> lock(fused_conv_bsgs_plan_mutex);
+        const auto found = fused_conv_bsgs_plans.find(layer_identity);
+        if (found != fused_conv_bsgs_plans.end())
+        {
+            if (found->second.plan->parms_id != input.packs.front().parms_id())
+            {
+                throw runtime_error("fused convolution BSGS plaintext plan level changed");
+            }
+            fused_conv_bsgs_plan_lru.splice(
+                fused_conv_bsgs_plan_lru.begin(), fused_conv_bsgs_plan_lru,
+                found->second.lru_position);
+            return found->second.plan;
+        }
+    }
+
+    const auto prepare_start = chrono::steady_clock::now();
+    const int out_k = stride == 1 ? input.k : input.k * stride;
+    MultiplexedCipherGroup output = make_multiplexed_shape(
+        input.h / stride, input.w / stride, out_channels, out_k,
+        input.slot_count);
+    auto plan = make_shared<FusedConvBsgsPlan>();
+    plan->parms_id = input.packs.front().parms_id();
+    plan->output_shape = output;
+    const int pad_h = fh / 2;
+    const int pad_w = fw / 2;
+    const double plain_scale =
+        local_multiply_plain_scale(input.packs.front(), runtime.encoder);
+
+    for (size_t output_pack_index = 0;
+         output_pack_index < output.packs.size(); ++output_pack_index)
+    {
+        const vector<int> output_channels =
+            multiplexed_channels_for_pack(output, output_pack_index);
+        for (size_t input_pack_index = 0;
+             input_pack_index < input.packs.size(); ++input_pack_index)
+        {
+            const vector<int> input_channels =
+                multiplexed_channels_for_pack(input, input_pack_index);
+            map<int, vector<FusedConvBsgsTerm>> sparse_diagonals;
+            for (int output_channel : output_channels)
+            {
+                const double folded_bn_scale =
+                    constant_weight.at(output_channel) /
+                    sqrt(running_var.at(output_channel) + epsilon);
+                const long long target_base = static_cast<long long>(
+                    multiplexed_slot_index(output, output_channel, 0, 0));
+                for (int input_channel : input_channels)
+                {
+                    const long long source_base = static_cast<long long>(
+                        multiplexed_slot_index(input, input_channel, 0, 0));
+                    for (int kh = 0; kh < fh; ++kh)
+                    {
+                        for (int kw = 0; kw < fw; ++kw)
+                        {
+                            const size_t weight_index = static_cast<size_t>(
+                                fh * fw * input.c * output_channel +
+                                fh * fw * input_channel + fw * kh + kw);
+                            const double coefficient =
+                                weights.at(weight_index) * folded_bn_scale;
+                            if (coefficient == 0.0)
+                            {
+                                continue;
+                            }
+                            const long long spatial_step =
+                                static_cast<long long>(input.k) * input.k * input.w *
+                                    (kh - pad_h) +
+                                static_cast<long long>(input.k) * (kw - pad_w);
+                            const int step = normalize_rotation_step(
+                                source_base - target_base + spatial_step,
+                                input.slot_count);
+                            sparse_diagonals[step].push_back(
+                                {static_cast<uint16_t>(output_channel),
+                                 static_cast<uint8_t>(kh),
+                                 static_cast<uint8_t>(kw), coefficient});
+                        }
+                    }
+                }
+            }
+
+            vector<pair<int, vector<FusedConvBsgsTerm>>> diagonal_terms;
+            diagonal_terms.reserve(sparse_diagonals.size());
+            set<int> diagonal_steps;
+            for (auto &entry : sparse_diagonals)
+            {
+                diagonal_steps.insert(entry.first);
+                diagonal_terms.emplace_back(entry.first, std::move(entry.second));
+            }
+            sparse_diagonals.clear();
+            if (diagonal_steps.empty())
+            {
+                continue;
+            }
+            // Keep n1 structural rather than weight-dependent. Evaluation keys are
+            // planned before model weights are loaded, so exact-zero learned weights
+            // must not select a different baby/giant decomposition at run time.
+            const set<int> structural_diagonal_steps =
+                multiplexed_fused_conv_diagonal_steps_for_pack_pair(
+                    input, output, input_pack_index, output_pack_index, fh, fw);
+            const int baby_step = fused_conv_best_bsgs_baby_step(
+                structural_diagonal_steps, input.slot_count);
+
+            vector<Plaintext> encoded_diagonals(diagonal_terms.size());
+            const size_t prepare_threads =
+                fused_conv_bsgs_prepare_thread_count(diagonal_terms.size());
+            plan->prepare_thread_count =
+                max(plan->prepare_thread_count, prepare_threads);
+            resnet18_parallel_for_with_thread_count(
+                diagonal_terms.size(), prepare_threads, [&](size_t diagonal_index) {
+                const int step = diagonal_terms.at(diagonal_index).first;
+                const int giant = step - (step & (baby_step - 1));
+                vector<double> diagonal(input.slot_count, 0.0);
+                for (const FusedConvBsgsTerm &term :
+                     diagonal_terms.at(diagonal_index).second)
+                {
+                    for (int oh = 0; oh < output.h; ++oh)
+                    {
+                        const int ih = oh * stride +
+                                       static_cast<int>(term.kh) - pad_h;
+                        if (ih < 0 || ih >= input.h)
+                        {
+                            continue;
+                        }
+                        for (int ow = 0; ow < output.w; ++ow)
+                        {
+                            const int iw = ow * stride +
+                                           static_cast<int>(term.kw) - pad_w;
+                            if (iw < 0 || iw >= input.w)
+                            {
+                                continue;
+                            }
+                            diagonal.at(multiplexed_slot_index(
+                                output, term.output_channel, oh, ow)) +=
+                                term.coefficient;
+                        }
+                    }
+                }
+
+                const int coefficient_rotation = normalize_rotation_step(
+                    -static_cast<long long>(giant), input.slot_count);
+                vector<double> encoded_values(input.slot_count, 0.0);
+                for (size_t slot = 0; slot < input.slot_count; ++slot)
+                {
+                    encoded_values.at(slot) = diagonal.at(
+                        (slot + static_cast<size_t>(coefficient_rotation)) %
+                        input.slot_count);
+                }
+                runtime.encoder.encode(
+                    encoded_values, input.packs.front().parms_id(), plain_scale,
+                    encoded_diagonals.at(diagonal_index));
+            });
+
+            auto matrix_plan = make_shared<FusedConvBsgsMatrixPlan>();
+            matrix_plan->input_pack_index = input_pack_index;
+            matrix_plan->output_pack_index = output_pack_index;
+            matrix_plan->matrix.log_slots = static_cast<uint32_t>(
+                exact_log2_power_of_two(static_cast<int>(input.slot_count)));
+            matrix_plan->matrix.n1 = baby_step;
+            matrix_plan->matrix.level = input.packs.front().level();
+            matrix_plan->matrix.scale = plain_scale;
+            matrix_plan->diagonal_count = diagonal_terms.size();
+            set<int> baby_rotations;
+            set<int> giant_rotations;
+            for (size_t index = 0; index < diagonal_terms.size(); ++index)
+            {
+                const int step = diagonal_terms.at(index).first;
+                const int baby = step & (baby_step - 1);
+                const int giant = step - baby;
+                if (baby != 0)
+                {
+                    baby_rotations.insert(baby);
+                }
+                if (giant != 0)
+                {
+                    giant_rotations.insert(giant);
+                }
+                matrix_plan->encoded_bytes +=
+                    encoded_diagonals.at(index).capacity() * sizeof(uint64_t);
+                matrix_plan->matrix.plain_vec.emplace(
+                    step, std::move(encoded_diagonals.at(index)));
+            }
+            matrix_plan->baby_rotation_count = baby_rotations.size();
+            matrix_plan->giant_rotation_count = giant_rotations.size();
+            plan->diagonal_count += matrix_plan->diagonal_count;
+            plan->rotation_count += matrix_plan->baby_rotation_count +
+                                    matrix_plan->giant_rotation_count;
+            plan->encoded_bytes += matrix_plan->encoded_bytes;
+            if (plan->min_baby_step == 0)
+            {
+                plan->min_baby_step = baby_step;
+            }
+            else
+            {
+                plan->min_baby_step = min(plan->min_baby_step, baby_step);
+            }
+            plan->max_baby_step = max(plan->max_baby_step, baby_step);
+            plan->matrices.push_back(std::move(matrix_plan));
+        }
+    }
+
+    const size_t cache_limit = fused_conv_bsgs_cache_limit_bytes();
+    bool retained = false;
+    size_t cache_resident_after = 0;
+    shared_ptr<FusedConvBsgsPlan> returned_plan = plan;
+    {
+        lock_guard<mutex> lock(fused_conv_bsgs_plan_mutex);
+        const auto raced = fused_conv_bsgs_plans.find(layer_identity);
+        if (raced != fused_conv_bsgs_plans.end())
+        {
+            fused_conv_bsgs_plan_lru.splice(
+                fused_conv_bsgs_plan_lru.begin(), fused_conv_bsgs_plan_lru,
+                raced->second.lru_position);
+            returned_plan = raced->second.plan;
+            retained = true;
+        }
+        else if (cache_limit != 0 && plan->encoded_bytes <= cache_limit)
+        {
+            while (!fused_conv_bsgs_plan_lru.empty() &&
+                   fused_conv_bsgs_cache_resident_bytes >
+                       cache_limit - plan->encoded_bytes)
+            {
+                const uintptr_t old_key = fused_conv_bsgs_plan_lru.back();
+                const auto old = fused_conv_bsgs_plans.find(old_key);
+                fused_conv_bsgs_cache_resident_bytes -=
+                    old->second.plan->encoded_bytes;
+                fused_conv_bsgs_plans.erase(old);
+                fused_conv_bsgs_plan_lru.pop_back();
+            }
+            fused_conv_bsgs_plan_lru.push_front(layer_identity);
+            fused_conv_bsgs_plans.emplace(
+                layer_identity,
+                FusedConvBsgsCacheEntry{plan,
+                                        fused_conv_bsgs_plan_lru.begin()});
+            fused_conv_bsgs_cache_resident_bytes += plan->encoded_bytes;
+            retained = true;
+        }
+        cache_resident_after = fused_conv_bsgs_cache_resident_bytes;
+    }
+
+    const auto prepare_ms = chrono::duration_cast<chrono::milliseconds>(
+        chrono::steady_clock::now() - prepare_start).count();
+    resnet18_progress_log()
+        << "fused convolution BSGS plaintext plan: input_shape="
+        << input.c << "x" << input.h << "x" << input.w
+        << ", output_shape=" << output.c << "x" << output.h << "x" << output.w
+        << ", kernel=" << fh << "x" << fw << ", stride=" << stride
+        << ", matrices=" << plan->matrices.size()
+        << ", diagonals=" << plan->diagonal_count
+        << ", n1_min_max=" << plan->min_baby_step << "/"
+        << plan->max_baby_step << ", rotations<=" << plan->rotation_count
+        << ", encoded_bytes=" << plan->encoded_bytes
+        << ", prepare_threads=" << plan->prepare_thread_count
+        << ", cache_retained=" << (retained ? 1 : 0)
+        << ", cache_resident_bytes=" << cache_resident_after
+        << ", cache_limit_bytes=" << cache_limit
+        << ", prepare_time=" << prepare_ms << " ms" << endl;
+    return returned_plan;
+}
+
+Ciphertext evaluate_fused_conv_bsgs_matrix_with_shared_babies(
+    const Ciphertext &input, const MatrixPlain &matrix,
+    const vector<Ciphertext> &baby_rotations, PoseidonRuntime &runtime)
+{
+    const auto [index, unused_giant_steps, unused_baby_steps] =
+        bsgs_index(matrix.plain_vec, 1 << matrix.log_slots, matrix.n1);
+    Ciphertext result;
+    for (const auto &giant_group : index)
+    {
+        Ciphertext group_sum;
+        for (const int baby_step : giant_group.second)
+        {
+            const Ciphertext &baby = baby_step == 0
+                                         ? input
+                                         : baby_rotations.at(
+                                               static_cast<size_t>(baby_step));
+            runtime.evaluator->multiply_plain_accumulate(
+                baby, matrix.plain_vec.at(baby_step + giant_group.first),
+                group_sum);
+        }
+
+        if (giant_group.first != 0)
+        {
+            Ciphertext rotated_group;
+            rotate_with_direct_key(group_sum, rotated_group,
+                                   giant_group.first, runtime);
+            if (!result.is_valid())
+            {
+                result = std::move(rotated_group);
+            }
+            else
+            {
+                runtime.evaluator->add(result, rotated_group, result);
+            }
+        }
+        else if (!result.is_valid())
+        {
+            result = std::move(group_sum);
+        }
+        else
+        {
+            runtime.evaluator->add(result, group_sum, result);
+        }
+    }
+    if (!result.is_valid())
+    {
+        throw runtime_error("shared-baby BSGS matrix produced no terms");
+    }
+    Ciphertext output;
+    runtime.evaluator->rescale_dynamic(result, output, input.scale());
+    return output;
+}
+
+MultiplexedCipherGroup multiplexed_fused_conv2d_bsgs(
+    const MultiplexedCipherGroup &input, int out_channels, int stride,
+    int fh, int fw,
+    const vector<double> &weights, const vector<double> &running_var,
+    const vector<double> &constant_weight, double epsilon,
+    PoseidonRuntime &runtime)
+{
+    shared_ptr<FusedConvBsgsPlan> plan = prepare_fused_conv_bsgs_plan(
+        input, out_channels, stride, fh, fw, weights, running_var,
+        constant_weight, epsilon, runtime);
+    resnet18_timing::ScopedEncryptedInferenceOperation inference_timer;
+    MultiplexedCipherGroup output = plan->output_shape;
+    vector<Ciphertext> output_pack_sums(output.packs.size());
+    size_t shared_baby_rotation_count = 0;
+    size_t giant_rotation_count = 0;
+    for (size_t input_pack_index = 0;
+         input_pack_index < input.packs.size(); ++input_pack_index)
+    {
+        map<int, vector<shared_ptr<FusedConvBsgsMatrixPlan>>> matrices_by_n1;
+        for (const auto &matrix_plan : plan->matrices)
+        {
+            if (matrix_plan->input_pack_index == input_pack_index)
+            {
+                matrices_by_n1[static_cast<int>(matrix_plan->matrix.n1)]
+                    .push_back(matrix_plan);
+            }
+        }
+        for (const auto &n1_group : matrices_by_n1)
+        {
+            const int n1 = n1_group.first;
+            set<int> required_baby_steps;
+            for (const auto &matrix_plan : n1_group.second)
+            {
+                for (const auto &diagonal : matrix_plan->matrix.plain_vec)
+                {
+                    const int baby_step = diagonal.first & (n1 - 1);
+                    if (baby_step != 0)
+                    {
+                        required_baby_steps.insert(baby_step);
+                    }
+                }
+                giant_rotation_count += matrix_plan->giant_rotation_count;
+            }
+            const vector<int> baby_steps(required_baby_steps.begin(),
+                                         required_baby_steps.end());
+            vector<Ciphertext> baby_rotations(static_cast<size_t>(n1));
+            resnet18_parallel_for(baby_steps.size(), [&](size_t baby_index) {
+                const int baby_step = baby_steps.at(baby_index);
+                rotate_with_direct_key(
+                    input.packs.at(input_pack_index),
+                    baby_rotations.at(static_cast<size_t>(baby_step)),
+                    baby_step, runtime);
+            });
+            shared_baby_rotation_count += baby_steps.size();
+
+            vector<Ciphertext> contributions(n1_group.second.size());
+            resnet18_parallel_for(n1_group.second.size(), [&](size_t matrix_index) {
+                contributions.at(matrix_index) =
+                    evaluate_fused_conv_bsgs_matrix_with_shared_babies(
+                        input.packs.at(input_pack_index),
+                        n1_group.second.at(matrix_index)->matrix,
+                        baby_rotations, runtime);
+            });
+            for (size_t matrix_index = 0;
+                 matrix_index < n1_group.second.size(); ++matrix_index)
+            {
+                const size_t output_pack_index =
+                    n1_group.second.at(matrix_index)->output_pack_index;
+                if (!output_pack_sums.at(output_pack_index).is_valid())
+                {
+                    output_pack_sums.at(output_pack_index) =
+                        std::move(contributions.at(matrix_index));
+                }
+                else
+                {
+                    runtime.evaluator->add(
+                        output_pack_sums.at(output_pack_index),
+                        contributions.at(matrix_index),
+                        output_pack_sums.at(output_pack_index));
+                }
+            }
+        }
+    }
+    for (size_t output_pack_index = 0;
+         output_pack_index < output.packs.size(); ++output_pack_index)
+    {
+        if (!output_pack_sums.at(output_pack_index).is_valid())
+        {
+            throw runtime_error("fused convolution BSGS output pack has no terms");
+        }
+        output.packs.at(output_pack_index) =
+            std::move(output_pack_sums.at(output_pack_index));
+    }
+    resnet18_progress_log()
+        << "fused convolution BSGS evaluation: matrices="
+        << plan->matrices.size() << ", diagonals=" << plan->diagonal_count
+        << ", rotations_before_sharing<=" << plan->rotation_count
+        << ", shared_baby_rotations=" << shared_baby_rotation_count
+        << ", giant_rotations=" << giant_rotation_count
+        << ", rotations_after_sharing<="
+        << shared_baby_rotation_count + giant_rotation_count
+        << ", rescale_operations=" << plan->matrices.size()
+        << ", multiplicative_depth=1" << endl;
+    log_multiplexed_group_cipher_state(
+        "fused convolution BSGS output", output, runtime);
+    return output;
+}
+
+bool should_use_fused_conv_bsgs(const MultiplexedCipherGroup &input,
+                                int out_channels, int stride, int fh, int fw)
+{
+    if (!fused_conv_bsgs_enabled())
+    {
+        return false;
+    }
+    const bool supported_stage_transition =
+        transition_bsgs_enabled() && stride == 2 &&
+        out_channels == input.c * 2 &&
+        (input.c == 128 || input.c == 256 ||
+         (input.c == 64 && layer2_transition_bsgs_enabled())) &&
+        ((fh == 3 && fw == 3) || (fh == 1 && fw == 1));
+    const bool layer3_stride1 =
+        layer3_bsgs_enabled() && stride == 1 && fh == 3 && fw == 3 &&
+        input.h == 14 &&
+        input.w == 14 && input.c == 256 && out_channels == 256 &&
+        input.k == 8;
+    const bool layer4_stride1 =
+        layer4_bsgs_enabled() && stride == 1 && fh == 3 && fw == 3 &&
+        input.h == 7 && input.w == 7 && input.c == 512 &&
+        out_channels == 512 && input.k == 16;
+    return supported_stage_transition || layer3_stride1 || layer4_stride1;
 }
 
 struct MultiplexedConvFusedKey
@@ -1159,6 +2059,12 @@ MultiplexedCipherGroup multiplexed_channel_conv2d_all_channels(
     const vector<double> &weights, const vector<double> &running_var,
     const vector<double> &constant_weight, double epsilon, PoseidonRuntime &runtime)
 {
+    const ConvPlaintextCache::Stats plaintext_cache_before =
+        active_conv_plaintext_cache != nullptr
+            ? active_conv_plaintext_cache->stats()
+            : ConvPlaintextCache::Stats{};
+    const uintptr_t layer_identity =
+        reinterpret_cast<uintptr_t>(weights.data());
     log_multiplexed_group_cipher_state("multiplexed_dense_conv2d_all_channels input",
                                        input, runtime);
     if (stride != 1 && stride != 2)
@@ -1178,6 +2084,16 @@ MultiplexedCipherGroup multiplexed_channel_conv2d_all_channels(
     {
         throw invalid_argument("multiplexed dense conv BN fold vector size is invalid");
     }
+
+    if (should_use_fused_conv_bsgs(
+            input, out_channels, stride, fh, fw))
+    {
+        return multiplexed_fused_conv2d_bsgs(
+            input, out_channels, stride, fh, fw, weights, running_var,
+            constant_weight, epsilon, runtime);
+    }
+
+    resnet18_timing::ScopedEncryptedInferenceOperation inference_timer;
 
     const int out_k = (stride == 1) ? input.k : input.k * 2;
     MultiplexedCipherGroup output =
@@ -1216,8 +2132,101 @@ MultiplexedCipherGroup multiplexed_channel_conv2d_all_channels(
         << ", spatial_rotations_per_pack<=" << input.packs.size() * fh * fw
         << ", plaintext_vector_multiplies_per_pack<="
         << input.packs.size() * max_output_channels_per_pack *
-               (static_cast<size_t>(fh * fw) + 1)
+                   static_cast<size_t>(fh * fw) +
+               max_output_channels_per_pack
         << endl;
+    const int compact_local_sum_rotations =
+        2 * exact_log2_power_of_two(input.k) +
+        max(0, input.pages_per_cipher - 1);
+    const size_t channel_placement_rotations_before =
+        input.packs.size() * static_cast<size_t>(out_channels) *
+        static_cast<size_t>(compact_local_sum_rotations + 1);
+    const size_t channel_placement_rotations_after =
+        static_cast<size_t>(out_channels) *
+        static_cast<size_t>(compact_local_sum_rotations + 1);
+    resnet18_progress_log()
+        << "multiplexed dense conv pre-reduction cross-pack accumulation: "
+        << "channel_reduce_and_place_rotations_before<="
+        << channel_placement_rotations_before
+        << ", after<=" << channel_placement_rotations_after
+        << ", saved<="
+        << channel_placement_rotations_before -
+               channel_placement_rotations_after
+        << endl;
+    const size_t dense_kernel_term_count =
+        input.packs.size() * static_cast<size_t>(out_channels) *
+        static_cast<size_t>(fh * fw);
+    const size_t dense_select_term_count =
+        input.packs.size() * static_cast<size_t>(out_channels);
+    const size_t cross_pack_select_term_count = static_cast<size_t>(out_channels);
+    const size_t rescale_count_before_lazy =
+        dense_kernel_term_count + dense_select_term_count;
+    const size_t rescale_count_after_kernel_lazy = dense_select_term_count * 2;
+    const size_t rescale_count_after_cross_pack_lazy =
+        cross_pack_select_term_count * 2;
+    resnet18_progress_log()
+        << "multiplexed dense conv cross-pack lazy rescale: before<="
+        << rescale_count_before_lazy
+        << ", kernel_lazy_after<=" << rescale_count_after_kernel_lazy
+        << ", cross_pack_after<=" << rescale_count_after_cross_pack_lazy
+        << ", total_saved<="
+        << rescale_count_before_lazy - rescale_count_after_cross_pack_lazy
+        << ", select_plain_multiplies_before<=" << dense_select_term_count
+        << ", select_plain_multiplies_after<=" << cross_pack_select_term_count
+        << endl;
+
+    const size_t kernel_position_count = static_cast<size_t>(fh * fw);
+    const size_t cached_spatial_transform_count =
+        input.packs.size() * kernel_position_count;
+    const size_t previous_spatial_transform_count =
+        output.packs.size() * cached_spatial_transform_count;
+    const size_t nonzero_kernel_rotation_count =
+        kernel_position_count > 0 ? kernel_position_count - 1 : 0;
+    const size_t cached_direct_rotation_count =
+        input.packs.size() * nonzero_kernel_rotation_count;
+    const size_t previous_direct_rotation_count =
+        output.packs.size() * cached_direct_rotation_count;
+    vector<vector<Ciphertext>> spatially_rotated_inputs(input.packs.size());
+    for (auto &rotations : spatially_rotated_inputs)
+    {
+        rotations.resize(kernel_position_count);
+    }
+
+    resnet18_progress_log()
+        << "multiplexed dense conv spatial rotation cache: ciphertexts="
+        << cached_spatial_transform_count
+        << ", transforms_before=" << previous_spatial_transform_count
+        << ", transforms_after=" << cached_spatial_transform_count
+        << ", direct_rotations_before=" << previous_direct_rotation_count
+        << ", direct_rotations_after=" << cached_direct_rotation_count
+        << endl;
+    resnet18_parallel_for(cached_spatial_transform_count, [&](size_t transform_index) {
+        const size_t input_pack_index =
+            transform_index / kernel_position_count;
+        const size_t kernel_position =
+            transform_index % kernel_position_count;
+        const int kh = static_cast<int>(kernel_position / static_cast<size_t>(fw));
+        const int kw = static_cast<int>(kernel_position % static_cast<size_t>(fw));
+        rotate_with_direct_key(
+            input.packs.at(input_pack_index),
+            spatially_rotated_inputs.at(input_pack_index).at(kernel_position),
+            multiplexed_spatial_kernel_rotation_step(input, fh, fw, kh, kw),
+            runtime);
+    });
+
+    auto input_context_data = runtime.context.crt_context()->get_context_data(
+        input.packs.front().parms_id());
+    if (!input_context_data || !input_context_data->next_context_data())
+    {
+        throw runtime_error("multiplexed conv has no level for lazy rescale plaintexts");
+    }
+    const parms_id_type select_plain_parms_id =
+        input_context_data->next_context_data()->parms_id();
+    const double kernel_plain_scale =
+        local_multiply_plain_scale(input.packs.front(), runtime.encoder);
+    const double select_plain_scale = pow(
+        2.0, static_cast<double>(input_context_data->next_context_data()
+                                     ->coeff_modulus().back().bit_count()));
 
     auto compute_output_pack = [&](size_t output_pack_index) {
         const vector<int> output_channels =
@@ -1231,6 +2240,7 @@ MultiplexedCipherGroup multiplexed_channel_conv2d_all_channels(
         vector<unsigned char> has_output_channel_terms(output_channels.size(), 0);
         vector<vector<double>> select_vectors(output_channels.size(),
                                               vector<double>(output.slot_count, 0.0));
+        vector<shared_ptr<const Plaintext>> select_plaintexts(output_channels.size());
         auto for_each_output_channel = [&](auto fn) {
             if (parallelize_output_channels && output_channels.size() > 1)
             {
@@ -1265,24 +2275,31 @@ MultiplexedCipherGroup multiplexed_channel_conv2d_all_channels(
                         folded_bn_scale;
                 }
             }
+            const ConvPlaintextCacheKey select_key{
+                layer_identity, select_plain_parms_id, 1, 0, 0,
+                static_cast<uint32_t>(output_channel)};
+            select_plaintexts.at(output_channel_index) =
+                get_cached_conv_plaintext(
+                    select_key, select_vectors.at(output_channel_index),
+                    select_plain_parms_id, select_plain_scale, runtime.encoder);
         });
 
         for (size_t input_pack_index = 0; input_pack_index < input.packs.size();
              ++input_pack_index)
         {
-            vector<Ciphertext> input_pack_channel_sums(output_channels.size());
-            vector<unsigned char> has_input_pack_channel_sums(output_channels.size(), 0);
+            // Every input pack uses the same physical local-channel positions.
+            // Accumulate all packs before the linear local-channel reduction and
+            // output placement, so those rotations run once per output channel
+            // instead of once per (input pack, output channel).
             const vector<int> input_channels =
                 multiplexed_channels_for_pack(input, input_pack_index);
             for (int kh = 0; kh < fh; ++kh)
             {
                 for (int kw = 0; kw < fw; ++kw)
                 {
-                    Ciphertext rotated;
-                    rotate_with_power_of_two_keys(
-                        input.packs.at(input_pack_index), rotated,
-                        multiplexed_spatial_kernel_rotation_step(input, fh, fw, kh, kw),
-                        runtime);
+                    const size_t kernel_position = static_cast<size_t>(kh * fw + kw);
+                    const Ciphertext &rotated =
+                        spatially_rotated_inputs.at(input_pack_index).at(kernel_position);
 
                     for_each_output_channel([&](size_t output_channel_index) {
                         const int output_channel =
@@ -1328,60 +2345,55 @@ MultiplexedCipherGroup multiplexed_channel_conv2d_all_channels(
                             return;
                         }
 
-                        Ciphertext weighted = multiply_plain_vector_rescale(
-                            rotated, compact_weight, runtime);
-                        if (!has_input_pack_channel_sums.at(output_channel_index))
+                        const ConvPlaintextCacheKey kernel_key{
+                            layer_identity, rotated.parms_id(), 0,
+                            static_cast<uint32_t>(input_pack_index),
+                            static_cast<uint32_t>(kernel_position),
+                            static_cast<uint32_t>(output_channel)};
+                        shared_ptr<const Plaintext> compact_plaintext =
+                            get_cached_conv_plaintext(
+                                kernel_key, compact_weight, rotated.parms_id(),
+                                kernel_plain_scale, runtime.encoder);
+                        if (!has_output_channel_terms.at(output_channel_index))
                         {
-                            input_pack_channel_sums.at(output_channel_index) =
-                                std::move(weighted);
-                            has_input_pack_channel_sums.at(output_channel_index) = 1;
+                            runtime.evaluator->multiply_plain(
+                                rotated, *compact_plaintext,
+                                output_channel_terms.at(output_channel_index));
+                            has_output_channel_terms.at(output_channel_index) = 1;
                         }
                         else
                         {
-                            Ciphertext next_sum;
-                            runtime.evaluator->add_dynamic(
-                                input_pack_channel_sums.at(output_channel_index), weighted,
-                                next_sum, runtime.encoder);
-                            input_pack_channel_sums.at(output_channel_index) =
-                                std::move(next_sum);
+                            runtime.evaluator->multiply_plain_accumulate(
+                                rotated, *compact_plaintext,
+                                output_channel_terms.at(output_channel_index));
                         }
                     });
                 }
             }
-
-            for_each_output_channel([&](size_t output_channel_index) {
-                if (!has_input_pack_channel_sums.at(output_channel_index))
-                {
-                    return;
-                }
-
-                Ciphertext folded =
-                    rotate_multiplexed_local_channel_sum_to_base(
-                        input_pack_channel_sums.at(output_channel_index), input, runtime);
-                Ciphertext shifted;
-                rotate_with_power_of_two_keys(
-                    folded, shifted,
-                    multiplexed_output_channel_select_rotation_step(
-                        output, output_channels.at(output_channel_index)),
-                    runtime);
-                Ciphertext selected =
-                    multiply_plain_vector_rescale(
-                        shifted, select_vectors.at(output_channel_index), runtime);
-                if (!has_output_channel_terms.at(output_channel_index))
-                {
-                    output_channel_terms.at(output_channel_index) = std::move(selected);
-                    has_output_channel_terms.at(output_channel_index) = 1;
-                }
-                else
-                {
-                    Ciphertext next_sum;
-                    runtime.evaluator->add_dynamic(
-                        output_channel_terms.at(output_channel_index), selected, next_sum,
-                        runtime.encoder);
-                    output_channel_terms.at(output_channel_index) = std::move(next_sum);
-                }
-            });
         }
+
+        for_each_output_channel([&](size_t output_channel_index) {
+            if (!has_output_channel_terms.at(output_channel_index))
+            {
+                return;
+            }
+
+            Ciphertext folded = rotate_multiplexed_local_channel_sum_to_base(
+                output_channel_terms.at(output_channel_index), input, runtime);
+            Ciphertext cross_pack_sum;
+            rotate_with_direct_key(
+                folded, cross_pack_sum,
+                multiplexed_output_channel_select_rotation_step(
+                    output, output_channels.at(output_channel_index)),
+                runtime);
+            // This replaces one kernel rescale and one select/rescale per input
+            // pack with exactly two rescales for the complete output channel.
+            runtime.evaluator->rescale_dynamic(
+                cross_pack_sum, cross_pack_sum, input.packs.front().scale());
+            output_channel_terms.at(output_channel_index) =
+                multiply_preencoded_plain_rescale(
+                cross_pack_sum, *select_plaintexts.at(output_channel_index), runtime);
+        });
 
         Ciphertext sum;
         bool has_sum = false;
@@ -1401,9 +2413,7 @@ MultiplexedCipherGroup multiplexed_channel_conv2d_all_channels(
             }
             else
             {
-                Ciphertext next_sum;
-                runtime.evaluator->add_dynamic(sum, term, next_sum, runtime.encoder);
-                sum = std::move(next_sum);
+                runtime.evaluator->add(sum, term, sum);
             }
         }
         if (!has_sum)
@@ -1430,6 +2440,24 @@ MultiplexedCipherGroup multiplexed_channel_conv2d_all_channels(
                             << output.packs.size() << "/" << output.packs.size() << endl;
     log_multiplexed_group_cipher_state("multiplexed_dense_conv2d_all_channels output",
                                        output, runtime);
+    if (active_conv_plaintext_cache != nullptr)
+    {
+        const ConvPlaintextCache::Stats plaintext_cache_after =
+            active_conv_plaintext_cache->stats();
+        resnet18_progress_log()
+            << "multiplexed dense conv plaintext cache: hits="
+            << plaintext_cache_after.hits - plaintext_cache_before.hits
+            << ", misses="
+            << plaintext_cache_after.misses - plaintext_cache_before.misses
+            << ", newly_encoded_bytes="
+            << plaintext_cache_after.encoded_bytes -
+                   plaintext_cache_before.encoded_bytes
+            << ", resident_bytes=" << plaintext_cache_after.resident_bytes
+            << ", entries=" << plaintext_cache_after.entries
+            << ", evictions="
+            << plaintext_cache_after.evictions - plaintext_cache_before.evictions
+            << endl;
+    }
     return output;
 }
 
@@ -1439,6 +2467,7 @@ MultiplexedCipherGroup multiplexed_channel_batch_norm(
     const vector<double> &weight, double epsilon, double boundary,
     PoseidonRuntime &runtime)
 {
+    resnet18_timing::ScopedEncryptedInferenceOperation inference_timer;
     log_multiplexed_group_cipher_state("multiplexed_batch_norm input", input, runtime);
     if (static_cast<int>(bias.size()) != input.c ||
         static_cast<int>(running_mean.size()) != input.c ||
@@ -1498,12 +2527,18 @@ MultiplexedCipherGroup multiplexed_channel_bootstrap(
     const string &label, const MockExecutionOptions &mock_options)
 {
     log_multiplexed_group_cipher_state(label + " bootstrap input", input, runtime);
-    const vector<complex<double>> bootstrap_input_values =
-        decrypt_multiplexed_group_complex(input, runtime);
-    vector<double> bootstrap_input_real(bootstrap_input_values.size(), 0.0);
-    for (size_t i = 0; i < bootstrap_input_values.size(); ++i)
+    const bool needs_decrypted_input =
+        mock_options.mock_bootstrap || !resnet18_execution::inference_only();
+    vector<complex<double>> bootstrap_input_values;
+    vector<double> bootstrap_input_real;
+    if (needs_decrypted_input)
     {
-        bootstrap_input_real.at(i) = bootstrap_input_values.at(i).real();
+        bootstrap_input_values = decrypt_multiplexed_group_complex(input, runtime);
+        bootstrap_input_real.resize(bootstrap_input_values.size(), 0.0);
+        for (size_t i = 0; i < bootstrap_input_values.size(); ++i)
+        {
+            bootstrap_input_real.at(i) = bootstrap_input_values.at(i).real();
+        }
     }
     MultiplexedCipherGroup output = input;
     output.packs.resize(input.packs.size());
@@ -1545,14 +2580,17 @@ MultiplexedCipherGroup multiplexed_channel_bootstrap(
         });
     }
     log_multiplexed_group_cipher_state(label + " bootstrap output", output, runtime);
-    const vector<complex<double>> bootstrap_output_values =
-        decrypt_multiplexed_group_complex(output, runtime);
-    const double bootstrap_self_max_abs_error =
-        multiplexed_group_pair_max_abs_error(bootstrap_input_values,
-                                             bootstrap_output_values);
-    resnet18_progress_log() << label
-                            << " bootstrap self max_abs_error(before_vs_after): "
-                            << bootstrap_self_max_abs_error << endl;
+    if (!resnet18_execution::inference_only())
+    {
+        const vector<complex<double>> bootstrap_output_values =
+            decrypt_multiplexed_group_complex(output, runtime);
+        const double bootstrap_self_max_abs_error =
+            multiplexed_group_pair_max_abs_error(bootstrap_input_values,
+                                                 bootstrap_output_values);
+        resnet18_progress_log() << label
+                                << " bootstrap self max_abs_error(before_vs_after): "
+                                << bootstrap_self_max_abs_error << endl;
+    }
     return output;
 }
 
@@ -1637,13 +2675,45 @@ MultiplexedCipherGroup multiplexed_channel_homomorphic_relu(
 MultiplexedCipherGroup multiplexed_channel_bootstrap_then_relu(
     const MultiplexedCipherGroup &input, long logn, const ReluConfig &relu_config,
     PoseidonRuntime &runtime, const string &label, bool bootstrap_before_relu,
-    const MockExecutionOptions &mock_options)
+    const MockExecutionOptions &mock_options,
+    bool preserve_full_bootstrap_output = false)
 {
+    resnet18_timing::ScopedEncryptedInferenceOperation inference_timer;
     MultiplexedCipherGroup relu_input = input;
     if (bootstrap_before_relu)
     {
         relu_input = multiplexed_channel_bootstrap(input, logn, runtime, label,
                                                    mock_options);
+        if (!preserve_full_bootstrap_output && !mock_options.mock_bootstrap &&
+            !mock_options.mock_relu)
+        {
+            const size_t target_level = post_bootstrap_relu_input_level();
+            const auto target =
+                runtime.context.crt_context()->parms_id_map().find(target_level);
+            if (target == runtime.context.crt_context()->parms_id_map().end())
+            {
+                throw runtime_error(
+                    "post-bootstrap ReLU target level is missing from context");
+            }
+            resnet18_parallel_for(relu_input.packs.size(), [&](size_t pack_index) {
+                const size_t current_level =
+                    cipher_chain_index(runtime, relu_input.packs.at(pack_index));
+                if (current_level < target_level)
+                {
+                    throw runtime_error(
+                        "bootstrap output is below the configured ReLU input level");
+                }
+                if (current_level > target_level)
+                {
+                    runtime.evaluator->drop_modulus(
+                        relu_input.packs.at(pack_index),
+                        relu_input.packs.at(pack_index), target->second);
+                }
+            });
+            log_multiplexed_group_cipher_state(
+                label + " bootstrap output trimmed for ReLU", relu_input,
+                runtime);
+        }
     }
     return multiplexed_channel_homomorphic_relu(relu_input, logn, relu_config, runtime,
                                                 label, mock_options);
@@ -1653,6 +2723,7 @@ MultiplexedCipherGroup multiplexed_channel_add(const MultiplexedCipherGroup &lhs
                                                const MultiplexedCipherGroup &rhs,
                                                PoseidonRuntime &runtime)
 {
+    resnet18_timing::ScopedEncryptedInferenceOperation inference_timer;
     log_multiplexed_group_cipher_state("multiplexed_channel_add lhs input", lhs, runtime);
     log_multiplexed_group_cipher_state("multiplexed_channel_add rhs input", rhs, runtime);
     if (lhs.h != rhs.h || lhs.w != rhs.w || lhs.c != rhs.c || lhs.k != rhs.k ||
@@ -1687,6 +2758,7 @@ MultiplexedCipherGroup multiplexed_average_pool2d_stride2(
     const MultiplexedCipherGroup &input, int out_h, int out_w, int out_k,
     PoseidonRuntime &runtime)
 {
+    resnet18_timing::ScopedEncryptedInferenceOperation inference_timer;
     log_multiplexed_group_cipher_state("multiplexed avgpool input", input, runtime);
     MultiplexedCipherGroup output =
         make_multiplexed_shape(out_h, out_w, input.c, out_k, input.slot_count);
@@ -1737,7 +2809,11 @@ MultiplexedCipherGroup multiplexed_average_pool2d_stride2(
                             }
                             const size_t target_slot =
                                 multiplexed_slot_index(output, channel, oh, ow);
-                            mask[target_slot] = 1.0;
+                            // Fold the 1/9 average into the spatial selection
+                            // plaintext. This keeps pooling at one multiplicative
+                            // level instead of masking/rescaling and then applying
+                            // a second scalar multiply/rescale.
+                            mask[target_slot] = 1.0 / 9.0;
                             if (!has_rotation_step)
                             {
                                 const long long source_slot = static_cast<long long>(
@@ -1761,8 +2837,8 @@ MultiplexedCipherGroup multiplexed_average_pool2d_stride2(
                     }
                     else
                     {
-                        rotate_with_power_of_two_keys(input.packs.at(input_pack_index),
-                                                      rotated, rotation_step, runtime);
+                        rotate_with_direct_key(input.packs.at(input_pack_index), rotated,
+                                               rotation_step, runtime);
                     }
                     Ciphertext term = multiply_binary_mask_no_rescale(rotated, mask, runtime);
                     if (!has_sum)
@@ -1784,12 +2860,7 @@ MultiplexedCipherGroup multiplexed_average_pool2d_stride2(
             throw runtime_error("multiplexed avgpool output pack produced no encrypted terms");
         }
 
-        Ciphertext averaged;
-        runtime.evaluator->multiply_const(sum, 1.0 / 9.0, runtime.scale, averaged,
-                                          runtime.encoder);
-        runtime.evaluator->rescale_dynamic(averaged, averaged, sum.scale());
-        averaged.scale() = sum.scale();
-        output.packs.at(output_pack_index) = std::move(averaged);
+        output.packs.at(output_pack_index) = std::move(sum);
         const size_t done = completed_packs.fetch_add(1) + 1;
         resnet18_progress_log() << "multiplexed avgpool pack done: " << done
                                 << "/" << output.packs.size()
@@ -2052,7 +3123,7 @@ PackedChannelCipherGroup packed_channel_conv2d_all_channels(
                         }
                         else
                         {
-                            rotate_with_power_of_two_keys(source, rotated, step, runtime);
+                            rotate_with_direct_key(source, rotated, step, runtime);
                         }
 
                         Ciphertext masked = multiply_binary_mask_no_rescale(
@@ -2233,7 +3304,7 @@ PackedChannelCipherGroup packed_channel_conv2d_sparse_stride_all_channels(
                         }
                         else
                         {
-                            rotate_with_power_of_two_keys(source, rotated, step, runtime);
+                            rotate_with_direct_key(source, rotated, step, runtime);
                         }
                         Ciphertext masked = multiply_binary_mask_no_rescale(
                             rotated,
@@ -2388,8 +3459,7 @@ PackedChannelCipherGroup compact_sparse_stride_packed_channel_group(
             }
             else
             {
-                rotate_with_power_of_two_keys(input.packs.at(pack_index), rotated, ow,
-                                              runtime);
+                rotate_with_direct_key(input.packs.at(pack_index), rotated, ow, runtime);
             }
             Ciphertext term = multiply_binary_mask_no_rescale(rotated, column_mask(ow),
                                                               runtime);
@@ -2422,7 +3492,7 @@ PackedChannelCipherGroup compact_sparse_stride_packed_channel_group(
             }
             else
             {
-                rotate_with_power_of_two_keys(column_sum, rotated, step, runtime);
+                rotate_with_direct_key(column_sum, rotated, step, runtime);
             }
             Ciphertext term = multiply_binary_mask_no_rescale(rotated, row_mask(oh),
                                                               runtime);
@@ -2478,8 +3548,8 @@ PackedChannelCipherGroup compact_sparse_stride_packed_channel_group(
             }
             else
             {
-                rotate_with_power_of_two_keys(spatial_compacted.at(input_pack_index),
-                                              rotated, step, runtime);
+                rotate_with_direct_key(spatial_compacted.at(input_pack_index), rotated,
+                                       step, runtime);
             }
             Ciphertext term = multiply_binary_mask_no_rescale(
                 rotated, channel_masks.at(static_cast<size_t>(output_local)), runtime);
@@ -2552,8 +3622,8 @@ TensorCipher encrypted_packed_head_average_pool(const PackedChannelCipherGroup &
         }
         else
         {
-            rotate_with_power_of_two_keys(input.packs.front(), rotated,
-                                          static_cast<long long>(offset), runtime);
+            rotate_with_direct_key(input.packs.front(), rotated,
+                                   static_cast<long long>(offset), runtime);
         }
         Ciphertext term = multiply_binary_mask_no_rescale(rotated, channel_base_mask, runtime);
         if (!has_base_sum)
@@ -2588,8 +3658,8 @@ TensorCipher encrypted_packed_head_average_pool(const PackedChannelCipherGroup &
         }
         else
         {
-            rotate_with_power_of_two_keys(base_average_sum, rotated,
-                                          static_cast<long long>(step), runtime);
+            rotate_with_direct_key(base_average_sum, rotated,
+                                   static_cast<long long>(step), runtime);
         }
 
         vector<double> target_mask(input.slot_count, 0.0);
@@ -2683,6 +3753,7 @@ TensorCipher encrypted_multiplexed_head_average_pool(
     const MultiplexedCipherGroup &input, int logn, int logp, double boundary,
     PoseidonRuntime &runtime)
 {
+    resnet18_timing::ScopedEncryptedInferenceOperation inference_timer;
     if (input.packs.size() != 1 || input.h <= 0 || input.w <= 0 || input.c <= 0)
     {
         throw invalid_argument("head average pool expects one multiplexed final feature group");
@@ -2702,7 +3773,7 @@ TensorCipher encrypted_multiplexed_head_average_pool(
         }
         else
         {
-            rotate_with_power_of_two_keys(input.packs.front(), rotated, step, runtime);
+            rotate_with_direct_key(input.packs.front(), rotated, step, runtime);
         }
         Ciphertext term = multiply_binary_mask_no_rescale(rotated, column_mask, runtime);
         if (!has_column_sum)
@@ -2723,6 +3794,13 @@ TensorCipher encrypted_multiplexed_head_average_pool(
     }
 
     const vector<double> channel_base_mask = multiplexed_head_channel_base_mask(input);
+    vector<double> scaled_channel_base_mask = channel_base_mask;
+    const double average_coeff =
+        boundary / static_cast<double>(input.h * input.w);
+    for (double &value : scaled_channel_base_mask)
+    {
+        value *= average_coeff;
+    }
     const int page_width = input.w * input.k;
     Ciphertext spatial_sum;
     bool has_spatial_sum = false;
@@ -2736,9 +3814,10 @@ TensorCipher encrypted_multiplexed_head_average_pool(
         }
         else
         {
-            rotate_with_power_of_two_keys(column_sum, rotated, step, runtime);
+            rotate_with_direct_key(column_sum, rotated, step, runtime);
         }
-        Ciphertext term = multiply_binary_mask_no_rescale(rotated, channel_base_mask, runtime);
+        Ciphertext term = multiply_binary_mask_no_rescale(
+            rotated, scaled_channel_base_mask, runtime);
         if (!has_spatial_sum)
         {
             spatial_sum = std::move(term);
@@ -2771,7 +3850,7 @@ TensorCipher encrypted_multiplexed_head_average_pool(
         }
         else
         {
-            rotate_with_power_of_two_keys(spatial_sum, rotated, step, runtime);
+            rotate_with_direct_key(spatial_sum, rotated, step, runtime);
         }
 
         vector<double> target_mask(input.slot_count, 0.0);
@@ -2796,11 +3875,7 @@ TensorCipher encrypted_multiplexed_head_average_pool(
     }
 
     Ciphertext averaged;
-    const double average_coeff =
-        boundary / static_cast<double>(input.h * input.w);
-    runtime.evaluator->multiply_const(compacted_sum, average_coeff, runtime.scale, averaged,
-                                      runtime.encoder);
-    runtime.evaluator->rescale_dynamic(averaged, averaged, compacted_sum.scale());
+    runtime.evaluator->drop_modulus_to_next(compacted_sum, averaged);
     averaged.scale() = compacted_sum.scale();
 
     (void)logp;
@@ -2843,7 +3918,7 @@ ChannelCipherGroup unpack_packed_channel_group(const PackedChannelCipherGroup &i
                 multiply_binary_mask_no_rescale(input.packs.at(pack_index),
                                                 local_masks.at(static_cast<size_t>(local)),
                                                 runtime);
-            rotate_with_power_of_two_keys(
+            rotate_with_direct_key(
                 masked, output.channels.at(channel),
                 static_cast<long long>(static_cast<size_t>(local) * input.channel_stride),
                 runtime);
@@ -2918,22 +3993,272 @@ int argmax_index(const vector<double> &values)
     return static_cast<int>(max_element(values.begin(), values.end()) - values.begin());
 }
 
-vector<int> fully_connected_rotation_steps(int q, int r)
+void insert_normalized_rotation_step(set<int> &steps, long long step,
+                                     size_t slot_count)
 {
-    if (q <= 0 || r <= 0)
+    const int normalized = normalize_rotation_step(step, slot_count);
+    if (normalized != 0)
     {
-        throw invalid_argument("fully connected rotation shape is invalid");
+        steps.insert(normalized);
+    }
+}
+
+void insert_normalized_rotation_steps(set<int> &destination,
+                                      const vector<int> &source,
+                                      size_t slot_count)
+{
+    for (const int step : source)
+    {
+        insert_normalized_rotation_step(destination, step, slot_count);
+    }
+}
+
+MultiplexedCipherGroup collect_compact_conv_direct_rotation_steps(
+    set<int> &steps, const MultiplexedCipherGroup &input, int out_channels,
+    int stride, int fh, int fw)
+{
+    if ((stride != 1 && stride != 2) || fh <= 0 || fw <= 0 ||
+        fh % 2 == 0 || fw % 2 == 0)
+    {
+        throw invalid_argument("invalid compact conv shape while collecting rotations");
+    }
+
+    const int out_k = stride == 1 ? input.k : input.k * 2;
+    MultiplexedCipherGroup output = make_multiplexed_shape(
+        input.h / stride, input.w / stride, out_channels, out_k,
+        input.slot_count);
+
+    for (int kh = 0; kh < fh; ++kh)
+    {
+        for (int kw = 0; kw < fw; ++kw)
+        {
+            insert_normalized_rotation_step(
+                steps,
+                multiplexed_spatial_kernel_rotation_step(input, fh, fw, kh, kw),
+                input.slot_count);
+        }
+    }
+
+    const int log_k = exact_log2_power_of_two(input.k);
+    if (log_k < 0)
+    {
+        throw invalid_argument("compact conv k is not a power of two");
+    }
+    for (int x = 0; x < log_k; ++x)
+    {
+        insert_normalized_rotation_step(steps, pow2_int(x), input.slot_count);
+        insert_normalized_rotation_step(
+            steps,
+            static_cast<long long>(pow2_int(x)) * input.k * input.w,
+            input.slot_count);
+    }
+    for (int page = 1; page < input.pages_per_cipher; ++page)
+    {
+        insert_normalized_rotation_step(
+            steps, static_cast<long long>(page) * input.page_size,
+            input.slot_count);
+    }
+    for (int output_channel = 0; output_channel < output.c; ++output_channel)
+    {
+        insert_normalized_rotation_step(
+            steps,
+            multiplexed_output_channel_select_rotation_step(output, output_channel),
+            output.slot_count);
+    }
+    return output;
+}
+
+vector<int> resnet18_network_direct_rotation_steps(size_t slot_count)
+{
+    set<int> steps;
+
+    MultiplexedCipherGroup current = make_multiplexed_shape(
+        kImageNetInputHeight / 2, kImageNetInputWidth / 2, 64, 1,
+        slot_count);
+    insert_normalized_rotation_step(
+        steps, -static_cast<long long>(current.page_size), slot_count);
+
+    MultiplexedCipherGroup pooled = make_multiplexed_shape(
+        current.h / 2, current.w / 2, current.c, 2, slot_count);
+    insert_normalized_rotation_steps(
+        steps,
+        multiplexed_average_pool2d_stride2_rotation_steps(
+            current, pooled.h, pooled.w, pooled.k),
+        slot_count);
+    current = std::move(pooled);
+
+    // layer1 has two BasicBlocks with two 3x3 convolutions each.
+    for (int convolution = 0; convolution < 4; ++convolution)
+    {
+        current = collect_compact_conv_direct_rotation_steps(
+            steps, current, 64, 1, 3, 3);
+    }
+
+    // layer2..layer4 each contain a stride-2 BasicBlock (including its 1x1
+    // shortcut) followed by a stride-1 BasicBlock.
+    for (const int out_channels : {128, 256, 512})
+    {
+        const MultiplexedCipherGroup block_input = current;
+        MultiplexedCipherGroup block_output;
+        if (should_use_fused_conv_bsgs(
+                block_input, out_channels, 2, 3, 3))
+        {
+            block_output = collect_fused_conv_bsgs_rotation_steps(
+                steps, block_input, out_channels, 2, 3, 3);
+        }
+        else
+        {
+            block_output = collect_compact_conv_direct_rotation_steps(
+                steps, block_input, out_channels, 2, 3, 3);
+        }
+        if (should_use_fused_conv_bsgs(
+                block_output, out_channels, 1, 3, 3))
+        {
+            block_output = collect_fused_conv_bsgs_rotation_steps(
+                steps, block_output, out_channels, 1, 3, 3);
+        }
+        else
+        {
+            block_output = collect_compact_conv_direct_rotation_steps(
+                steps, block_output, out_channels, 1, 3, 3);
+        }
+        MultiplexedCipherGroup shortcut;
+        if (should_use_fused_conv_bsgs(
+                block_input, out_channels, 2, 1, 1))
+        {
+            shortcut = collect_fused_conv_bsgs_rotation_steps(
+                steps, block_input, out_channels, 2, 1, 1);
+        }
+        else
+        {
+            shortcut = collect_compact_conv_direct_rotation_steps(
+                steps, block_input, out_channels, 2, 1, 1);
+        }
+        if (block_output.h != shortcut.h || block_output.w != shortcut.w ||
+            block_output.c != shortcut.c || block_output.k != shortcut.k)
+        {
+            throw logic_error("ResNet18 shortcut rotation shape mismatch");
+        }
+        current = std::move(block_output);
+        for (int convolution = 0; convolution < 2; ++convolution)
+        {
+            if (should_use_fused_conv_bsgs(
+                    current, out_channels, 1, 3, 3))
+            {
+                current = collect_fused_conv_bsgs_rotation_steps(
+                    steps, current, out_channels, 1, 3, 3);
+            }
+            else
+            {
+                current = collect_compact_conv_direct_rotation_steps(
+                    steps, current, out_channels, 1, 3, 3);
+            }
+        }
+    }
+
+    insert_normalized_rotation_steps(
+        steps, multiplexed_head_average_pool_rotation_steps(current), slot_count);
+    insert_normalized_rotation_steps(
+        steps,
+        fully_connected_bsgs_rotation_steps(
+            kImageNetClassCount, kResNet18FinalChannels, slot_count),
+        slot_count);
+    return vector<int>(steps.begin(), steps.end());
+}
+
+int bootstrap_bsgs_giant_step(int count)
+{
+    int best_value = count;
+    int best_k = 1;
+    for (int k = 1; k <= static_cast<int>(3 * sqrt(count)); ++k)
+    {
+        const int value = static_cast<int>(ceil(static_cast<double>(count) / k)) +
+                          k - 1;
+        if (value < best_value)
+        {
+            best_value = value;
+            best_k = k;
+        }
+    }
+    return best_k;
+}
+
+void collect_bootstrap_bsgs_rotation_steps(set<int> &steps, int total_len,
+                                           int basic_step, size_t slot_count,
+                                           bool rotated_variant)
+{
+    if (rotated_variant)
+    {
+        const int gs = bootstrap_bsgs_giant_step(total_len + 1);
+        for (int i = 1; i < gs; ++i)
+        {
+            insert_normalized_rotation_step(
+                steps, static_cast<long long>(i) * basic_step, slot_count);
+        }
+        for (int i = 1; i <= total_len / gs; ++i)
+        {
+            insert_normalized_rotation_step(
+                steps, static_cast<long long>(i) * gs * basic_step,
+                slot_count);
+        }
+        return;
+    }
+
+    const int gs = bootstrap_bsgs_giant_step(2 * total_len + 1);
+    const int basic_start = -total_len + gs * (total_len / gs);
+    const int giant_first = -(total_len / gs);
+    const int giant_last = (2 * total_len / gs) + giant_first;
+    for (int i = basic_start; i < basic_start + gs; ++i)
+    {
+        insert_normalized_rotation_step(
+            steps, static_cast<long long>(i) * basic_step, slot_count);
+    }
+    for (int i = giant_first; i <= giant_last; ++i)
+    {
+        insert_normalized_rotation_step(
+            steps, static_cast<long long>(i) * gs * basic_step, slot_count);
+    }
+}
+
+vector<int> bootstrap_direct_rotation_steps(long log_slots, size_t slot_count)
+{
+    if (log_slots <= 0 || log_slots >= 31 ||
+        slot_count != (static_cast<size_t>(1) << log_slots))
+    {
+        throw invalid_argument("invalid bootstrap rotation slot configuration");
     }
 
     set<int> steps;
-    for (int s = 0; s < q + r - 1; ++s)
-    {
-        const int step = r - 1 - s;
-        if (step != 0)
-        {
-            steps.insert(step);
-        }
-    }
+    const int slot_to_coeff_div3 = static_cast<int>(floor(log_slots / 3.0));
+    const int slot_to_coeff_div2 =
+        static_cast<int>(floor((log_slots - slot_to_coeff_div3) / 2.0));
+    const int slot_to_coeff_div1 =
+        static_cast<int>(log_slots) - slot_to_coeff_div3 - slot_to_coeff_div2;
+    collect_bootstrap_bsgs_rotation_steps(
+        steps, (1 << slot_to_coeff_div1) - 1, 1, slot_count, false);
+    collect_bootstrap_bsgs_rotation_steps(
+        steps, (1 << slot_to_coeff_div2) - 1, 1 << slot_to_coeff_div1,
+        slot_count, false);
+    collect_bootstrap_bsgs_rotation_steps(
+        steps, (1 << slot_to_coeff_div3) - 1,
+        1 << (slot_to_coeff_div1 + slot_to_coeff_div2), slot_count, true);
+
+    const int coeff_to_slot_div1 = static_cast<int>(floor(log_slots / 3.0));
+    const int coeff_to_slot_div2 =
+        static_cast<int>(floor((log_slots - coeff_to_slot_div1) / 2.0));
+    const int coeff_to_slot_div3 =
+        static_cast<int>(log_slots) - coeff_to_slot_div1 - coeff_to_slot_div2;
+    collect_bootstrap_bsgs_rotation_steps(
+        steps, (1 << coeff_to_slot_div1) - 1,
+        1 << (static_cast<int>(log_slots) - coeff_to_slot_div1),
+        slot_count, true);
+    collect_bootstrap_bsgs_rotation_steps(
+        steps, (1 << coeff_to_slot_div2) - 1,
+        1 << (static_cast<int>(log_slots) - coeff_to_slot_div1 -
+              coeff_to_slot_div2),
+        slot_count, false);
+    collect_bootstrap_bsgs_rotation_steps(
+        steps, (1 << coeff_to_slot_div3) - 1, 1, slot_count, false);
     return vector<int>(steps.begin(), steps.end());
 }
 
@@ -2941,14 +4266,49 @@ void prepare_resnet18_evaluation_keys(PoseidonRuntime &runtime, ofstream &output
 {
     const auto key_time_start = chrono::steady_clock::now();
 
+    const vector<int> network_steps =
+        resnet18_network_direct_rotation_steps(runtime.slot_count);
+    const vector<int> bootstrap_steps = bootstrap_direct_rotation_steps(
+        runtime.context.parameters_literal()->log_slots(), runtime.slot_count);
+    set<int> merged_steps(network_steps.begin(), network_steps.end());
+    merged_steps.insert(bootstrap_steps.begin(), bootstrap_steps.end());
+    // Retain the complete signed power-of-two basis as a compatibility
+    // fallback for diagnostic/legacy paths that are not part of the fixed
+    // inference topology above.
+    for (size_t step = 1; step < runtime.slot_count; step <<= 1)
+    {
+        insert_normalized_rotation_step(merged_steps,
+                                        static_cast<long long>(step),
+                                        runtime.slot_count);
+        insert_normalized_rotation_step(merged_steps,
+                                        -static_cast<long long>(step),
+                                        runtime.slot_count);
+    }
+    // Step zero selects the CKKS complex-conjugation key used by bootstrap
+    // and by the real projection in the homomorphic ReLU path.
+    merged_steps.insert(0);
+    const vector<int> galois_steps(merged_steps.begin(), merged_steps.end());
+
+    output << "prepare evaluation key plan: galois_key_mode="
+              "direct_resnet18_and_bootstrap_rotations"
+           << ", network_rotation_key_count=" << network_steps.size()
+           << ", bootstrap_rotation_key_count=" << bootstrap_steps.size()
+           << ", compatibility_basis=complete_signed_power_of_two"
+           << ", merged_galois_key_count=" << galois_steps.size() << '\n'
+           << flush;
+    resnet18_progress_log()
+        << "prepare evaluation key plan: direct ResNet18 and bootstrap rotations"
+        << ", network=" << network_steps.size()
+        << ", bootstrap=" << bootstrap_steps.size()
+        << ", merged_with_conjugation=" << galois_steps.size() << endl;
+
     KeyGenerator keygen(runtime.context, runtime.secret_key);
     keygen.create_relin_keys(runtime.relin_keys);
-    keygen.create_galois_keys(runtime.galois_keys);
-
-    output << "prepare evaluation keys: galois_key_mode="
-              "power_of_two_rotations_and_conjugation\n";
+    keygen.create_galois_keys(galois_steps, runtime.galois_keys);
+    output << "prepare evaluation keys: ready before first image\n";
     resnet18_progress_log()
-        << "prepare evaluation keys: power-of-two rotations and conjugation" << endl;
+        << "prepare evaluation keys: all direct keys ready before first image"
+        << endl;
 
     const auto elapsed = chrono::duration_cast<chrono::milliseconds>(
                              chrono::steady_clock::now() - key_time_start)
@@ -2960,12 +4320,14 @@ void prepare_resnet18_evaluation_keys(PoseidonRuntime &runtime, ofstream &output
 
 } // namespace
 
-void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id, size_t dnum)
+void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id,
+                            const ResNet18RunOptions &options)
 {
     // Measure the complete inference run, including configuration, Poseidon context
     // construction, evaluation-key generation, input processing, and all images.
     const auto all_time_start = chrono::steady_clock::now();
-    const PoseidonInferPlan plan = default_poseidon_plan(dnum);
+    const PoseidonInferPlan plan = default_poseidon_plan(options.dnum);
+    resnet18_execution::set_inference_only(options.inference_only);
     const size_t image_value_count =
         static_cast<size_t>(kImageNetInputHeight * kImageNetInputWidth * kImageNetInputChannels);
     const string run_timestamp = make_run_timestamp();
@@ -3012,9 +4374,67 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id, size_t d
             << ", plain_relu_reference=homomorphic_polynomial"
             << ", mock_relu=" << (mock_options.mock_relu ? 1 : 0)
             << ", mock_bootstrap=" << (mock_options.mock_bootstrap ? 1 : 0)
+            << ", inference_only=" << (options.inference_only ? 1 : 0)
+            << ", fused_conv_bsgs=" << (fused_conv_bsgs_enabled() ? 1 : 0)
+            << ", transition_bsgs=" << (transition_bsgs_enabled() ? 1 : 0)
+            << ", layer2_transition_bsgs="
+            << (layer2_transition_bsgs_enabled() ? 1 : 0)
+            << ", layer3_bsgs=" << (layer3_bsgs_enabled() ? 1 : 0)
+            << ", layer4_bsgs=" << (layer4_bsgs_enabled() ? 1 : 0)
+            << ", post_bootstrap_relu_input_level="
+            << post_bootstrap_relu_input_level()
+            << ", fused_bsgs_cache_mb="
+            << fused_conv_bsgs_cache_limit_bytes() / (1024ULL * 1024ULL)
+            << ", conv_plaintext_cache_mb=" << options.conv_plaintext_cache_mb
             << ", run_timestamp=" << run_timestamp
             << ", log_file=" << run_result_path << '\n';
     prepare_resnet18_evaluation_keys(runtime, out_log);
+
+    const auto plaintext_prepare_start = chrono::steady_clock::now();
+    ModelWeights weights = load_resnet18_parameters();
+    const auto &parms_id_map = runtime.context.crt_context()->parms_id_map();
+    const auto fc_input_parms_it = parms_id_map.find(2);
+    const auto fc_output_parms_it = parms_id_map.find(1);
+    if (fc_input_parms_it == parms_id_map.end() ||
+        fc_output_parms_it == parms_id_map.end())
+    {
+        throw runtime_error("failed to locate FC input/output levels for plaintext plan");
+    }
+    FullyConnectedBsgsPlainPlan fc_plain_plan =
+        prepare_fully_connected_bsgs_plain_plan(
+            weights.linear_weight, weights.linear_bias,
+            kImageNetClassCount, kResNet18FinalChannels,
+            static_cast<int>(plan.logN), fc_input_parms_it->second,
+            runtime.scale, fc_output_parms_it->second, runtime.encoder);
+    const auto plaintext_prepare_ms = chrono::duration_cast<chrono::milliseconds>(
+        chrono::steady_clock::now() - plaintext_prepare_start).count();
+    out_log << "prepare FC BSGS plaintext plan: baby_step="
+            << fc_plain_plan.baby_step
+            << ", groups=" << fc_plain_plan.groups.size()
+            << ", encoded_bytes=" << fc_plain_plan.encoded_bytes
+            << ", time_ms=" << plaintext_prepare_ms << '\n';
+    resnet18_progress_log()
+        << "prepare FC BSGS plaintext plan: encoded_bytes="
+        << fc_plain_plan.encoded_bytes << ", time_ms=" << plaintext_prepare_ms
+        << endl;
+
+    if (options.conv_plaintext_cache_mb >
+        numeric_limits<size_t>::max() / (1024ULL * 1024ULL))
+    {
+        throw invalid_argument("conv plaintext cache size is too large");
+    }
+    const size_t conv_plaintext_cache_bytes =
+        options.conv_plaintext_cache_mb * 1024ULL * 1024ULL;
+    ConvPlaintextCache conv_plaintext_cache(conv_plaintext_cache_bytes);
+    ScopedConvPlaintextCache scoped_conv_plaintext_cache(conv_plaintext_cache);
+    out_log << "conv plaintext cache: max_bytes="
+            << conv_plaintext_cache.max_bytes()
+            << ", policy=bounded_lru_layer_identity\n";
+    resnet18_progress_log()
+        << "conv plaintext cache: max_bytes="
+        << conv_plaintext_cache.max_bytes()
+        << ", policy=bounded LRU by layer/input-pack/kernel/output-channel"
+        << endl;
 
     for (size_t image_id = start_image_id; image_id <= end_image_id; ++image_id)
     {
@@ -3035,9 +4455,13 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id, size_t d
         output << "input values=" << image_values.size()
                << ", slot_count=" << runtime.slot_count << '\n';
 
-        ModelWeights weights = load_resnet18_parameters();
-        PlainTensor plain_input(kImageNetInputHeight, kImageNetInputWidth, kImageNetInputChannels,
-                                image_values);
+        PlainTensor plain_input;
+        if (!resnet18_execution::inference_only())
+        {
+            plain_input = PlainTensor(
+                kImageNetInputHeight, kImageNetInputWidth,
+                kImageNetInputChannels, image_values);
+        }
         PlainTensor plain_conv1 = plain_convolution(
             plain_input, 64, 2, 7, 7, weights.conv_weight.at(0), weights.bn_running_var.at(0),
             weights.bn_weight.at(0), kBatchNormEpsilon);
@@ -3139,6 +4563,11 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id, size_t d
         double head_logits_max_abs_error = -1.0;
         int encrypted_predicted_label = -1;
         int plain_head_predicted_label = -1;
+        // Input patch ciphertexts are ready at this point. The session only
+        // accumulates functions marked as encrypted inference operations, so
+        // interleaved plaintext reference work and decrypt/validation calls
+        // are excluded from this metric.
+        resnet18_timing::EncryptedInferenceTimerSession encrypted_inference_timer;
         if (kRunFullStemCheck)
         {
             output << "stem full 64-channel: encrypted conv1 evaluation\n";
@@ -3146,20 +4575,26 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id, size_t d
             ChannelCipherGroup stem_conv1_group = encrypted_conv2d_im2col_all_channels(
                 conv1_im2col, 64, weights.conv_weight.at(0), weights.bn_running_var.at(0),
                 weights.bn_weight.at(0), kBatchNormEpsilon, runtime);
-            vector<double> decrypted_stem_conv1 = decrypt_channel_cipher_group(stem_conv1_group,
-                                                                               runtime);
-            stem_conv1_all_max_abs_error = 0.0;
-            dump_plain_cipher_preview(
-                "stem conv1 all", plain_conv1.values,
-                decrypt_channel_cipher_group_complex(stem_conv1_group, runtime), output);
-            for (size_t i = 0; i < decrypted_stem_conv1.size(); ++i)
+            if (!resnet18_execution::inference_only())
             {
-                stem_conv1_all_max_abs_error =
-                    max(stem_conv1_all_max_abs_error,
-                        abs(decrypted_stem_conv1[i] - plain_conv1.values.at(i)));
+                vector<double> decrypted_stem_conv1 =
+                    decrypt_channel_cipher_group(stem_conv1_group, runtime);
+                stem_conv1_all_max_abs_error = 0.0;
+                dump_plain_cipher_preview(
+                    "stem conv1 all", plain_conv1.values,
+                    decrypt_channel_cipher_group_complex(stem_conv1_group, runtime), output);
+                for (size_t i = 0; i < decrypted_stem_conv1.size(); ++i)
+                {
+                    stem_conv1_all_max_abs_error =
+                        max(stem_conv1_all_max_abs_error,
+                            abs(decrypted_stem_conv1[i] - plain_conv1.values.at(i)));
+                }
+                output << "stem conv1 all max_abs_error: "
+                       << stem_conv1_all_max_abs_error << '\n';
+                resnet18_progress_log()
+                    << "stem conv1 all max_abs_error: "
+                    << stem_conv1_all_max_abs_error << endl;
             }
-            output << "stem conv1 all max_abs_error: " << stem_conv1_all_max_abs_error << '\n';
-            resnet18_progress_log() << "stem conv1 all max_abs_error: " << stem_conv1_all_max_abs_error << endl;
 
             output << "stem conv1: pack output as multiplexed k=1\n";
             resnet18_progress_log() << "stem conv1 pack output as multiplexed k=1" << endl;
@@ -3233,7 +4668,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id, size_t d
                                                stem_relu_multiplex_k1_group, runtime);
             MultiplexedCipherGroup stem_avgpool_multiplex_k2_group =
                 multiplexed_average_pool2d_stride2(stem_relu_multiplex_k1_group,
-                                                   plain_conv1_pool.h, plain_conv1_pool.w, 2,
+                                                   stem_relu_multiplex_k1_group.h / 2,
+                                                   stem_relu_multiplex_k1_group.w / 2, 2,
                                                    runtime);
             stem_multiplex_avgpool_all_max_abs_error =
                 multiplexed_group_max_abs_error(stem_avgpool_multiplex_k2_group,
@@ -4565,7 +6001,11 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id, size_t d
             PlainTensor plain_layer4_block1_output =
                 plain_polynomial_relu_reference(plain_layer4_block1_add, relu_config);
             MultiplexedCipherGroup layer4_block1_output_multiplex_group =
-                multiplexed_channel_bootstrap_then_relu(layer4_block1_add_multiplex_group, plan.logN, relu_config, runtime, "layer4 block1 output relu", kBootstrapBeforeReluExceptFirst, mock_options);
+                multiplexed_channel_bootstrap_then_relu(
+                    layer4_block1_add_multiplex_group, plan.logN, relu_config,
+                    runtime, "layer4 block1 output relu",
+                    kBootstrapBeforeReluExceptFirst, mock_options,
+                    true /* preserve levels needed by the current head */);
             layer4_block1_output_refresh_all_max_abs_error =
                 multiplexed_group_max_abs_error(layer4_block1_output_multiplex_group,
                                                 plain_layer4_block1_output, runtime,
@@ -4591,35 +6031,45 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id, size_t d
             TensorCipher encrypted_head_pooled = encrypted_multiplexed_head_average_pool(
                 layer4_block1_output_multiplex_group, static_cast<int>(plan.logN),
                 plan.log_scale, kResNet18Boundary, runtime);
-            vector<double> encrypted_pooled_values =
-                decode_real_slots(encrypted_head_pooled, runtime, kResNet18FinalChannels);
-            dump_plain_cipher_preview(
-                "head avgpool", plain_head_pooled.values,
-                decode_complex_slots(encrypted_head_pooled, runtime,
-                                     kResNet18FinalChannels),
-                output);
-            head_avgpool_debug_pack_max_abs_error = 0.0;
-            for (int channel = 0; channel < kResNet18FinalChannels; ++channel)
+            if (!resnet18_execution::inference_only())
             {
-                head_avgpool_debug_pack_max_abs_error =
-                    max(head_avgpool_debug_pack_max_abs_error,
-                        abs(encrypted_pooled_values.at(static_cast<size_t>(channel)) -
-                            plain_head_pooled.at(channel, 0, 0)));
+                vector<double> encrypted_pooled_values =
+                    decode_real_slots(encrypted_head_pooled, runtime,
+                                      kResNet18FinalChannels);
+                dump_plain_cipher_preview(
+                    "head avgpool", plain_head_pooled.values,
+                    decode_complex_slots(encrypted_head_pooled, runtime,
+                                         kResNet18FinalChannels),
+                    output);
+                head_avgpool_debug_pack_max_abs_error = 0.0;
+                for (int channel = 0; channel < kResNet18FinalChannels; ++channel)
+                {
+                    head_avgpool_debug_pack_max_abs_error =
+                        max(head_avgpool_debug_pack_max_abs_error,
+                            abs(encrypted_pooled_values.at(static_cast<size_t>(channel)) -
+                                plain_head_pooled.at(channel, 0, 0)));
+                }
+                output << "head avgpool encrypted multiplexed max_abs_error: "
+                       << head_avgpool_debug_pack_max_abs_error << '\n';
+                resnet18_progress_log()
+                    << "head avgpool encrypted multiplexed max_abs_error: "
+                    << head_avgpool_debug_pack_max_abs_error << endl;
             }
-            output << "head avgpool encrypted multiplexed max_abs_error: "
-                   << head_avgpool_debug_pack_max_abs_error << '\n';
-            resnet18_progress_log()
-                << "head avgpool encrypted multiplexed max_abs_error: "
-                << head_avgpool_debug_pack_max_abs_error << endl;
 
-            output << "head fully connected: using power-of-two rotation keys\n";
+            output << "head fully connected: BSGS using precomputed direct rotation keys\n";
             vector<int> fc_steps =
-                fully_connected_rotation_steps(kImageNetClassCount, kResNet18FinalChannels);
+                fully_connected_bsgs_rotation_steps(
+                    kImageNetClassCount, kResNet18FinalChannels,
+                    runtime.slot_count);
+            const int fc_baby_step = fully_connected_bsgs_baby_step(
+                kImageNetClassCount, kResNet18FinalChannels,
+                runtime.slot_count);
             resnet18_progress_log()
-                << "head fully connected logical rotation step count: " << fc_steps.size()
+                << "head fully connected BSGS: baby_step=" << fc_baby_step
+                << ", direct_rotation_key_count=" << fc_steps.size()
                 << endl;
-            output << "head fully connected logical rotation step count: "
-                   << fc_steps.size() << '\n';
+            output << "head fully connected BSGS baby_step: " << fc_baby_step
+                   << ", direct rotation key count: " << fc_steps.size() << '\n';
 
             output << "head fully connected: encrypted logits evaluation\n";
             resnet18_progress_log() << "head fully connected encrypted logits evaluation" << endl;
@@ -4627,49 +6077,72 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id, size_t d
             {
                 ScopedDurationLog duration("head fully connected");
                 matrix_multiplication(
-                    encrypted_head_pooled, encrypted_head_logits, weights.linear_weight,
-                    weights.linear_bias, kImageNetClassCount, kResNet18FinalChannels,
+                    encrypted_head_pooled, encrypted_head_logits, fc_plain_plan,
                     *runtime.evaluator, runtime.galois_keys, runtime.encoder);
             }
             log_tensor_cipher_state("head fully connected logits output", encrypted_head_logits,
                                     runtime);
 
-            vector<double> decrypted_head_logits =
-                decode_real_slots(encrypted_head_logits, runtime, kImageNetClassCount);
             vector<double> plain_head_logits =
                 plain_fully_connected(plain_head_pooled, weights.linear_weight,
                                       weights.linear_bias, kImageNetClassCount,
                                       kResNet18FinalChannels);
-            vector<complex<double>> decrypted_head_logits_complex =
-                decode_complex_slots(encrypted_head_logits, runtime,
-                                     kImageNetClassCount);
-            dump_plain_cipher_preview(
-                "head logits", plain_head_logits, decrypted_head_logits_complex,
-                output, kImageNetClassCount);
-            head_logits_max_abs_error = 0.0;
-            for (int i = 0; i < kImageNetClassCount; ++i)
+            if (!resnet18_execution::inference_only())
             {
-                head_logits_max_abs_error =
-                    max(head_logits_max_abs_error,
-                        abs(decrypted_head_logits.at(static_cast<size_t>(i)) -
-                            plain_head_logits.at(static_cast<size_t>(i))));
+                vector<double> decrypted_head_logits =
+                    decode_real_slots(encrypted_head_logits, runtime,
+                                      kImageNetClassCount);
+                vector<complex<double>> decrypted_head_logits_complex =
+                    decode_complex_slots(encrypted_head_logits, runtime,
+                                         kImageNetClassCount);
+                dump_plain_cipher_preview(
+                    "head logits", plain_head_logits, decrypted_head_logits_complex,
+                    output, kImageNetClassCount);
+                head_logits_max_abs_error = 0.0;
+                for (int i = 0; i < kImageNetClassCount; ++i)
+                {
+                    head_logits_max_abs_error =
+                        max(head_logits_max_abs_error,
+                            abs(decrypted_head_logits.at(static_cast<size_t>(i)) -
+                                plain_head_logits.at(static_cast<size_t>(i))));
+                }
+                encrypted_predicted_label = argmax_index(decrypted_head_logits);
+                plain_head_predicted_label = argmax_index(plain_head_logits);
+                dump_logit_decision_summary(
+                    plain_head_logits, decrypted_head_logits_complex, image_label,
+                    plain_head_predicted_label, encrypted_predicted_label, output);
+                dump_selected_logits(
+                    plain_head_logits, decrypted_head_logits_complex,
+                    {image_label, plain_head_predicted_label, encrypted_predicted_label},
+                    output);
+                output << "head logits max_abs_error: " << head_logits_max_abs_error
+                       << '\n';
+                output << "head plain predicted label: "
+                       << plain_head_predicted_label
+                       << ", encrypted predicted label: "
+                       << encrypted_predicted_label << '\n';
+                resnet18_progress_log()
+                    << "head logits max_abs_error: " << head_logits_max_abs_error
+                    << endl;
+                resnet18_progress_log()
+                    << "head plain predicted label: " << plain_head_predicted_label
+                    << ", encrypted predicted label: " << encrypted_predicted_label
+                    << endl;
             }
-            encrypted_predicted_label = argmax_index(decrypted_head_logits);
-            plain_head_predicted_label = argmax_index(plain_head_logits);
-            dump_logit_decision_summary(
-                plain_head_logits, decrypted_head_logits_complex, image_label,
-                plain_head_predicted_label, encrypted_predicted_label, output);
-            dump_selected_logits(
-                plain_head_logits, decrypted_head_logits_complex,
-                {image_label, plain_head_predicted_label, encrypted_predicted_label},
-                output);
-            output << "head logits max_abs_error: " << head_logits_max_abs_error << '\n';
-            output << "head plain predicted label: " << plain_head_predicted_label
-                   << ", encrypted predicted label: " << encrypted_predicted_label << '\n';
-            resnet18_progress_log() << "head logits max_abs_error: " << head_logits_max_abs_error << endl;
-            resnet18_progress_log() << "head plain predicted label: " << plain_head_predicted_label
-                 << ", encrypted predicted label: " << encrypted_predicted_label << endl;
         }
+
+        const long long encrypted_inference_time_ms =
+            encrypted_inference_timer.elapsed_milliseconds();
+        const size_t encrypted_inference_operation_count =
+            encrypted_inference_timer.operation_count();
+        output << "encrypted inference time : " << encrypted_inference_time_ms
+               << " ms, operation_count=" << encrypted_inference_operation_count
+               << '\n';
+        resnet18_progress_log()
+            << "[duration] encrypted inference (input ciphertext ready to encrypted logits): "
+            << encrypted_inference_time_ms
+            << " ms, operation_count=" << encrypted_inference_operation_count
+            << endl;
 
         const auto image_time_end = chrono::high_resolution_clock::now();
         const auto image_time_diff =
@@ -5073,6 +6546,10 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id, size_t d
                    << ", head_logits_max_abs_error=" << head_logits_max_abs_error
                    << ", plain_head_predicted_label=" << plain_head_predicted_label
                    << ", encrypted_predicted_label=" << encrypted_predicted_label
+                   << ", encrypted_inference_time_ms="
+                   << encrypted_inference_time_ms
+                   << ", encrypted_inference_operation_count="
+                   << encrypted_inference_operation_count
                    << ", image_time_ms=" << image_time_diff.count() << '\n';
         out_log.flush();
     }
@@ -5082,5 +6559,15 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id, size_t d
         chrono::duration_cast<chrono::milliseconds>(all_time_end - all_time_start);
     resnet18_progress_log() << "total time : " << all_time_diff.count() << " ms" << endl;
     out_log << endl << "total time : " << all_time_diff.count() << " ms" << endl;
+    const ConvPlaintextCache::Stats final_plaintext_cache_stats =
+        conv_plaintext_cache.stats();
+    out_log << "conv plaintext cache final: hits="
+            << final_plaintext_cache_stats.hits
+            << ", misses=" << final_plaintext_cache_stats.misses
+            << ", resident_bytes=" << final_plaintext_cache_stats.resident_bytes
+            << ", entries=" << final_plaintext_cache_stats.entries
+            << ", evictions=" << final_plaintext_cache_stats.evictions
+            << ", encoded_bytes=" << final_plaintext_cache_stats.encoded_bytes
+            << '\n';
     out_log << "run_done: total_time_ms=" << all_time_diff.count() << '\n';
 }

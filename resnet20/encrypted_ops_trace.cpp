@@ -1,4 +1,5 @@
 #include "encrypted_ops.h"
+#include "execution_mode.h"
 
 #include "poseidon/plaintext.h"
 
@@ -98,7 +99,10 @@ void log_after_stage(const TensorCipher &tensor, Decryptor &decryptor, CKKSEncod
                      PoseidonContext &context, ostream &output)
 {
     output << "  output: " << tensor_summary(tensor, context) << '\n';
-    decode_preview(tensor.cipher(), decryptor, encoder, output);
+    if (!resnet20_execution::inference_only())
+    {
+        decode_preview(tensor.cipher(), decryptor, encoder, output);
+    }
     output << endl;
 }
 
@@ -126,6 +130,15 @@ void multiplexed_convolution_print(
     const auto time_end = chrono::high_resolution_clock::now();
     output << "  time_ms: "
            << chrono::duration_cast<chrono::milliseconds>(time_end - time_start).count() << '\n';
+    const int output_group_count =
+        (co + cnn_in.p() - 1) / cnn_in.p();
+    output << "  lazy_rescale: kernel_before="
+           << output_group_count * fh * fw
+           << ", kernel_after=" << output_group_count
+           << ", output_select_before=" << co
+           << ", output_select_after=1, total_before="
+           << output_group_count * fh * fw + co
+           << ", total_after=" << output_group_count + 1 << '\n';
     log_level_consumption("convolution", cnn_in, cnn_out, context, 2, output);
     log_after_stage(cnn_out, decryptor, encoder, context, output);
 }
@@ -218,6 +231,8 @@ void multiplexed_downsampling_print(const TensorCipher &cnn_in,
     const auto time_end = chrono::high_resolution_clock::now();
     output << "  time_ms: "
            << chrono::duration_cast<chrono::milliseconds>(time_end - time_start).count() << '\n';
+    output << "  lazy_rescale: before=" << cnn_in.k() * cnn_in.t()
+           << ", after=1\n";
     log_level_consumption("downsample", cnn_in, cnn_out, context, 1, output);
     log_after_stage(cnn_out, decryptor, encoder, context, output);
 }
@@ -235,6 +250,8 @@ void averagepooling_scale_print(const TensorCipher &cnn_in, TensorCipher &cnn_ou
     const auto time_end = chrono::high_resolution_clock::now();
     output << "  time_ms: "
            << chrono::duration_cast<chrono::milliseconds>(time_end - time_start).count() << '\n';
+    output << "  lazy_rescale: before=" << cnn_in.k() * cnn_in.t()
+           << ", after=1\n";
     log_level_consumption("average_pool", cnn_in, cnn_out, context, 1, output);
     log_after_stage(cnn_out, decryptor, encoder, context, output);
 }
@@ -253,6 +270,8 @@ void fully_connected_print(const TensorCipher &cnn_in, TensorCipher &cnn_out,
     const auto time_end = chrono::high_resolution_clock::now();
     output << "  time_ms: "
            << chrono::duration_cast<chrono::milliseconds>(time_end - time_start).count() << '\n';
+    output << "  lazy_rescale: before=" << q + r - 1
+           << ", after=1\n";
     log_level_consumption("fully_connected", cnn_in, cnn_out, context, 1, output);
     log_after_stage(cnn_out, decryptor, encoder, context, output);
 }

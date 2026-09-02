@@ -10,7 +10,8 @@ namespace
 
 [[noreturn]] void usage_and_exit(const char *argv0)
 {
-    std::cerr << "Usage: " << argv0 << " START_IMAGE_ID END_IMAGE_ID" << std::endl;
+    std::cerr << "Usage: " << argv0
+              << " START_IMAGE_ID END_IMAGE_ID [--inference-only]" << std::endl;
     std::exit(1);
 }
 
@@ -37,7 +38,7 @@ size_t parse_image_id(const char *value, const char *name)
 
 int main(int argc, char **argv)
 {
-    if (argc != 3)
+    if (argc != 3 && argc != 4)
     {
         usage_and_exit(argv[0]);
     }
@@ -51,7 +52,17 @@ int main(int argc, char **argv)
             throw std::invalid_argument("start_image_id must be <= end_image_id");
         }
 
-        ResNet_cifar10_sparse(start_image_id, end_image_id);
+        ResNet20RunOptions options;
+        if (argc == 4)
+        {
+            if (std::string(argv[3]) != "--inference-only")
+            {
+                usage_and_exit(argv[0]);
+            }
+            options.inference_only = true;
+        }
+
+        ResNet_cifar10_sparse(start_image_id, end_image_id, options);
         return 0;
     }
     catch (const std::exception &ex)
