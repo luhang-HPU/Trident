@@ -39,7 +39,10 @@ struct PoseidonInferPlan
     long logN = 16;
     long log_slots = 15;
     long init_p = 8;
-    int log_scale = 46;
+    int log_scale = 40;
+    int q0_level = 0;
+    int convolution_levels = 2;
+    int relu_levels = 14;
     int remaining_level = 16;
     int boot_level = 14;
     std::vector<std::uint32_t> logq_chain;

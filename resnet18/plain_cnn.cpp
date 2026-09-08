@@ -1,6 +1,7 @@
 #include "plain_cnn.h"
 
 #include "infer_config.h"
+#include "execution_mode.h"
 #include "relu_approx.h"
 
 #include <algorithm>
@@ -38,6 +39,10 @@ double PlainTensor::at(int channel, int row, int col) const
 
 PlainTensor plain_input_tensor_from_image_slots(const vector<double> &image_slots)
 {
+    if (resnet18_execution::inference_only())
+    {
+        return {};
+    }
     const size_t image_values = static_cast<size_t>(kImageNetInputHeight * kImageNetInputWidth *
                                                    kImageNetInputChannels);
     if (image_slots.size() < image_values)
@@ -55,6 +60,10 @@ PlainTensor plain_convolution(const PlainTensor &input, int out_channels, int st
                               const vector<double> &running_var,
                               const vector<double> &constant_weight, double epsilon)
 {
+    if (resnet18_execution::inference_only())
+    {
+        return {};
+    }
     if (stride != 1 && stride != 2)
     {
         throw invalid_argument("plain convolution supports stride 1 or 2 only");
@@ -118,6 +127,10 @@ PlainTensor plain_batch_norm(const PlainTensor &input, const vector<double> &bia
                              const vector<double> &running_mean, const vector<double> &running_var,
                              const vector<double> &weight, double epsilon, double B)
 {
+    if (resnet18_execution::inference_only())
+    {
+        return {};
+    }
     if (static_cast<int>(bias.size()) != input.c || static_cast<int>(running_mean.size()) != input.c ||
         static_cast<int>(running_var.size()) != input.c || static_cast<int>(weight.size()) != input.c)
     {
@@ -144,6 +157,10 @@ PlainTensor plain_batch_norm(const PlainTensor &input, const vector<double> &bia
 
 PlainTensor plain_relu_reference(const PlainTensor &input)
 {
+    if (resnet18_execution::inference_only())
+    {
+        return {};
+    }
     PlainTensor output = input;
     for (size_t idx = 0; idx < input.values.size(); ++idx)
     {
@@ -155,6 +172,10 @@ PlainTensor plain_relu_reference(const PlainTensor &input)
 PlainTensor plain_polynomial_relu_reference(const PlainTensor &input,
                                             const ReluConfig &relu_config)
 {
+    if (resnet18_execution::inference_only())
+    {
+        return {};
+    }
     PlainTensor output = input;
     for (size_t idx = 0; idx < input.values.size(); ++idx)
     {
@@ -167,6 +188,10 @@ PlainTensor plain_polynomial_relu_reference(const PlainTensor &input,
 
 PlainTensor plain_add(const PlainTensor &lhs, const PlainTensor &rhs)
 {
+    if (resnet18_execution::inference_only())
+    {
+        return {};
+    }
     if (lhs.h != rhs.h || lhs.w != rhs.w || lhs.c != rhs.c)
     {
         throw invalid_argument("plain add shape mismatch");
@@ -182,6 +207,10 @@ PlainTensor plain_add(const PlainTensor &lhs, const PlainTensor &rhs)
 
 PlainTensor plain_average_pool2d(const PlainTensor &input, int kernel, int stride, int padding)
 {
+    if (resnet18_execution::inference_only())
+    {
+        return {};
+    }
     if (kernel <= 0 || stride <= 0 || padding < 0)
     {
         throw invalid_argument("plain average pool parameters are invalid");
@@ -221,6 +250,10 @@ PlainTensor plain_average_pool2d(const PlainTensor &input, int kernel, int strid
 
 PlainTensor plain_max_pool2d(const PlainTensor &input, int kernel, int stride, int padding)
 {
+    if (resnet18_execution::inference_only())
+    {
+        return {};
+    }
     if (kernel <= 0 || stride <= 0 || padding < 0)
     {
         throw invalid_argument("plain max pool parameters are invalid");
@@ -265,6 +298,10 @@ PlainTensor plain_max_pool2d(const PlainTensor &input, int kernel, int stride, i
 
 PlainTensor plain_downsample_shortcut(const PlainTensor &input)
 {
+    if (resnet18_execution::inference_only())
+    {
+        return {};
+    }
     if (input.h % 2 != 0 || input.w % 2 != 0)
     {
         throw invalid_argument("plain downsample expects even spatial shape");
@@ -293,6 +330,10 @@ PlainTensor plain_downsample_shortcut(const PlainTensor &input)
 
 PlainTensor plain_average_pool(const PlainTensor &input, double B)
 {
+    if (resnet18_execution::inference_only())
+    {
+        return {};
+    }
     PlainTensor output(1, 1, input.c);
     const double scale = B / static_cast<double>(input.h * input.w);
     for (int channel = 0; channel < input.c; ++channel)
@@ -313,6 +354,10 @@ PlainTensor plain_average_pool(const PlainTensor &input, double B)
 vector<double> plain_fully_connected(const PlainTensor &input, const vector<double> &matrix,
                                      const vector<double> &bias, int q, int r)
 {
+    if (resnet18_execution::inference_only())
+    {
+        return {};
+    }
     if (input.h != 1 || input.w != 1 || input.c != r)
     {
         throw invalid_argument("plain fully connected expects flattened channel vector input");
@@ -338,6 +383,10 @@ vector<double> plain_fully_connected(const PlainTensor &input, const vector<doub
 void log_plain_tensor(const string &label, const PlainTensor &tensor, ostream &output,
                       size_t preview_count)
 {
+    if (resnet18_execution::inference_only())
+    {
+        return;
+    }
     output << "  " << label << ": shape(h=" << tensor.h << ",w=" << tensor.w << ",c=" << tensor.c
            << ")\n";
     output << "  plain preview:";

@@ -200,10 +200,11 @@ int next_rescale_prime_bits(const Ciphertext &cipher, PoseidonRuntime &runtime)
     return modulus.back().bit_count();
 }
 
-size_t drop_trailing_51_bit_primes(Ciphertext &cipher, PoseidonRuntime &runtime)
+size_t drop_trailing_bootstrap_primes(Ciphertext &cipher, PoseidonRuntime &runtime)
 {
     size_t dropped = 0;
-    while (next_rescale_prime_bits(cipher, runtime) == 51)
+    while (next_rescale_prime_bits(cipher, runtime) ==
+           static_cast<int>(kResNet50BootstrapPrimeBits))
     {
         Ciphertext next;
         runtime.evaluator->drop_modulus_to_next(cipher, next);
@@ -213,12 +214,13 @@ size_t drop_trailing_51_bit_primes(Ciphertext &cipher, PoseidonRuntime &runtime)
     return dropped;
 }
 
-size_t drop_trailing_51_bit_primes(vector<Ciphertext> &ciphers, PoseidonRuntime &runtime)
+size_t drop_trailing_bootstrap_primes(vector<Ciphertext> &ciphers,
+                                      PoseidonRuntime &runtime)
 {
     size_t max_dropped = 0;
     for (Ciphertext &cipher : ciphers)
     {
-        max_dropped = max(max_dropped, drop_trailing_51_bit_primes(cipher, runtime));
+        max_dropped = max(max_dropped, drop_trailing_bootstrap_primes(cipher, runtime));
     }
     return max_dropped;
 }
@@ -958,13 +960,14 @@ MultiplexedCipherGroup multiplexed_channel_bootstrap(
         resnet18_progress_log() << label
                                 << " bootstrap MOCK decrypt-reencrypt evaluation" << endl;
         output = encrypt_multiplexed_group_values(input, bootstrap_input_real, runtime);
-        const size_t dropped_51 = drop_trailing_51_bit_primes(output.packs, runtime);
-        if (dropped_51 > 0)
+        const size_t dropped_bootstrap =
+            drop_trailing_bootstrap_primes(output.packs, runtime);
+        if (dropped_bootstrap > 0)
         {
             resnet18_progress_log() << label
-                                    << " bootstrap MOCK drop trailing 51-bit primes after "
+                                    << " bootstrap MOCK drop trailing bootstrap primes after "
                                        "reencrypt: "
-                                    << dropped_51 << endl;
+                                    << dropped_bootstrap << endl;
         }
     }
     else
@@ -1007,12 +1010,13 @@ MultiplexedCipherGroup multiplexed_channel_homomorphic_relu(
     MultiplexedCipherGroup relu_input = input;
     if (!mock_options.mock_relu)
     {
-        const size_t dropped_51 = drop_trailing_51_bit_primes(relu_input.packs, runtime);
-        if (dropped_51 > 0)
+        const size_t dropped_bootstrap =
+            drop_trailing_bootstrap_primes(relu_input.packs, runtime);
+        if (dropped_bootstrap > 0)
         {
             resnet18_progress_log() << label
-                                    << " drop trailing 51-bit primes before ReLU: "
-                                    << dropped_51 << endl;
+                                    << " drop trailing bootstrap primes before ReLU: "
+                                    << dropped_bootstrap << endl;
         }
     }
     log_multiplexed_group_cipher_state(
@@ -1036,13 +1040,14 @@ MultiplexedCipherGroup multiplexed_channel_homomorphic_relu(
                                 << " ReLU MOCK decrypt-polynomial-reencrypt evaluation"
                                 << endl;
         output = encrypt_multiplexed_group_values(relu_input, relu_output_values, runtime);
-        const size_t dropped_51 = drop_trailing_51_bit_primes(output.packs, runtime);
-        if (dropped_51 > 0)
+        const size_t dropped_bootstrap =
+            drop_trailing_bootstrap_primes(output.packs, runtime);
+        if (dropped_bootstrap > 0)
         {
             resnet18_progress_log() << label
-                                    << " ReLU MOCK drop trailing 51-bit primes after "
+                                    << " ReLU MOCK drop trailing bootstrap primes after "
                                        "reencrypt: "
-                                    << dropped_51 << endl;
+                                    << dropped_bootstrap << endl;
         }
     }
     else

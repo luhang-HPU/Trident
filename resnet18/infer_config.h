@@ -21,8 +21,9 @@ constexpr double kBatchNormEpsilon = 1.0e-5;
 constexpr bool kEnableHomomorphicRelu = true;
 constexpr bool kBootstrapBeforeReluExceptFirst = true;
 constexpr std::uint32_t kResNet18BootstrapQ0Level = 0;
-constexpr std::uint32_t kResNet18BootstrapPrimeBits = 51;
-constexpr std::uint32_t kResNet18ComputePrimeBits = 46;
+constexpr std::uint32_t kResNet18BootstrapPrimeBits = 45;
+constexpr std::uint32_t kResNet18ComputePrimeBits = 40;
+constexpr std::uint32_t kResNet18SpecialPrimeBits = 51;
 constexpr std::size_t kResNet18ComputePrimeCount = 20;
 constexpr std::size_t kResNet18BootstrapPrimeCount = 14;
 
@@ -44,6 +45,7 @@ struct PoseidonInferPlan
     long init_p = 8;
     int log_scale = static_cast<int>(kResNet18ComputePrimeBits);
     int boot_level = static_cast<int>(kResNet18BootstrapPrimeCount);
+    std::size_t dnum = 3;
     std::vector<std::uint32_t> logq_chain;
 };
 
@@ -54,6 +56,6 @@ std::filesystem::path relu_param_root();
 std::filesystem::path result_dir();
 
 std::vector<std::uint32_t> logq_chain();
-std::vector<std::uint32_t> logp_chain();
-PoseidonInferPlan default_poseidon_plan();
+std::vector<std::uint32_t> logp_chain(std::size_t q_count, std::size_t dnum);
+PoseidonInferPlan default_poseidon_plan(std::size_t dnum = 3);
 ReluConfig default_relu_config(const PoseidonInferPlan &plan);

@@ -5,6 +5,8 @@
 #include "poseidon/encryptor.h"
 #include "poseidon/evaluator/evaluator_ckks_base.h"
 #include "poseidon/keygenerator.h"
+#include "poseidon/advance/polynomial_evaluation.h"
+#include "poseidon/poseidon_context.h"
 
 #include <iosfwd>
 #include <vector>
@@ -56,3 +58,15 @@ poseidon::Ciphertext approximate_sign(const poseidon::Ciphertext &input,
                                       poseidon::CKKSEncoder &encoder,
                                       poseidon::EvaluatorCkksBase &evaluator,
                                       poseidon::RelinKeys &relin_keys);
+
+// Reduced-depth general Chebyshev evaluation. This follows the staged
+// tree/lazy-rescale strategy used by the ResNet polynomial ReLU, but supports
+// non-odd polynomials and per-slot PolynomialVector coefficients.
+poseidon::Ciphertext evaluate_chebyshev_baby(
+    const poseidon::Ciphertext &input,
+    const poseidon::PolynomialVector &polynomials,
+    poseidon::Encryptor &encryptor,
+    poseidon::CKKSEncoder &encoder,
+    poseidon::EvaluatorCkksBase &evaluator,
+    poseidon::RelinKeys &relin_keys,
+    const poseidon::PoseidonContext &context);

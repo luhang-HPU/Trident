@@ -29,10 +29,17 @@ fs::path result_dir()
 
 std::vector<std::uint32_t> logq_chain()
 {
-    return {
-        46, 46, 46, 46, 46, 46, 46, 46, 46,
-        46, 46, 46, 46, 46, 46, 46, 46, 46, 51, 51, 51, 51, 51, 51, 51,
-        51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51};
+    // The level-efficient CPU bootstrap raises from the single 45-bit q0
+    // modulus to the complete chain and consumes the top fourteen levels.
+    // It therefore returns at level 16. The lower sixteen 40-bit primes are
+    // exactly the application budget: two convolution levels plus fourteen
+    // polynomial-ReLU levels.
+    std::vector<std::uint32_t> chain;
+    chain.reserve(31);
+    chain.push_back(45);                  // Q[0]: centered ModRaise q0 base.
+    chain.insert(chain.end(), 16, 40);   // Q[1..16]: application levels.
+    chain.insert(chain.end(), 14, 45);   // Q[17..30]: bootstrap levels.
+    return chain;
 }
 
 PoseidonInferPlan default_poseidon_plan()

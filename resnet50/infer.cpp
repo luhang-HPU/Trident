@@ -675,7 +675,7 @@ TracedBlockState traced_bottleneck_block(
 }
 } // namespace
 
-void ResNet50_imagenet_sparse(size_t start_image_id, size_t end_image_id)
+void ResNet50_imagenet_sparse(size_t start_image_id, size_t end_image_id, size_t dnum)
 {
     fs::create_directories(result_dir());
     const string stamp = make_run_timestamp();
@@ -693,7 +693,7 @@ void ResNet50_imagenet_sparse(size_t start_image_id, size_t end_image_id)
     log_process_memory_snapshot("resnet50 run start", run_memory_start);
 
     resnet18_progress_log() << "[startup] build inference plan" << endl;
-    const PoseidonInferPlan plan = default_poseidon_plan();
+    const PoseidonInferPlan plan = default_poseidon_plan(dnum);
     ReluConfig relu_config = default_relu_config(plan);
     const ExecutionOptions options = read_execution_options();
     resnet18_progress_log() << "[startup] load ResNet50 parameters" << endl;
@@ -705,9 +705,28 @@ void ResNet50_imagenet_sparse(size_t start_image_id, size_t end_image_id)
         return make_poseidon_runtime(plan);
     });
     resnet18_progress_log() << "[startup] Poseidon runtime ready" << endl;
+    resnet18_progress_log()
+        << "[startup] Poseidon modulus config: Q=1x45 + 20x40 + 14x45 "
+           "(35 primes, 1475 bits), P="
+        << logp_chain(plan.logq_chain.size(), plan.dnum).size()
+        << "x51, dnum=" << plan.dnum << endl;
+    resnet18_progress_log()
+        << "[startup] Poseidon scales: compute=" << plan.log_scale
+        << " bits, bootstrap_evalmod=" << runtime.bootstrap_config.scaling_log
+        << " bits, bootstrap_output="
+        << runtime.bootstrap_config.output_scaling_log << " bits" << endl;
 
     run_log << "ResNet50 ImageNet encrypted inference\n";
     run_log << "images=" << start_image_id << ".." << end_image_id
+            << ", dnum=" << plan.dnum
+            << ", q_config=1x45+20x40+14x45"
+            << ", p_count="
+            << logp_chain(plan.logq_chain.size(), plan.dnum).size()
+            << ", p_prime_bits=51"
+            << ", compute_scale_bits=" << plan.log_scale
+            << ", bootstrap_scale_bits=" << runtime.bootstrap_config.scaling_log
+            << ", bootstrap_output_scale_bits="
+            << runtime.bootstrap_config.output_scaling_log
             << ", mock_relu=" << options.mock_relu
             << ", mock_bootstrap=" << options.mock_bootstrap << '\n';
 

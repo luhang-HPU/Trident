@@ -48,9 +48,11 @@ $$
 | --- | ---: |
 | 多项式模数次数 | `N = 2^16` |
 | CKKS slots | 32768 |
-| 默认 scale | 约 `2^46` |
-| Q 链 | `1 × 51-bit + 20 × 46-bit + 14 × 51-bit` |
-| 特殊模数 P | 51 bit |
+| 默认 scale | 约 `2^40` |
+| Bootstrap EvalMod scale | 约 `2^45` |
+| Q 链 | `1 × 45-bit + 20 × 40-bit + 14 × 45-bit`（35 primes / 1475 bit） |
+| 特殊模数 P | 默认 `12 × 51-bit` |
+| dnum | 默认 3，可选 4 |
 | 输入/激活边界 | `B = 120` |
 | 逻辑 bootstrap 位置 | 48 |
 | 预计单密文 bootstrap 次数 | 351 |
@@ -215,10 +217,10 @@ relu_config.comp_no = 3;
 relu_config.deg = {15, 15, 27};
 relu_config.alpha = 13;
 relu_config.scaled_val = 1.7;
-relu_config.scalingfactor = 46;
+relu_config.scalingfactor = 40;
 ```
 
-生成近似 step mask 后，evaluator 将其与密态输入相乘，执行relinearization 和 rescale，并将输出 scale 恢复到约 `2^46`。
+生成近似 step mask 后，evaluator 将其与密态输入相乘，执行relinearization 和 rescale，并将输出 scale 恢复到约 `2^40`。
 
 Bootstrapping 会分别作用于每一个 packed ciphertext：
 

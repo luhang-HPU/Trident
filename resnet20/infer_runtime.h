@@ -2,7 +2,6 @@
 
 #include "infer_config.h"
 
-#include "poseidon/advance/homomorphic_mod.h"
 #include "poseidon/ckks_encoder.h"
 #include "poseidon/decryptor.h"
 #include "poseidon/encryptor.h"
@@ -23,7 +22,7 @@ struct PoseidonRuntime
     poseidon::GaloisKeys galois_keys;
     poseidon::Encryptor encryptor;
     poseidon::Decryptor decryptor;
-    std::unique_ptr<poseidon::EvalModPoly> bootstrap_poly;
+    poseidon::BootstrapConfig bootstrap_config;
     double scale = 0.0;
     int slot_count = 0;
 
@@ -31,7 +30,7 @@ struct PoseidonRuntime
                     std::unique_ptr<poseidon::EvaluatorCkksBase> eva,
                     poseidon::PublicKey pk, poseidon::SecretKey sk,
                     poseidon::RelinKeys rk, poseidon::GaloisKeys gk,
-                    std::unique_ptr<poseidon::EvalModPoly> poly, double scale_value);
+                    poseidon::BootstrapConfig bootstrap, double scale_value);
 };
 
 PoseidonRuntime make_poseidon_runtime(const PoseidonInferPlan &plan);

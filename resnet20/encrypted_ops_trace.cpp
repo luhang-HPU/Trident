@@ -1,4 +1,5 @@
 #include "encrypted_ops.h"
+#include "execution_mode.h"
 
 #include "poseidon/plaintext.h"
 
@@ -75,11 +76,33 @@ void log_labeled_tensor_state(const string &label, const TensorCipher &tensor,
     output << "  " << label << ": " << tensor_summary(tensor, context) << '\n';
 }
 
+void log_level_consumption(const char *operation, const TensorCipher &input,
+                           const TensorCipher &output, const PoseidonContext &context,
+                           std::size_t expected, ostream &stream)
+{
+    const auto input_level = chain_index_or_throw(context, input.cipher());
+    const auto output_level = chain_index_or_throw(context, output.cipher());
+    if (output_level > input_level)
+    {
+        throw runtime_error(string(operation) + " unexpectedly increased the level");
+    }
+    const auto consumed = input_level - output_level;
+    stream << "  " << operation << " level_consumption=" << consumed
+           << " (" << input_level << " -> " << output_level << ")\n";
+    if (consumed != expected)
+    {
+        throw runtime_error(string(operation) + " consumed an unexpected number of levels");
+    }
+}
+
 void log_after_stage(const TensorCipher &tensor, Decryptor &decryptor, CKKSEncoder &encoder,
                      PoseidonContext &context, ostream &output)
 {
     output << "  output: " << tensor_summary(tensor, context) << '\n';
-    decode_preview(tensor.cipher(), decryptor, encoder, output);
+    if (!resnet20_execution::inference_only())
+    {
+        decode_preview(tensor.cipher(), decryptor, encoder, output);
+    }
     output << endl;
 }
 
@@ -107,6 +130,16 @@ void multiplexed_convolution_print(
     const auto time_end = chrono::high_resolution_clock::now();
     output << "  time_ms: "
            << chrono::duration_cast<chrono::milliseconds>(time_end - time_start).count() << '\n';
+    const int output_group_count =
+        (co + cnn_in.p() - 1) / cnn_in.p();
+    output << "  lazy_rescale: kernel_before="
+           << output_group_count * fh * fw
+           << ", kernel_after=" << output_group_count
+           << ", output_select_before=" << co
+           << ", output_select_after=1, total_before="
+           << output_group_count * fh * fw + co
+           << ", total_after=" << output_group_count + 1 << '\n';
+    log_level_consumption("convolution", cnn_in, cnn_out, context, 2, output);
     log_after_stage(cnn_out, decryptor, encoder, context, output);
 }
 
@@ -126,6 +159,7 @@ void multiplexed_batch_norm_print(
     const auto time_end = chrono::high_resolution_clock::now();
     output << "  time_ms: "
            << chrono::duration_cast<chrono::milliseconds>(time_end - time_start).count() << '\n';
+    log_level_consumption("batchnorm", cnn_in, cnn_out, context, 0, output);
     log_after_stage(cnn_out, decryptor, encoder, context, output);
 }
 
@@ -143,6 +177,7 @@ void approx_relu_print(const TensorCipher &cnn_in, TensorCipher &cnn_out, long c
     const auto time_end = chrono::high_resolution_clock::now();
     output << "  time_ms: "
            << chrono::duration_cast<chrono::milliseconds>(time_end - time_start).count() << '\n';
+    log_level_consumption("relu", cnn_in, cnn_out, context, 14, output);
     log_after_stage(cnn_out, decryptor, encoder, context, output);
 }
 
@@ -159,6 +194,16 @@ void bootstrap_print(const TensorCipher &cnn_in, TensorCipher &cnn_out,
 
     output << "  time_ms: "
            << chrono::duration_cast<chrono::milliseconds>(time_end - time_start).count() << '\n';
+    const auto raised_level = context.crt_context()->first_context_data()->chain_index();
+    const auto output_level = chain_index_or_throw(context, cnn_out.cipher());
+    const auto consumed = raised_level - output_level;
+    output << "  bootstrap level_consumption=" << consumed << " ("
+           << raised_level << " -> " << output_level << ")\n";
+    if (bootstrapper.expected_level_consumption != 0 &&
+        consumed != bootstrapper.expected_level_consumption)
+    {
+        throw runtime_error("bootstrap consumed an unexpected number of levels");
+    }
     log_after_stage(cnn_out, decryptor, encoder, context, output);
 }
 
@@ -186,6 +231,9 @@ void multiplexed_downsampling_print(const TensorCipher &cnn_in,
     const auto time_end = chrono::high_resolution_clock::now();
     output << "  time_ms: "
            << chrono::duration_cast<chrono::milliseconds>(time_end - time_start).count() << '\n';
+    output << "  lazy_rescale: before=" << cnn_in.k() * cnn_in.t()
+           << ", after=1\n";
+    log_level_consumption("downsample", cnn_in, cnn_out, context, 1, output);
     log_after_stage(cnn_out, decryptor, encoder, context, output);
 }
 
@@ -202,6 +250,9 @@ void averagepooling_scale_print(const TensorCipher &cnn_in, TensorCipher &cnn_ou
     const auto time_end = chrono::high_resolution_clock::now();
     output << "  time_ms: "
            << chrono::duration_cast<chrono::milliseconds>(time_end - time_start).count() << '\n';
+    output << "  lazy_rescale: before=" << cnn_in.k() * cnn_in.t()
+           << ", after=1\n";
+    log_level_consumption("average_pool", cnn_in, cnn_out, context, 1, output);
     log_after_stage(cnn_out, decryptor, encoder, context, output);
 }
 
@@ -219,6 +270,9 @@ void fully_connected_print(const TensorCipher &cnn_in, TensorCipher &cnn_out,
     const auto time_end = chrono::high_resolution_clock::now();
     output << "  time_ms: "
            << chrono::duration_cast<chrono::milliseconds>(time_end - time_start).count() << '\n';
+    output << "  lazy_rescale: before=" << q + r - 1
+           << ", after=1\n";
+    log_level_consumption("fully_connected", cnn_in, cnn_out, context, 1, output);
     log_after_stage(cnn_out, decryptor, encoder, context, output);
 }
 

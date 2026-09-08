@@ -148,24 +148,30 @@ output = conv_scaled + offset
 | --- | ---: | --- |
 | `logN` | 16 | 多项式环维度 `N = 2^16` |
 | slot 数 | 32768 | CKKS 复数 slots 数 `N/2` |
-| `log_scale` | 46 | 默认 scale 为约 `2^46` |
+| `log_scale` | 40 | 默认 scale 为约 `2^40` |
 | `boot_level` | 14 | bootstrap 预留 14 个层级 |
-| `q0` | 51 bit | bootstrap 要求的底部单素数 |
+| `q0` | 45 bit | bootstrap 要求的底部单素数 |
 | 特殊模数 P | 51 bit | key switching 使用 |
+| `dnum` | 3（可选 4） | hybrid key-switch 分解数 |
 
 当前 Q 链由以下部分组成：
 
 ```text
-1 × 51-bit q0
-20 × 46-bit primes
-14 × 51-bit bootstrap primes
+1 × 45-bit q0
+20 × 40-bit primes
+14 × 45-bit bootstrap primes
 ```
+
+Q 一共 35 个素数、合计 1475 bit。常规计算 scale 为 `2^40`，Bootstrap EvalMod
+scale 为 `2^45`，Bootstrap 输出重新归一到 `2^40`。
+
+P 链保持 51 bit：默认 `dnum=3` 时为 12 个 P 素数，`dnum=4` 时为 9 个。
 
 `validate_bootstrap_modulus_chain()` 会在启动时检查：
 
-- q0 必须是 51 bit。
-- q0 上方第一个素数必须匹配 46-bit scale。
-- 模数链尾部必须恰好预留 14 个 51-bit bootstrap primes。
+- q0 必须是 45 bit。
+- q0 上方第一个素数必须匹配 40-bit scale。
+- 模数链尾部必须恰好预留 14 个 45-bit bootstrap primes。
 
 运行时一次性生成并持有：
 
@@ -273,7 +279,7 @@ stride 2 卷积或 stem pool 会让 `H、W` 各减半，同时代码令 `k_out =
 input[ic, oh×2 + kh - 3, ow×2 + kw - 3]
 ```
 
-越界位置保持为 0，从而实现 padding。每个 slot vector 使用 `2^46` scale 编码并加密。
+越界位置保持为 0，从而实现 padding。每个 slot vector 使用 `2^40` scale 编码并加密。
 
 ### 7.3 首层卷积
 
@@ -402,11 +408,11 @@ mask = P3(P2(P1(x))) + 0.5
 1. `x × mask` 的 ciphertext-ciphertext multiply。
 2. 使用 relinearization key 降低密文尺寸。
 3. rescale 一层。
-4. 把输出 scale 校准回目标 `2^46`。
+4. 把输出 scale 校准回目标 `2^40`。
 
 明文参考路径调用同一组系数和同样的复合顺序，因此逐层比较的是“密文多项式 ReLU”和“明文多项式 ReLU”，不是直接和标准 `max(0,x)` 比较。
 
-在非 mock 模式下，ReLU 前会先丢弃仍位于链尾的 51-bit bootstrap primes，直到下一层是 46-bit prime，使多项式求值回到预期 scale 链。
+在非 mock 模式下，ReLU 前会先丢弃仍位于链尾的 45-bit bootstrap primes，直到下一层是 40-bit prime，使多项式求值回到预期 scale 链。
 
 ## 11. Bootstrap 策略
 
@@ -546,7 +552,7 @@ step = b0×1 + b1×2 + b2×4 + ...
 2. 不改变数值。
 3. 重新编码和加密，以模拟刷新后的新密文。
 
-重新加密后会丢弃尾部 51-bit primes，使 chain 布局与后续真实 ReLU 路径兼容。Mock 模式用于隔离问题：
+重新加密后会丢弃尾部 45-bit primes，使 chain 布局与后续真实 ReLU 路径兼容。Mock 模式用于隔离问题：
 
 - mock 正确、完整模式错误：优先检查 bootstrap/ReLU 和 scale。
 - 两种模式都错误：优先检查 packing、rotation、mask、权重索引或 BN 融合。
@@ -605,13 +611,12 @@ client:
 1. `H/W/C/k/page_size/pages_per_cipher/packs.size()` 与预期一致。
 2. stride 2 后满足 `H_out=H_in/2` 且 `k_out=2k_in`。
 3. 两个残差分支的完整 layout 一致。
-4. ReLU 输入 scale 接近 `2^46`。
+4. ReLU 输入 scale 接近 `2^40`。
 5. bootstrap 后 scale 已归一化。
-6. 非 mock ReLU 前下一可用 prime 为 46 bit，而不是尾部 51 bit。
+6. 非 mock ReLU 前下一可用 prime 为 40 bit，而不是尾部 45 bit。
 7. padding mask 已阻止 rotation 的环形回卷。
 8. layer4 输出应为 `7×7×2048, k=16, 4 packs`。
 9. global average-pool 后一个 ciphertext 的前 2048 slots 与明文通道特征一致。
 10. FC 输出每个 ciphertext 的 slot 0 是对应类别 logit。
 
 逐层日志中第一个 `max_abs_error` 明显增大的位置，通常就是需要优先检查的算子。
-
