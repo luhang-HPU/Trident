@@ -25,10 +25,13 @@ constexpr std::uint32_t kResNet18BootstrapPrimeBits = 45;
 constexpr std::uint32_t kResNet18ComputePrimeBits = 40;
 constexpr std::uint32_t kResNet18SpecialPrimeBits = 51;
 constexpr std::size_t kResNet18ComputePrimeCount = 20;
+constexpr std::size_t kResNet18ChebyshevComputePrimeCount = 16;
 constexpr std::size_t kResNet18BootstrapPrimeCount = 14;
 
 struct ReluConfig
 {
+    bool use_chebyshev = false;
+    bool use_single22_bootstrap = false;
     long comp_no = 0;
     std::vector<int> deg;
     long alpha = 0;
@@ -39,6 +42,7 @@ struct ReluConfig
 
 struct PoseidonInferPlan
 {
+    bool use_single22_bootstrap = false;
     double boundary = kResNet18Boundary;
     long logN = 16;
     long log_slots = 15;
@@ -46,6 +50,7 @@ struct PoseidonInferPlan
     int log_scale = static_cast<int>(kResNet18ComputePrimeBits);
     int boot_level = static_cast<int>(kResNet18BootstrapPrimeCount);
     std::size_t dnum = 3;
+    std::size_t compute_prime_count = kResNet18ComputePrimeCount;
     std::vector<std::uint32_t> logq_chain;
 };
 
@@ -55,7 +60,11 @@ std::filesystem::path data_root();
 std::filesystem::path relu_param_root();
 std::filesystem::path result_dir();
 
-std::vector<std::uint32_t> logq_chain();
+std::vector<std::uint32_t> logq_chain(
+    std::size_t compute_prime_count = kResNet18ComputePrimeCount);
 std::vector<std::uint32_t> logp_chain(std::size_t q_count, std::size_t dnum);
-PoseidonInferPlan default_poseidon_plan(std::size_t dnum = 3);
-ReluConfig default_relu_config(const PoseidonInferPlan &plan);
+PoseidonInferPlan default_poseidon_plan(std::size_t dnum = 3, bool use_chebyshev = false,
+                                      bool use_single22_bootstrap = false);
+ReluConfig default_relu_config(const PoseidonInferPlan &plan, bool use_chebyshev = false);
+const char *relu_mode_name(const ReluConfig &config);
+double configured_relu_plain(double input, const ReluConfig &config);

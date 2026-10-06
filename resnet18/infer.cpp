@@ -1,4 +1,5 @@
 #include "infer.h"
+#include "chebyshev_relu.h"
 
 #include "encrypted_ops.h"
 #include "encrypted_group_ops.h"
@@ -6,6 +7,7 @@
 #include "execution_mode.h"
 #include "infer_config.h"
 #include "infer_runtime.h"
+#include "final_logits.h"
 #include "parallel_utils.h"
 #include "parameter_loader.h"
 #include "plain_cnn.h"
@@ -28,6 +30,7 @@
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <numeric>
 #include <set>
 #include <stdexcept>
 #include <sstream>
@@ -274,22 +277,29 @@ bool fused_conv_bsgs_enabled()
     return value != "0" && value != "false" && value != "off" && value != "no";
 }
 
-size_t post_bootstrap_relu_input_level()
+size_t post_bootstrap_relu_input_level(const ReluConfig &config)
 {
-    static const size_t level = []() -> size_t {
+    // single22: 10 ReLU + 2 convolution + 1 scale alignment + 1 bootstrap input.
+    const size_t minimum_level = config.use_chebyshev
+        ? kChebyshevReluLevels + (config.use_single22_bootstrap ? 4 : 2) : 16;
+    const size_t maximum_level = config.use_chebyshev
+        ? kResNet18ChebyshevComputePrimeCount : kResNet18ComputePrimeCount;
+    const size_t level = [minimum_level, maximum_level]() -> size_t {
         const char *raw = std::getenv("RESNET18_POST_BOOTSTRAP_LEVEL");
         if (raw == nullptr)
         {
-            return static_cast<size_t>(16);
+            return minimum_level;
         }
         const string value(raw);
         size_t parsed = 0;
         const unsigned long long requested = stoull(value, &parsed, 10);
-        if (parsed != value.size() || requested < 16 ||
-            requested > kResNet18ComputePrimeCount)
+        if (parsed != value.size() || requested < minimum_level ||
+            requested > maximum_level)
         {
             throw invalid_argument(
-                "RESNET18_POST_BOOTSTRAP_LEVEL must be in [16, 20]");
+                "RESNET18_POST_BOOTSTRAP_LEVEL must be in [" +
+                to_string(minimum_level) + ", " + to_string(maximum_level) +
+                "] for the selected ReLU and Q chain");
         }
         return static_cast<size_t>(requested);
     }();
@@ -2519,6 +2529,8 @@ PoseidonBootstrapContext make_resnet18_bootstrap_context(PoseidonRuntime &runtim
     bootstrap_ctx.relin_keys = &runtime.relin_keys;
     bootstrap_ctx.galois_keys = &runtime.galois_keys;
     bootstrap_ctx.bootstrap_config = &runtime.bootstrap_config;
+    bootstrap_ctx.single22_poly = runtime.single22_poly.get();
+    bootstrap_ctx.bootstrap_mutex = runtime.bootstrap_mutex.get();
     return bootstrap_ctx;
 }
 
@@ -2560,12 +2572,12 @@ MultiplexedCipherGroup multiplexed_channel_bootstrap(
     }
     else
     {
-        const size_t thread_count =
-            resnet18_parallel_thread_count(input.packs.size());
+        const size_t thread_count = runtime.single22_poly
+            ? 1 : resnet18_parallel_thread_count(input.packs.size());
         atomic<size_t> completed_packs{0};
         resnet18_progress_log() << label << " bootstrap parallel threads: "
                                 << thread_count << endl;
-        resnet18_parallel_for(input.packs.size(), [&](size_t pack_index) {
+        const auto bootstrap_pack = [&](size_t pack_index) {
             PoseidonBootstrapContext bootstrap_ctx =
                 make_resnet18_bootstrap_context(runtime);
             TensorCipher tensor_in(static_cast<int>(logn), input.k, input.h, input.w, input.c,
@@ -2577,7 +2589,16 @@ MultiplexedCipherGroup multiplexed_channel_bootstrap(
             resnet18_progress_log() << label << " bootstrap ciphertext progress: "
                                     << done << "/" << input.packs.size()
                                     << ", pack=" << pack_index << endl;
-        });
+        };
+        if (runtime.single22_poly)
+        {
+            for (size_t pack_index = 0; pack_index < input.packs.size(); ++pack_index)
+                bootstrap_pack(pack_index);
+        }
+        else
+        {
+            resnet18_parallel_for(input.packs.size(), bootstrap_pack);
+        }
     }
     log_multiplexed_group_cipher_state(label + " bootstrap output", output, runtime);
     if (!resnet18_execution::inference_only())
@@ -2624,9 +2645,8 @@ MultiplexedCipherGroup multiplexed_channel_homomorphic_relu(
         vector<double> relu_output_values(relu_input_values.size(), 0.0);
         for (size_t i = 0; i < relu_input_values.size(); ++i)
         {
-            relu_output_values.at(i) = approximate_relu_plain(
-                relu_input_values.at(i).real(), relu_config.deg, relu_config.alpha,
-                relu_config.tree, relu_config.scaled_val);
+            relu_output_values.at(i) = configured_relu_plain(
+                relu_input_values.at(i).real(), relu_config);
         }
         resnet18_progress_log() << label
                                 << " ReLU MOCK decrypt-polynomial-reencrypt evaluation"
@@ -2655,15 +2675,28 @@ MultiplexedCipherGroup multiplexed_channel_homomorphic_relu(
                                    relu_input.pages_per_cipher,
                                    relu_input.packs.at(pack_index));
             TensorCipher tensor_out;
-            relu(tensor_in, tensor_out, relu_config.comp_no, relu_config.deg,
-                 relu_config.alpha, relu_config.tree, relu_config.scaled_val,
-                 runtime.encryptor, *runtime.evaluator, runtime.encoder, runtime.relin_keys,
-                 runtime.scale);
-            output.packs.at(pack_index) = tensor_out.cipher();
+            if (relu_config.use_chebyshev)
+            {
+                output.packs.at(pack_index) = chebyshev_relu(
+                    tensor_in.cipher(), *runtime.evaluator, runtime.encoder,
+                    runtime.relin_keys, runtime.scale);
+            }
+            else
+            {
+                relu(tensor_in, tensor_out, relu_config.comp_no, relu_config.deg,
+                     relu_config.alpha, relu_config.tree, relu_config.scaled_val,
+                     runtime.encryptor, *runtime.evaluator, runtime.encoder, runtime.relin_keys,
+                     runtime.scale);
+                output.packs.at(pack_index) = tensor_out.cipher();
+            }
             const size_t done = completed_packs.fetch_add(1) + 1;
             resnet18_progress_log() << label << " homomorphic ReLU ciphertext progress: "
                                     << done << "/" << relu_input.packs.size()
-                                    << ", pack=" << pack_index << endl;
+                                    << ", pack=" << pack_index
+                                    << ", relu=" << relu_mode_name(relu_config)
+                                    << ", levels_consumed="
+                                    << tensor_in.cipher().level() - output.packs.at(pack_index).level()
+                                    << endl;
         });
     }
     log_multiplexed_group_cipher_state(
@@ -2684,32 +2717,14 @@ MultiplexedCipherGroup multiplexed_channel_bootstrap_then_relu(
     {
         relu_input = multiplexed_channel_bootstrap(input, logn, runtime, label,
                                                    mock_options);
-        if (!preserve_full_bootstrap_output && !mock_options.mock_bootstrap &&
-            !mock_options.mock_relu)
+        if ((!preserve_full_bootstrap_output || relu_config.use_chebyshev) &&
+            !mock_options.mock_bootstrap && !mock_options.mock_relu)
         {
-            const size_t target_level = post_bootstrap_relu_input_level();
-            const auto target =
-                runtime.context.crt_context()->parms_id_map().find(target_level);
-            if (target == runtime.context.crt_context()->parms_id_map().end())
-            {
-                throw runtime_error(
-                    "post-bootstrap ReLU target level is missing from context");
-            }
-            resnet18_parallel_for(relu_input.packs.size(), [&](size_t pack_index) {
-                const size_t current_level =
-                    cipher_chain_index(runtime, relu_input.packs.at(pack_index));
-                if (current_level < target_level)
-                {
-                    throw runtime_error(
-                        "bootstrap output is below the configured ReLU input level");
-                }
-                if (current_level > target_level)
-                {
-                    runtime.evaluator->drop_modulus(
-                        relu_input.packs.at(pack_index),
-                        relu_input.packs.at(pack_index), target->second);
-                }
-            });
+            // The head needs a level-6 activation (pooling -> 2, FC -> 1).
+            // Chebyshev consumes 10 levels, so its final activation starts at 16.
+            const size_t target_level = preserve_full_bootstrap_output
+                ? kChebyshevReluLevels + 6 : post_bootstrap_relu_input_level(relu_config);
+            trim_bootstrap_relu_input(relu_input.packs, runtime, target_level);
             log_multiplexed_group_cipher_state(
                 label + " bootstrap output trimmed for ReLU", relu_input,
                 runtime);
@@ -4268,8 +4283,10 @@ void prepare_resnet18_evaluation_keys(PoseidonRuntime &runtime, ofstream &output
 
     const vector<int> network_steps =
         resnet18_network_direct_rotation_steps(runtime.slot_count);
-    const vector<int> bootstrap_steps = bootstrap_direct_rotation_steps(
-        runtime.context.parameters_literal()->log_slots(), runtime.slot_count);
+    const vector<int> bootstrap_steps = runtime.single22_poly
+        ? single22_bootstrap_rotation_steps(runtime.context.parameters_literal()->log_n())
+        : bootstrap_direct_rotation_steps(
+              runtime.context.parameters_literal()->log_slots(), runtime.slot_count);
     set<int> merged_steps(network_steps.begin(), network_steps.end());
     merged_steps.insert(bootstrap_steps.begin(), bootstrap_steps.end());
     // Retain the complete signed power-of-two basis as a compatibility
@@ -4326,17 +4343,22 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id,
     // Measure the complete inference run, including configuration, Poseidon context
     // construction, evaluation-key generation, input processing, and all images.
     const auto all_time_start = chrono::steady_clock::now();
-    const PoseidonInferPlan plan = default_poseidon_plan(options.dnum);
+    const PoseidonInferPlan plan = default_poseidon_plan(
+        options.dnum, options.use_chebyshev_relu, options.use_single22_bootstrap);
     resnet18_execution::set_inference_only(options.inference_only);
     const size_t image_value_count =
         static_cast<size_t>(kImageNetInputHeight * kImageNetInputWidth * kImageNetInputChannels);
     const string run_timestamp = make_run_timestamp();
-    ReluConfig relu_config = default_relu_config(plan);
+    ReluConfig relu_config = default_relu_config(plan, options.use_chebyshev_relu);
+    const size_t relu_input_level = post_bootstrap_relu_input_level(relu_config);
     const MockExecutionOptions mock_options = read_mock_execution_options();
 
     fs::create_directories(result_dir());
     const fs::path run_result_path =
-        result_dir() / (string(kResNet18ResultPrefix) + "_run_" + to_string(start_image_id) +
+        result_dir() / (string(kResNet18ResultPrefix) +
+                        (options.use_chebyshev_relu ? "_chebyshev471" : "") +
+                        (options.use_single22_bootstrap ? "_single22" : "") +
+                        "_run_" + to_string(start_image_id) +
                         "_" + to_string(end_image_id) + "_" + run_timestamp + ".txt");
     ofstream out_log(run_result_path);
     if (!out_log.is_open())
@@ -4350,7 +4372,9 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id,
     resnet18_progress_log() << "Poseidon slot count: " << runtime.slot_count << endl;
     resnet18_progress_log() << "Poseidon scale: " << runtime.scale << endl;
     resnet18_progress_log()
-        << "Poseidon modulus config: Q=1x45 + 20x40 + 14x45 (35 primes, 1475 bits)"
+        << "Poseidon modulus config: Q=1x45 + " << plan.compute_prime_count
+        << "x40 + 14x45 (" << plan.logq_chain.size() << " primes, "
+        << accumulate(plan.logq_chain.begin(), plan.logq_chain.end(), size_t{0}) << " bits)"
         << ", P=" << logp_chain(plan.logq_chain.size(), plan.dnum).size()
         << "x51, dnum=" << plan.dnum << endl;
     resnet18_progress_log()
@@ -4359,11 +4383,18 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id,
         << " bits, bootstrap_output="
         << runtime.bootstrap_config.output_scaling_log << " bits" << endl;
     resnet18_progress_log() << "ImageNet input values: " << image_value_count << endl;
+    resnet18_progress_log() << "ReLU mode: " << relu_mode_name(relu_config)
+                            << ", levels=" << (relu_config.use_chebyshev ? 10 : 14)
+                            << ", post_bootstrap_input_level=" << relu_input_level << endl;
+    resnet18_progress_log() << "Bootstrap backend: "
+        << (options.use_single22_bootstrap
+            ? "single22, API=bootstrap_real, EvalMod_degree=22, K=12, double_angle=3, R=32, coefficients=full, evaluator_calls=serialized"
+            : "legacy, API=bootstrap(BootstrapConfig)") << endl;
 
     out_log << "run_start: start_image_id=" << start_image_id
             << ", end_image_id=" << end_image_id
             << ", dnum=" << plan.dnum
-            << ", q_config=1x45+20x40+14x45"
+            << ", q_config=1x45+" << plan.compute_prime_count << "x40+14x45"
             << ", p_count="
             << logp_chain(plan.logq_chain.size(), plan.dnum).size()
             << ", p_prime_bits=51"
@@ -4372,9 +4403,13 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id,
             << ", bootstrap_output_scale_bits="
             << runtime.bootstrap_config.output_scaling_log
             << ", plain_relu_reference=homomorphic_polynomial"
+            << ", relu_mode=" << relu_mode_name(relu_config)
+            << ", bootstrap_backend=" << (options.use_single22_bootstrap ? "single22" : "legacy")
+            << ", relu_levels=" << (relu_config.use_chebyshev ? 10 : 14)
             << ", mock_relu=" << (mock_options.mock_relu ? 1 : 0)
             << ", mock_bootstrap=" << (mock_options.mock_bootstrap ? 1 : 0)
             << ", inference_only=" << (options.inference_only ? 1 : 0)
+            << ", final_logits_verification=1"
             << ", fused_conv_bsgs=" << (fused_conv_bsgs_enabled() ? 1 : 0)
             << ", transition_bsgs=" << (transition_bsgs_enabled() ? 1 : 0)
             << ", layer2_transition_bsgs="
@@ -4382,7 +4417,7 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id,
             << ", layer3_bsgs=" << (layer3_bsgs_enabled() ? 1 : 0)
             << ", layer4_bsgs=" << (layer4_bsgs_enabled() ? 1 : 0)
             << ", post_bootstrap_relu_input_level="
-            << post_bootstrap_relu_input_level()
+            << relu_input_level
             << ", fused_bsgs_cache_mb="
             << fused_conv_bsgs_cache_limit_bytes() / (1024ULL * 1024ULL)
             << ", conv_plaintext_cache_mb=" << options.conv_plaintext_cache_mb
@@ -4562,6 +4597,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id,
         double head_avgpool_debug_pack_max_abs_error = -1.0;
         double head_logits_max_abs_error = -1.0;
         int encrypted_predicted_label = -1;
+        int encrypted_prediction_correct = -1;
+        double final_logits_verification_time_ms = 0.0;
         int plain_head_predicted_label = -1;
         // Input patch ciphertexts are ready at this point. The session only
         // accumulates functions marked as encrypted inference operations, so
@@ -6083,18 +6120,28 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id,
             log_tensor_cipher_state("head fully connected logits output", encrypted_head_logits,
                                     runtime);
 
-            vector<double> plain_head_logits =
-                plain_fully_connected(plain_head_pooled, weights.linear_weight,
-                                      weights.linear_bias, kImageNetClassCount,
-                                      kResNet18FinalChannels);
+            // Always verify the final prediction, including inference-only.
+            // This is outside all ScopedEncryptedInferenceOperation scopes.
+            const auto final_validation = validate_final_logits(
+                encrypted_head_logits.cipher(), runtime, image_label);
+            encrypted_predicted_label = final_validation.predicted_label;
+            encrypted_prediction_correct = final_validation.correct ? 1 : 0;
+            final_logits_verification_time_ms = final_validation.verification_time_ms;
+            const auto &decrypted_head_logits_complex = final_validation.logits;
+            resnet18_progress_log()
+                << "[final-prediction] true_label=" << image_label
+                << " encrypted_pred=" << encrypted_predicted_label
+                << " correct=" << encrypted_prediction_correct
+                << " predicted_logit=" << decrypted_head_logits_complex.at(encrypted_predicted_label).real()
+                << " true_label_logit=" << decrypted_head_logits_complex.at(image_label).real()
+                << " verification_time_ms=" << final_logits_verification_time_ms
+                << " included_in_encrypted_inference_time=0" << endl;
             if (!resnet18_execution::inference_only())
             {
-                vector<double> decrypted_head_logits =
-                    decode_real_slots(encrypted_head_logits, runtime,
-                                      kImageNetClassCount);
-                vector<complex<double>> decrypted_head_logits_complex =
-                    decode_complex_slots(encrypted_head_logits, runtime,
-                                         kImageNetClassCount);
+                const vector<double> plain_head_logits =
+                    plain_fully_connected(plain_head_pooled, weights.linear_weight,
+                                          weights.linear_bias, kImageNetClassCount,
+                                          kResNet18FinalChannels);
                 dump_plain_cipher_preview(
                     "head logits", plain_head_logits, decrypted_head_logits_complex,
                     output, kImageNetClassCount);
@@ -6103,10 +6150,9 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id,
                 {
                     head_logits_max_abs_error =
                         max(head_logits_max_abs_error,
-                            abs(decrypted_head_logits.at(static_cast<size_t>(i)) -
+                            abs(decrypted_head_logits_complex.at(static_cast<size_t>(i)).real() -
                                 plain_head_logits.at(static_cast<size_t>(i))));
                 }
-                encrypted_predicted_label = argmax_index(decrypted_head_logits);
                 plain_head_predicted_label = argmax_index(plain_head_logits);
                 dump_logit_decision_summary(
                     plain_head_logits, decrypted_head_logits_complex, image_label,
@@ -6546,6 +6592,8 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id,
                    << ", head_logits_max_abs_error=" << head_logits_max_abs_error
                    << ", plain_head_predicted_label=" << plain_head_predicted_label
                    << ", encrypted_predicted_label=" << encrypted_predicted_label
+                   << ", encrypted_prediction_correct=" << encrypted_prediction_correct
+                   << ", final_logits_verification_time_ms=" << final_logits_verification_time_ms
                    << ", encrypted_inference_time_ms="
                    << encrypted_inference_time_ms
                    << ", encrypted_inference_operation_count="
@@ -6557,8 +6605,12 @@ void ResNet_imagenet_sparse(size_t start_image_id, size_t end_image_id,
     const auto all_time_end = chrono::steady_clock::now();
     const auto all_time_diff =
         chrono::duration_cast<chrono::milliseconds>(all_time_end - all_time_start);
-    resnet18_progress_log() << "total time : " << all_time_diff.count() << " ms" << endl;
-    out_log << endl << "total time : " << all_time_diff.count() << " ms" << endl;
+    ostringstream total_time_message;
+    total_time_message << "total time : " << all_time_diff.count() << " ms ("
+                       << fixed << setprecision(4)
+                       << all_time_diff.count() / 3600000.0 << " h)";
+    resnet18_progress_log() << total_time_message.str() << endl;
+    out_log << endl << total_time_message.str() << endl;
     const ConvPlaintextCache::Stats final_plaintext_cache_stats =
         conv_plaintext_cache.stats();
     out_log << "conv plaintext cache final: hits="

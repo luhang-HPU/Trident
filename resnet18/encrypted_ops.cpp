@@ -193,6 +193,45 @@ void bootstrap_tensor(const TensorCipher &input, TensorCipher &output,
     }
 
     Ciphertext result = input.cipher();
+    if (bootstrapper.single22_poly)
+    {
+        if (!bootstrapper.bootstrap_mutex)
+            throw invalid_argument("single22 bootstrap requires an evaluator mutex");
+        std::lock_guard<std::mutex> lock(*bootstrapper.bootstrap_mutex);
+        if (result.level() < 1)
+            throw invalid_argument("single22 bootstrap requires input level >= 1");
+        const double target_scale = bootstrapper.context->parameters_literal()->scale();
+        if (!isfinite(result.scale()) || result.scale() <= 0.0)
+            throw invalid_argument("single22 bootstrap input scale is invalid");
+        // Preserve values while bringing convolution scale drift back to 2^40.
+        // Do not rewrite metadata: reserve a real multiply/rescale when needed.
+        if (result.scale() != target_scale)
+        {
+            if (result.level() < 2)
+                throw invalid_argument("single22 scale alignment requires input level >= 2");
+            const auto data = bootstrapper.context->crt_context()->get_context_data(result.parms_id());
+            const double q_last = static_cast<double>(data->coeff_modulus().back().value());
+            const double plain_scale = target_scale * q_last / result.scale();
+            if (!isfinite(plain_scale) || plain_scale < 1.0)
+                throw invalid_argument("invalid single22 scale alignment factor");
+            bootstrapper.evaluator->multiply_const(result, 1.0, plain_scale, result,
+                                                   *bootstrapper.encoder);
+            bootstrapper.evaluator->rescale(result, result);
+            if (!isfinite(result.scale()) || abs(result.scale() / target_scale - 1.0) > 1e-12)
+                throw runtime_error("single22 input scale alignment failed");
+            result.scale() = target_scale; // only floating-point rounding after arithmetic
+        }
+        auto poly = *bootstrapper.single22_poly; // bootstrap_core mutates level_start
+        bootstrapper.evaluator->bootstrap_real(
+            result, result, *bootstrapper.relin_keys, *bootstrapper.galois_keys,
+            *bootstrapper.encoder, poly);
+        if (result.level() != 16 || !isfinite(result.scale()) ||
+            abs(result.scale() / target_scale - 1.0) > 1e-5)
+            throw runtime_error("single22 bootstrap must return level 16 at scale 2^40");
+        output = TensorCipher(input.logn(), input.k(), input.h(), input.w(), input.c(), input.t(),
+                              input.p(), result);
+        return;
+    }
     bootstrapper.evaluator->bootstrap(
         result, result, *bootstrapper.relin_keys, *bootstrapper.galois_keys,
         *bootstrapper.encoder, *bootstrapper.bootstrap_config);
@@ -211,7 +250,7 @@ void normalize_bootstrap_output_scale(Ciphertext &cipher,
     }
 
     const double target_scale = bootstrapper.context->parameters_literal()->scale();
-    if (poseidon::util::are_approximate<double>(cipher.scale(), target_scale))
+    if (poseidon::util::is_approximate<double>(cipher.scale(), target_scale))
     {
         return;
     }
@@ -235,7 +274,7 @@ void normalize_bootstrap_output_scale(Ciphertext &cipher,
     bootstrapper.evaluator->multiply_const(cipher, 1.0, plain_scale, normalized,
                                            *bootstrapper.encoder);
     bootstrapper.evaluator->rescale(normalized, normalized);
-    if (!poseidon::util::are_approximate<double>(normalized.scale(), target_scale))
+    if (!poseidon::util::is_approximate<double>(normalized.scale(), target_scale))
     {
         throw runtime_error("failed to normalize bootstrap output scale");
     }

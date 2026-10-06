@@ -6,6 +6,8 @@ struct ResNet18RunOptions
 {
     std::size_t dnum = 3;
     bool inference_only = false;
+    bool use_chebyshev_relu = false;
+    bool use_single22_bootstrap = false;
     std::size_t conv_plaintext_cache_mb = 2048;
 };
 

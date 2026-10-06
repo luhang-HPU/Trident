@@ -342,3 +342,222 @@ Bootstrap 并行会显著增加峰值内存，建议从 2 或 4 个线程开始�
 ```text
 Trident/resnet18/result/
 ```
+
+## Chebyshev-471 ReLU 对照实现
+
+保留 `resnet18` 默认的 FHE-MP-CNN 复合多项式 `{15,15,27}` 路径，新增
+`resnet18_chebyshev`，默认对归一化激活在 `[-1,1]` 上直接近似 `max(0,x)`。
+也可以在原入口指定 `--relu=chebyshev471`，或用 `--relu=composite` 切回旧方法。
+权重、`boundary=20`、packing、卷积优化和 Bootstrap 位置均沿用原实现。
+
+方法参考 [LowMemoryFHEResNet20 的 ReLU](https://github.com/lorenzorovida/LowMemoryFHEResNet20/blob/main/src/FHEController.cpp#L518)
+和 [OpenFHE 的 Chebyshev 系数生成](https://github.com/openfheorg/openfhe-development/blob/main/src/core/lib/math/chebyshev.cpp)。
+这里在 472 个 Chebyshev 节点插值，并将常数系数减半；密文求值由
+`chebyshev_relu.cpp` 使用 Poseidon 算子完成，不链接 OpenFHE，不解密激活。
+系数仅生成一次，明文参考与密文计算使用同一组系数。ReLU 的奇部为 `x/2`，
+所以除一次项外的奇数项（包括第 471 项）精确为零。
+
+密文求值采用 Chebyshev 分块分解：degree-15 基底最多消耗 4 level，
+叶节点系数乘法消耗 1 level，五级合并消耗 5 level，合计 **10 level**。
+合并前在乘积的高 scale 上对齐加数，随后 rescale；不通过直接改 scale 元数据
+来对齐不同数值。每次真实 ReLU 记录 `relu=chebyshev471, levels_consumed=10`，
+并检查实际消耗是否与计划一致。
+
+| 位置 | 复合多项式 | Chebyshev-471 |
+| --- | --- | --- |
+| 计算用 Q 素数 | 20 × 40 bit | 16 × 40 bit |
+| 完整 Q 链 | 35 个素数 / 1475 bit | 31 个素数 / 1315 bit |
+| P 素数（dnum=4） | 9 × 51 bit | 8 × 51 bit |
+| ReLU 消耗 | 14 level | 10 level |
+| 中间 Bootstrap 后默认起始层 | 16 | 12 |
+| 中间 ReLU 输出层 | 2 | 2 |
+| 最后一个 ReLU 起始层 | 保留原 Bootstrap 输出（20） | 16 |
+| 最后一个 ReLU 输出层 | 6 | 6 |
+| 分类头池化后 / FC 输出 | 2 / 1 | 2 / 1 |
+
+`RESNET18_POST_BOOTSTRAP_LEVEL` 在新模式下允许 `[12,16]`，默认 12；
+旧模式仍允许 `[16,20]`，默认 16。该变量只控制中间激活，最后一个新 ReLU
+固定从 16 开始以匹配已有 FC 明文计划。Stem 的第一个 ReLU 不增加 Bootstrap，
+仍在丢弃尾部 Bootstrap 素数后直接计算。
+
+Chebyshev 模式实际创建的 Q 链为 `1×45 + 16×40 + 14×45`，保留 q0 和
+14 个 Bootstrap 尾部素数。Bootstrap 次数不增加；最后一次原有 Bootstrap
+输出到 16，再执行 10-level ReLU 得到分类头所需的 level 6。
+P 按选定 dnum 自动重算（dnum=3 时为 11 个，dnum=4 时为 8 个）。
+`resnet18 --relu=chebyshev471` 与 `resnet18_chebyshev` 都自动选择这条短链；
+切回 composite 时恢复原来的 35 素数 Q 链。日志输出实际链长和位宽。
+重新编译不会改变已经启动的进程，短链在下次启动时生效。
+
+在已有 Trident 构建配置上编译：
+
+```bash
+cmake -S Trident -B Trident/build
+cmake --build Trident/build --target resnet18 resnet18_chebyshev resnet18_plain resnet18_chebyshev_relu_test -j4
+```
+
+从 `Trident` 目录运行新模式（注意中间层设为 12）：
+
+```bash
+nohup env RESNET18_THREADS=1 RESNET18_PREP_THREADS=8 \
+  RESNET18_POST_BOOTSTRAP_LEVEL=12 RESNET18_FUSED_BSGS_CACHE_MB=0 \
+  ./build/resnet18/resnet18_chebyshev 11 11 4 \
+  --inference-only --conv-plaintext-cache-mb=2048 \
+  > resnet18/output/resnet18_chebyshev_$(date +%Y%m%d_%H%M%S).log 2>&1 < /dev/null &
+```
+
+新模式结果文件带 `_chebyshev471` 标识。`--inference-only` 跳过逐层明文参考
+和误差校验，但始终解密最终 logits 并核对预测与真实标签；需要逐层密文/
+明文误差时去掉此选项。
+
+快速检查整网的明文近似与激活范围：
+
+```bash
+./build/resnet18/resnet18_plain 11 11 --relu=chebyshev471
+./build/resnet18/resnet18_plain 11 11 --relu=composite
+```
+
+Chebyshev 明文模式会记录每个激活前的最小/最大值和越界计数；输入越出
+`[-1,1]` 会报错，不进行隐式裁剪。其他图片的范围和分类精度需要独立验证。
+
+算子测试：
+
+```bash
+ctest --test-dir Trident/build -R '^resnet18_chebyshev_relu$' --output-on-failure
+./Trident/build/resnet18/resnet18_chebyshev_relu_test 16
+# 额外验证生产环维度下真实 Bootstrap -> level 16 -> ReLU -> level 6
+./Trident/build/resnet18/resnet18_chebyshev_relu_test 16 --bootstrap
+```
+
+测试覆盖 472 个插值节点、区间端点、零附近、稠密网格、密文与明文多项式误差、
+输出 scale、`12→2` / `16→6` 及不足 10 level 的拒绝路径。
+默认测试使用 `logN=13` 小环（仅用于功能测试），参数 `16` 使用生产环维度；
+两者均通过生产 runtime 构造器使用短链 Q=31、P=8、dnum=4，且检查旧模式
+仍为 Q=35，以及新链 dnum=3/4 的 P 长度。明文最大绝对误差约为 `0.00105933`。
+2026-10-05 短链实测：`logN=16` 下 `12→2` 和 `16→6` 均通过，密文相对
+同一多项式最大误差约为 `7.9e-7`。真实 Bootstrap 测试从 level 2 刷新到
+level 16，在测试输入 `[-0.5,0.5]` 上最大绝对误差为 `0.000156152`；
+随后 ReLU 输出 level 6，相对原输入明文多项式的最大误差为 `0.000151215`。
+这些是单算子及算子衔接测试，不能代替 ImageNet 分类准确率或整网密态性能测试。
+
+2026-10-05 对现有输入 `image_id=11` 做明文整网对照：两种多项式均预测为
+真实类别 `286`。Chebyshev 模式的 17 个 ReLU 输入范围检查全部通过，
+所有激活点合计范围约为 `[-0.410144, 0.985801]`。这是单张图片的明文检查，
+完整密态整网及多图片准确率尚未验证。
+
+## Chebyshev-471 + EvalMod-22 单实部版本
+
+独立入口 `resnet18_chebyshev_single22` 默认启用 `--relu=chebyshev471`
+和 `--bootstrap=single22`。原 `resnet18` / `resnet18_chebyshev` 的默认
+Bootstrap 不变，也可显式指定 `--bootstrap=legacy`。single22 不支持 composite
+ReLU，错误组合在生成密钥前拒绝。
+
+新入口沿用 31 素数 Q 链 `1×45 + 16×40 + 14×45`、40-bit 计算 scale、
+N=65536、H=5、满槽 32768；dnum=4 时 P=8×51 bit。Bootstrap 实际调用
+`EvaluatorCkksBase::bootstrap_real(..., EvalModPoly&)`，不是旧路径的
+`project_real=true`。参数与 `test_ckks_bootstrap_breakdown.cpp` 的混合链
+single22 组一致：CosDiscrete、degree=22、K=12、double_angle=3、arcsine=0、
+R=32、工作 scale=2^45，启用 `enable_full_cosine_coefficients()`。
+Q/P 分解仍沿用 ResNet18 的 dnum=3/4，并非照搬基准中的单个 P 素数。
+
+这个接口要求输入 level≥1，且 scale 可对齐到 2^40。卷积后 scale 略有
+漂移时，适配层使用保持数值不变的 `multiply_const(1) + rescale` 校正，
+消耗一层；不会通过直接改 scale 元数据掩盖漂移，也不会回退到旧自举。
+因此新入口 `RESNET18_POST_BOOTSTRAP_LEVEL` 默认 **14**，允许 **[14,16]**：
+
+- 中间激活：Bootstrap 输出 16 → 丢模到 14 → ReLU 输出 4。
+- 最坏两层卷积：4 → 2；需要校正 scale 时 2 → 1，满足下次自举入口。
+- Stem：去掉 Bootstrap 尾部后 16 → ReLU 输出 6；保留原池化/卷积路径。
+- 最后激活：16 → ReLU 输出 6 → 现有池化输出 2 → FC 输出 1。
+
+新旧版本自举位置和次数相同。新路径从实际 DFT 分解收集直接旋转密钥，
+不沿用旧 Bootstrap 的 38 个旋转作为完整计划。EvalMod 会修改 evaluator
+的工作 scale，因此新路径的 Bootstrap 调用串行化，并复制多项式的可变
+level_start；其他算子的线程设置不变。
+
+从 `Trident` 目录编译和运行（首次建议保留误差验证，不加 `--inference-only`）：
+
+```bash
+cmake -S . -B build
+cmake --build build --target resnet18_chebyshev_single22 resnet18_chebyshev_relu_test -j4
+nohup env RESNET18_THREADS=1 RESNET18_PREP_THREADS=8 \
+  RESNET18_POST_BOOTSTRAP_LEVEL=14 RESNET18_FUSED_BSGS_CACHE_MB=0 \
+  ./build/resnet18/resnet18_chebyshev_single22 11 11 4 \
+  --conv-plaintext-cache-mb=2048 \
+  > resnet18/output/resnet18_single22_$(date +%Y%m%d_%H%M%S).log 2>&1 < /dev/null &
+```
+
+结果文件额外带 `_chebyshev471_single22` 标识；启动日志打印实际 Bootstrap
+API、次数、K、倍角、R 和系数模式。仅测性能时再加 `--inference-only`，此时
+日志中的 `max_abs_error=-1` 仍表示跳过明密文误差校验，但最终预测始终验证。
+
+```bash
+ctest --test-dir build -R '^resnet18_(single22|chebyshev_relu)$' --output-on-failure
+./build/resnet18/resnet18_chebyshev_relu_test 16 --single22
+```
+
+新测试覆盖实际短链、14→4/16→6 ReLU、两次真实乘法/rescale 后的输入
+scale 校正、单实部自举及后续 ReLU、精确 scale 的 level-1 常数输入，以及
+level-0 / 无校正预算的 level-1 拒绝路径。测试仅生成新 DFT 计划所列的密钥，
+验证其覆盖实际自举旋转。整网密态准确率与总耗时仍需独立运行验证。
+
+2026-10-05 验证结果：两项 CTest 均通过；N=65536、dnum=4、Q=31/P=8
+的真实算子测试也通过。14→4 / 16→6 ReLU 相对明文多项式最大误差约
+`7.3e-7`。输入经两次 0.8 倍乘法/rescale 后，scale 比例为约 `1.00004`，
+适配层完成 level 2→1 的校正，自举输出 level 16，最大绝对误差
+`7.13715e-5`；接 ReLU 后输出 level 6，相对原输入明文多项式误差
+`4.59336e-5`。精确 scale 的 level-1 常数 0.25 输入测试误差
+`1.50313e-4`。前一组自举消息范围为约 `[-0.32,0.32]`；这些是单组
+测试输入/密钥上的观测，不代表真实整网激活的误差上界或加速比例。
+
+### 2026-10-05：修复自举后丢模的临时迭代器失效
+
+`134340` 旧链运行在 FC 输入参数检查失败，`142031` 短链运行在首次
+Bootstrap 后的 ReLU 报 `scale out of bounds`。日志中所谓的丢模把 level
+20 变成 26、或把 16 变成 31，是程序错误，不是合法的模数链调度。
+`CRTContext::parms_id_map()` 按值返回 map；原整网代码对临时 map 调用
+`find()` 后保存迭代器，随后解引用已经失效的迭代器，产生未定义行为。
+这两次失败运行不能作为整网正确性或端到端加速的依据。
+
+修复后，整网与回归测试共用 `trim_bootstrap_relu_input()`：保存本地 map，
+复制目标参数 ID，在修改前检查所有 pack，拒绝升层，并验证输出 level、
+参数 ID、素数数量及 scale。旧链、短链和 single22 共用此修复。
+
+新增 `resnet18_bootstrap_trim_test`，覆盖 Q=35/31、dnum=3/4、8 个密文
+并行丢模到 12/14/16、同层操作、非法目标及禁止升层、解密数值不变，
+以及旧/短链最终丢模到 16 后 ReLU 输出 6。已有自举测试也改为调用这条
+真实整网丢模路径，不再绕过它。
+
+从 `Trident` 目录运行：
+
+```bash
+cmake --build build --target resnet18_bootstrap_trim_test resnet18_chebyshev_relu_test -j4
+ctest --test-dir build -R '^resnet18_(bootstrap_trim|single22|chebyshev_relu)$' --output-on-failure
+RESNET18_THREADS=4 ./build/resnet18/resnet18_bootstrap_trim_test 16
+```
+
+历史失败日志保留不改；修复后的整网需要重新启动验证，不能恢复已经损坏
+的密文或将旧日志视为成功结果。
+
+修复验证：上述三项 CTest 全部通过（约 46 秒）；N=65536 下 Q=35/31、
+dnum=3/4 的四组丢模回归也全部通过，包括 dnum=4 的实际丢模→ReLU→
+level 6 衔接。三个推理入口均已重新编译；未在本次修复中重跑完整密态整网。
+
+### 2026-10-06：最终预测始终验证
+
+三个入口均在两种模式下解密最终 logits 一次，只在前 1000 个类别槽上取
+实部最大值，并与真实标签比较。日志新增 `[final-prediction]`，包含
+`true_label`、`encrypted_pred`、`correct`、预测类别和真实类别的 logit，
+以及 `verification_time_ms`。`image_done` 同时记录
+`encrypted_prediction_correct` 和 `final_logits_verification_time_ms`。
+非有限 logits 会明确报错，不会静默输出一个类别。
+
+最终解密、解码和判断单独计时，不计入 `encrypted_inference_time_ms`，
+但计入 `image_time_ms` 和 `total_time_ms`。非 inference-only 模式继续做
+明文参考与误差比较，并复用这一次最终解密结果。inference-only 模式下
+`plain_head_predicted_label` 与 `head_logits_max_abs_error` 仍为 -1，
+但 `encrypted_predicted_label` 必须是真实计算出的类别，不再是 -1。
+此更改仅对重新启动的任务生效，历史日志不变。
+
+回归测试 `resnet18_final_logits` 使用真实 level-1 密文，覆盖两种模式、
+预测正确/错误、负 logits、忽略填充槽、并列最大值、非法标签/非有限值，
+并检查最终验证不增加密态算子计时或计数。

@@ -12,6 +12,8 @@ namespace
 {
     std::cerr << "Usage: " << argv0
               << " START_IMAGE_ID END_IMAGE_ID [DNUM=3|4] [--inference-only]"
+                 " [--relu=composite|chebyshev471]"
+                 " [--bootstrap=legacy|single22]"
                  " [--conv-plaintext-cache-mb=N]"
               << std::endl;
     std::exit(1);
@@ -67,6 +69,12 @@ int main(int argc, char **argv)
         const size_t start_image_id = parse_image_id(argv[1], "start_image_id");
         const size_t end_image_id = parse_image_id(argv[2], "end_image_id");
         ResNet18RunOptions options;
+#ifdef RESNET18_DEFAULT_CHEBYSHEV
+        options.use_chebyshev_relu = true;
+#endif
+#ifdef RESNET18_DEFAULT_SINGLE22
+        options.use_single22_bootstrap = true;
+#endif
         bool dnum_seen = false;
         for (int index = 3; index < argc; ++index)
         {
@@ -74,6 +82,20 @@ int main(int argc, char **argv)
             if (argument == "--inference-only")
             {
                 options.inference_only = true;
+            }
+            else if (argument.rfind("--relu=", 0) == 0)
+            {
+                const std::string mode = argument.substr(7);
+                if (mode != "composite" && mode != "chebyshev471")
+                    throw std::invalid_argument("--relu must be composite or chebyshev471");
+                options.use_chebyshev_relu = (mode == "chebyshev471");
+            }
+            else if (argument.rfind("--bootstrap=", 0) == 0)
+            {
+                const std::string mode = argument.substr(12);
+                if (mode != "legacy" && mode != "single22")
+                    throw std::invalid_argument("--bootstrap must be legacy or single22");
+                options.use_single22_bootstrap = (mode == "single22");
             }
             else if (argument.rfind("--conv-plaintext-cache-mb=", 0) == 0)
             {

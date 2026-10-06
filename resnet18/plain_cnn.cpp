@@ -179,9 +179,7 @@ PlainTensor plain_polynomial_relu_reference(const PlainTensor &input,
     PlainTensor output = input;
     for (size_t idx = 0; idx < input.values.size(); ++idx)
     {
-        output.values[idx] = approximate_relu_plain(
-            input.values[idx], relu_config.deg, relu_config.alpha,
-            relu_config.tree, relu_config.scaled_val);
+        output.values[idx] = configured_relu_plain(input.values[idx], relu_config);
     }
     return output;
 }

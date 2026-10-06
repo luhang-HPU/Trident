@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
@@ -32,6 +33,7 @@ enum class StemPoolMode
 [[noreturn]] void usage_and_exit(const char *argv0)
 {
     cerr << "Usage: " << argv0 << " START_IMAGE_ID END_IMAGE_ID [avgpool|maxpool]"
+         << " [--relu=composite|chebyshev471]"
          << endl;
     exit(1);
 }
@@ -116,6 +118,25 @@ struct PlainInferenceState
     size_t bn_idx = 0;
 };
 
+PlainTensor checked_plain_relu(const PlainTensor &input, const ReluConfig &config, ostream &log)
+{
+    if (config.use_chebyshev)
+    {
+        const auto range = minmax_element(input.values.begin(), input.values.end());
+        const size_t outside = count_if(input.values.begin(), input.values.end(),
+            [](double x) { return !isfinite(x) || x < -1.0 || x > 1.0; });
+        log << "chebyshev_relu_input: min=" << *range.first << ", max=" << *range.second
+            << ", outside_approximation_interval=" << outside << '\n';
+        if (outside != 0)
+            throw runtime_error("Chebyshev ReLU input is outside [-1,1]; inspect activation ranges");
+    }
+    PlainTensor output = plain_polynomial_relu_reference(input, config);
+    for (double x : output.values)
+        if (!isfinite(x))
+            throw runtime_error("non-finite plaintext ReLU output");
+    return output;
+}
+
 PlainTensor apply_conv_bn(const PlainTensor &input, int out_channels, int stride, int fh, int fw,
                           const vector<double> &conv_weight, const vector<double> &bn_bias,
                           const vector<double> &bn_running_mean,
@@ -142,7 +163,7 @@ void run_stem(PlainInferenceState &state, const ModelWeights &weights,
     ++state.conv_idx;
     ++state.bn_idx;
 
-    stem = plain_polynomial_relu_reference(stem, relu_config);
+    stem = checked_plain_relu(stem, relu_config, log);
     if (stem_pool_mode == StemPoolMode::MaxPool)
     {
         stem = plain_max_pool2d(stem, 3, 2, 1);
@@ -174,7 +195,7 @@ void run_block(PlainInferenceState &state, const ModelWeights &weights, int stag
     ++state.conv_idx;
     ++state.bn_idx;
 
-    branch = plain_polynomial_relu_reference(branch, relu_config);
+    branch = checked_plain_relu(branch, relu_config, log);
 
     branch = apply_conv_bn(branch, out_channels, 1, 3, 3, weights.conv_weight.at(state.conv_idx),
                            weights.bn_bias.at(state.bn_idx),
@@ -199,16 +220,16 @@ void run_block(PlainInferenceState &state, const ModelWeights &weights, int stag
     }
 
     PlainTensor output = plain_add(branch, shortcut);
-    output = plain_polynomial_relu_reference(output, relu_config);
+    output = checked_plain_relu(output, relu_config, log);
     log_plain_tensor("plain block output", output, log);
     state.tensor = std::move(output);
 }
 
 vector<double> run_plain_resnet18_for_image(size_t image_id, const ModelWeights &weights,
-                                            ostream &log, StemPoolMode stem_pool_mode)
+                                            ostream &log, StemPoolMode stem_pool_mode,
+                                            const ReluConfig &relu_config)
 {
     PlainInferenceState state;
-    const ReluConfig relu_config = default_relu_config(default_poseidon_plan());
     state.tensor = PlainTensor(kImageNetInputHeight, kImageNetInputWidth, kImageNetInputChannels,
                                read_plain_image_values(image_id, kResNet18Boundary));
     log_plain_tensor("plain input", state.tensor, log);
@@ -233,12 +254,15 @@ vector<double> run_plain_resnet18_for_image(size_t image_id, const ModelWeights 
 }
 
 void run_plain_resnet18(size_t start_image_id, size_t end_image_id,
-                        StemPoolMode stem_pool_mode)
+                        StemPoolMode stem_pool_mode, bool use_chebyshev)
 {
+    const ReluConfig relu_config = default_relu_config(
+        default_poseidon_plan(3, use_chebyshev), use_chebyshev);
     fs::create_directories(result_dir());
     const string run_timestamp = make_run_timestamp();
+    const string mode_suffix = use_chebyshev ? "_chebyshev471" : "";
     const fs::path summary_path =
-        result_dir() / ("resnet18_plain_label_" + to_string(start_image_id) + "_" +
+        result_dir() / ("resnet18_plain" + mode_suffix + "_label_" + to_string(start_image_id) + "_" +
                         to_string(end_image_id) + "_" + run_timestamp + ".txt");
     ofstream summary(summary_path);
     if (!summary.is_open())
@@ -248,6 +272,8 @@ void run_plain_resnet18(size_t start_image_id, size_t end_image_id,
 
     cout << "Loading ResNet18 ImageNet parameters" << endl;
     cout << "stem pool mode: " << stem_pool_mode_name(stem_pool_mode) << endl;
+    cout << "ReLU mode: " << relu_mode_name(relu_config) << endl;
+    summary << "relu_mode: " << relu_mode_name(relu_config) << '\n';
     ModelWeights weights = load_resnet18_parameters();
 
     size_t correct = 0;
@@ -256,7 +282,7 @@ void run_plain_resnet18(size_t start_image_id, size_t end_image_id,
     {
         const auto image_start = chrono::high_resolution_clock::now();
         const fs::path image_log_path =
-            result_dir() / ("resnet18_plain_image" + to_string(image_id) + "_" + run_timestamp +
+            result_dir() / ("resnet18_plain" + mode_suffix + "_image" + to_string(image_id) + "_" + run_timestamp +
                             ".txt");
         ofstream image_log(image_log_path);
         if (!image_log.is_open())
@@ -267,10 +293,11 @@ void run_plain_resnet18(size_t start_image_id, size_t end_image_id,
         image_log << "image_id: " << image_id << '\n';
         image_log << "log_file: " << image_log_path << '\n';
         image_log << "plain_relu_reference: homomorphic_polynomial\n";
+        image_log << "relu_mode: " << relu_mode_name(relu_config) << '\n';
         image_log << "stem_pool_mode: " << stem_pool_mode_name(stem_pool_mode) << '\n';
         const int image_label = read_image_label(image_id);
         vector<double> logits =
-            run_plain_resnet18_for_image(image_id, weights, image_log, stem_pool_mode);
+            run_plain_resnet18_for_image(image_id, weights, image_log, stem_pool_mode, relu_config);
         const int predicted_label = argmax_index(logits);
         if (predicted_label == image_label)
         {
@@ -309,7 +336,7 @@ void run_plain_resnet18(size_t start_image_id, size_t end_image_id,
 
 int main(int argc, char **argv)
 {
-    if (argc != 3 && argc != 4)
+    if (argc < 3)
     {
         usage_and_exit(argv[0]);
     }
@@ -322,10 +349,20 @@ int main(int argc, char **argv)
         {
             throw invalid_argument("start_image_id must be <= end_image_id");
         }
-        const StemPoolMode stem_pool_mode =
-            argc == 4 ? parse_stem_pool_mode(argv[3]) : StemPoolMode::AvgPool;
+        StemPoolMode stem_pool_mode = StemPoolMode::AvgPool;
+        bool use_chebyshev = false;
+        for (int i = 3; i < argc; ++i)
+        {
+            const string argument(argv[i]);
+            if (argument == "--relu=chebyshev471")
+                use_chebyshev = true;
+            else if (argument == "--relu=composite")
+                use_chebyshev = false;
+            else
+                stem_pool_mode = parse_stem_pool_mode(argv[i]);
+        }
 
-        run_plain_resnet18(start_image_id, end_image_id, stem_pool_mode);
+        run_plain_resnet18(start_image_id, end_image_id, stem_pool_mode, use_chebyshev);
         return 0;
     }
     catch (const exception &ex)

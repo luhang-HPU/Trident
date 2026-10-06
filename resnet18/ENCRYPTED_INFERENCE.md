@@ -192,7 +192,19 @@ x ──────────────────────────
 
 ## 5. CKKS 参数和模数链
 
-默认参数来自 `default_poseidon_plan()`：
+默认复合多项式模式的参数来自 `default_poseidon_plan()`。Chebyshev-471 模式
+通过 `default_poseidon_plan(dnum, true)` 选择短链：计算区从 20 个 40-bit 素数
+减到 16 个，其余 q0 和 14 个 Bootstrap 尾部素数不变，Q 合计 31 个素数、
+1315 bit；dnum=4 时 P 为 8 个 51-bit 素数。最后一个 Bootstrap 输出 level 16，
+经 10-level ReLU 后仍在 level 6，无须新增分类头前 Bootstrap。
+配置和验证命令见 [Chebyshev-471 对照实现](docs/benchmark.md#chebyshev-471-relu-对照实现)。
+
+另外提供 `resnet18_chebyshev_single22`：保持相同短 Q 链和 10-level ReLU，
+使用 EvalMod-22 的 `bootstrap_real` 单实部入口。中间 ReLU 改为默认 14→4，
+给卷积后的 scale 校正及自举输入 level≥1 留出预算；最终仍为 16→6。
+详细参数和运行命令见 [单实部版本](docs/benchmark.md#chebyshev-471--evalmod-22-单实部版本)。
+
+以下参数表及层级示例仍描述默认复合多项式模式：
 
 | 参数 | 当前值 | 含义 |
 | --- | ---: | --- |
@@ -866,7 +878,10 @@ Trident/resnet18/result/resnet18_imagenet_run_<start>_<end>_<timestamp>.txt
 `encrypted_inference_time_ms` 不包含 Context/密钥生成、图片和权重文件读取、输入
 编码加密、提前完成的 FC BSGS 明文计划及融合卷积 BSGS 对角明文冷准备。默认验证模式下，个别外层算子计时仍可能
 覆盖其内部 Bootstrap 自检；需要纯推理数据时应使用 `--inference-only`，此模式会跳过
-全部逐层明文参考、解密误差校验和最终预测检查。卷积缓存 miss 时发生的明文编码仍
+全部逐层明文参考和解密误差校验，但仍解密最终 logits、计算预测并核对真实标签。
+最终解密/判断单独记录 `final_logits_verification_time_ms`，不计入密态算子时间，
+两种模式均输出 `[final-prediction]` 和 `encrypted_prediction_correct`。
+卷积缓存 miss 时发生的明文编码仍
 属于该张图片的冷缓存时间，cache hit 则直接复用。与之
 相比，`image_time_ms` 是单张图片的端到端验证时间，`total_time_ms` 还包括 runtime
 及 evaluation-key 准备时间。

@@ -11,6 +11,7 @@
 #include "poseidon/poseidon_context.h"
 
 #include <cstddef>
+#include <mutex>
 #include <vector>
 
 struct PoseidonBootstrapContext
@@ -21,6 +22,8 @@ struct PoseidonBootstrapContext
     const poseidon::RelinKeys *relin_keys = nullptr;
     const poseidon::GaloisKeys *galois_keys = nullptr;
     const poseidon::BootstrapConfig *bootstrap_config = nullptr;
+    const poseidon::EvalModPoly *single22_poly = nullptr;
+    std::mutex *bootstrap_mutex = nullptr;
 };
 
 struct FullyConnectedBsgsPlainDiagonal
