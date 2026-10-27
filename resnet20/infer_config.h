@@ -1,6 +1,7 @@
 #pragma once
 
 #include "relu_approx.h"
+#include "functional_bootstrap.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -45,6 +46,9 @@ struct PoseidonInferPlan
     int relu_levels = 14;
     int remaining_level = 16;
     int boot_level = 14;
+    bool functional_relu = false;
+    unsigned secret_hamming_weight = 5;
+    trident::FunctionalBootstrapPlan functional_plan;
     std::vector<std::uint32_t> logq_chain;
     std::vector<PoseidonStagePlan> stages;
 };

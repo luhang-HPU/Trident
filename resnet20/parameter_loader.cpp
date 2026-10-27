@@ -3,6 +3,7 @@
 #include "infer_config.h"
 
 #include <fstream>
+#include <cmath>
 #include <stdexcept>
 #include <string>
 
@@ -33,6 +34,12 @@ std::vector<double> read_exact_values(const std::filesystem::path &path, std::si
 std::vector<double> read_image_slots(std::size_t image_id, long log_slots, long init_p,
                                      double boundary)
 {
+    if (log_slots < 12 || log_slots > 15 || init_p <= 0 ||
+        (init_p & (init_p - 1)) != 0 || !std::isfinite(boundary) || boundary <= 0 ||
+        (1L << log_slots) / init_p < 32 * 32 * 3)
+    {
+        throw std::invalid_argument("invalid input packing or normalization boundary");
+    }
     ifstream input(data_root() / "test_values.txt");
     if (!input.is_open())
     {
@@ -44,13 +51,15 @@ std::vector<double> read_image_slots(std::size_t image_id, long log_slots, long 
 
     double value = 0.0;
     const size_t image_values = 32 * 32 * 3;
-    for (size_t i = 0; i < image_values * image_id; ++i)
+    for (size_t skipped = 0; skipped < image_id; ++skipped)
     {
-        input >> value;
+        for (size_t i = 0; i < image_values; ++i)
+            if (!(input >> value)) throw std::runtime_error("image index exceeds available data");
     }
     for (size_t i = 0; i < image_values; ++i)
     {
-        input >> value;
+        if (!(input >> value) || !std::isfinite(value))
+            throw std::runtime_error("incomplete or nonfinite input image");
         image[i] = value;
     }
 

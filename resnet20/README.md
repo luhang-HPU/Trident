@@ -2,25 +2,115 @@
 
 这个目录实现了基于 Poseidon CKKS 的 CIFAR-10 ResNet20 密文推理流程。代码同时保留了一条明文参考路径，用来在调试时对照密文推理的中间结果和最终分类结果。
 
+## 融合 ReLU bootstrap（实验实现）
+
+新增 `--functional-relu` 路线：19 个激活位置（含 stem）均执行
+`StC → ModRaise → CtS → complex carrier → harmonic polynomial → real projection`。
+执行器不接收解密器，不在中间重新加密；验证模式另外计算相同冻结近似的明文参考。
+旧的普通 bootstrap + sign 近似 ReLU 仍是默认路线。
+
+两段 DFT 的参数如下，level L 表示 L+1 个活动 Q 素数，P 不计入 level：
+
+| 配置 | N | 非线性深度 | Q 位宽（从底部起） | 输出 level |
+| --- | --- | --- | --- | --- |
+| D15 | 32768 | 12 = 5+3+4 | 45 + 4×40 + 14×45，共 19 Q | 4 |
+| D31 | 32768 | 13 = 5+3+5 | 45 + 4×40 + 15×45，共 20 Q | 4 |
+
+均使用 P=1×51 bit、H=32 的本库稀疏密钥、scale=2^40、输入/BN 数值单位除以 40、
+`log_slots=14, init_p=4`。`--dft-depth 3` 增加两个 Q，输出 level=5；
+`--log-n 16` 切换回 N=65536。**17-Q 尚未实现**，当前配置没有安全强度评估，
+H=32 也不代表复现了论文的 sparse-subring 密钥构造。
+
+构建可直接复用根工程，不需要构建其他 Trident 应用。在仓库根目录执行：
+
+```bash
+cmake -S . -B build-cpu-hoist \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DPOSEIDON_BUILD_TRIDENT_RESNET20=ON \
+  -DPOSEIDON_BUILD_CPU_TESTS=ON \
+  -DPOSEIDON_BUILD_DEPS=ON \
+  -DFETCHCONTENT_SOURCE_DIR_SPDLOG="$PWD/third_party/spdlog" \
+  -DPOSEIDON_USE_MSGSL=OFF -DPOSEIDON_USE_ZLIB=OFF \
+  -DPOSEIDON_USE_ZSTD=OFF -DPOSEIDON_USE_OPENMP=OFF
+cmake --build build-cpu-hoist \
+  --target resnet20 resnet20_test_functional resnet20_test_bootstrap resnet20_test_relu -j4
+ctest --test-dir build-cpu-hoist -R '^trident_functional_' --output-on-failure
+```
+
+依赖与根工程相同，需要 C++20 工具链、CMake、GMP 和本地 spdlog 源码。
+上面的命令使用现有 `build-cpu-hoist` 缓存；新环境可换一个构建目录。
+自动测试用小 N 验证数学和层数，不对这些小 N 宣称密码学安全。
+
+```bash
+# 单组件：logN、degree、连续执行次数、DFT 段数、可选 bound
+OMP_NUM_THREADS=4 build-cpu-hoist/bin/resnet20_test_functional 15 15 2 2
+
+# 连续密文整网，默认开启明文参考和解密验证
+OMP_NUM_THREADS=4 build-cpu-hoist/bin/resnet20 0 0 --functional-relu --functional-degree 31
+
+# D15 / 19-Q；近似精度尚未达标，适合电路实验
+OMP_NUM_THREADS=4 build-cpu-hoist/bin/resnet20 0 0 --functional-relu --functional-degree 15
+
+# 不执行中间/最终解密及明文参考的网络计时
+OMP_NUM_THREADS=4 build-cpu-hoist/bin/resnet20 0 0 --functional-relu \
+  --functional-degree 31 --inference-only
+```
+
+`--functional-bound B` 设置全网统一的正数 b，输入输出仍保持 z=a/40 单位，
+计算 `b*p(z/b)`；默认 b=1。当前没有逐位置校准表，不能用测试集调 b 后再将其作为独立测试成绩。
+验证模式会拒绝超出声明范围的明文参考激活；正式密态路径依赖离线范围契约。
+
+`functional_params/` 是独立生成的冻结系数，不是作者源码的导出物：
+
+- D15/D31 相位分别为 0.4494/0.47295，使用 binary64 自适应网格线性规划；
+  [-1,1] 上 200001 点采样误差约为 0.00329403/0.00152081，不是严格误差证书。
+- 载波为 K=12、degree=31 的复指数 Chebyshev 展开，再连续平方三次；
+  Bessel 系数在 90 位十进制精度生成，运行时加载 binary64 文本。
+- `generate_functional_coeffs.py` 离线生成系数；元数据 JSON 保存版本、误差与 SHA256。
+  多项式求值复用 Poseidon PS 求值器。DFT 明文已预编码，多项式标量系数仍在执行时编码，
+  这部分成本计入单次激活时间。
+
+重新拟合需要 numpy、scipy、mpmath；已冻结文本的 C++ 执行不依赖 Python：
+
+```bash
+python3 -m venv /tmp/trident-fit-env
+/tmp/trident-fit-env/bin/pip install numpy==1.26.4 scipy==1.15.3 mpmath==1.3.0
+# 写到新目录，避免覆盖正在验证的冻结系数
+/tmp/trident-fit-env/bin/python Trident/resnet20/generate_functional_coeffs.py --output /tmp/trident-fit-check
+
+# 需要另有 numpy、torch；只评估固定配置，不做校准
+python3 Trident/resnet20/evaluate_functional_plain.py --count 100 --degree 31 --output /tmp/plain-d31.json
+```
+
+当前精度诊断：随附全部 1000 张测试图，精确 ReLU 为 914 张正确，固定 b=1 的
+D15 为 675 张、D31 为 904 张。两者都未达到方案中的精度门槛；下一步需要独立训练校准集。
+N=32768、D31、20-Q 的完整单图链已通过，19 次融合激活后最终 logits 与同近似
+明文参考的最大偏差为 4.07e-4。该结果证明实现一致性，不代表测试集准确率已通过验收。
+另已通过 N=32768、D15、19-Q 的同一单图完整链，最终 logits 最大偏差为 1.41e-3，
+19 次融合激活和最终预测均完成校验。
+
+实现和验证的详细记录见 [实验记录](../../test-results/trident-functional-20261016/README.md)，
+整体设计见 [实施方案](../../docs/trident-resnet20-functional-bootstrap-plan.zh-CN.md)。
+
 ## 快速开始
 
 在仓库根目录执行：
 
 ```bash
-cmake --build Trident/build --target resnet20 -j2
-./Trident/build/resnet20/resnet20 START_IMAGE_ID END_IMAGE_ID
+cmake --build build-cpu-hoist --target resnet20 -j4
+./build-cpu-hoist/bin/resnet20 START_IMAGE_ID END_IMAGE_ID
 ```
 
 示例：
 
 ```bash
-./Trident/build/resnet20/resnet20 0 9
+./build-cpu-hoist/bin/resnet20 0 9
 ```
 
 只统计完整密态网络、不运行逐层明文参考、中间解密 preview 和最终 logits 解密：
 
 ```bash
-./Trident/build/resnet20/resnet20 0 0 --inference-only
+./build-cpu-hoist/bin/resnet20 0 0 --inference-only
 ```
 
 该模式在输入密文和初始 level 对齐完成后开始计时，在密文 FC logits 生成后停止，
@@ -61,13 +151,14 @@ Trident/resnet20/
 int main(int argc, char **argv)
 ```
 
-它负责解析 `START_IMAGE_ID`、`END_IMAGE_ID` 和可选的 `--inference-only`，然后调用：
+它负责解析 `START_IMAGE_ID`、`END_IMAGE_ID`、`--inference-only` 及上述融合路线选项，然后调用：
 
 ```cpp
 ResNet_cifar10_sparse(start_image_id, end_image_id, options);
 ```
 
-真正的推理流程在 `infer.cpp` 的 `ResNet_cifar10_sparse()` 中：
+真正的推理流程在 `infer.cpp` 的 `ResNet_cifar10_sparse()` 中。以下结构说明以默认旧路线为主，
+融合路线在 runtime 创建后增加准备对象，并按前文说明替换全部激活位置：
 
 ```text
 1. 创建 PoseidonInferPlan
@@ -383,7 +474,7 @@ relu(...)
 
 `approximate_sign()` 定义在 `relu_approx.cpp`，它会从 `relu_param/` 读取对应多项式系数。
 
-明文参考 ReLU 是普通 ReLU：
+默认旧路线的明文参考 ReLU 是普通 ReLU；融合路线使用同一冻结三角近似：
 
 ```cpp
 max(0.0, x)
@@ -549,8 +640,8 @@ load_resnet20_parameters()
 ### ReLU 测试
 
 ```bash
-cmake --build Trident/build --target resnet20_test_relu -j2
-./Trident/build/resnet20/resnet20_test_relu
+cmake --build build-cpu-hoist --target resnet20_test_relu -j4
+./build-cpu-hoist/bin/resnet20_test_relu 16
 ```
 
 用于观察 ReLU 近似过程中的 level、scale 和解密 preview。
@@ -558,8 +649,8 @@ cmake --build Trident/build --target resnet20_test_relu -j2
 ### Bootstrap 测试
 
 ```bash
-cmake --build Trident/build --target resnet20_test_bootstrap -j2
-./Trident/build/resnet20/resnet20_test_bootstrap
+cmake --build build-cpu-hoist --target resnet20_test_bootstrap -j4
+POSEIDON_BOOTSTRAP_14=1 BOOTSTRAP_LOG_N=15 ./build-cpu-hoist/bin/resnet20_test_bootstrap
 ```
 
 用于单独检查 bootstrap 的层级变化和输出状态。

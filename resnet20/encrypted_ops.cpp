@@ -60,11 +60,11 @@ void add_lazy_cipher(Ciphertext &accumulator, const Ciphertext &term, EvaluatorC
 {
     auto same_level_with_same_scale = [&](const Ciphertext &lhs, const Ciphertext &rhs) {
         return lhs.parms_id() == rhs.parms_id() &&
-               poseidon::util::are_approximate<double>(lhs.scale(), rhs.scale());
+               poseidon::util::is_approximate<double>(lhs.scale(), rhs.scale());
     };
 
     auto preserve_value_scale_same_level = [&](const Ciphertext &source, double target_scale) {
-        if (poseidon::util::are_approximate<double>(source.scale(), target_scale))
+        if (poseidon::util::is_approximate<double>(source.scale(), target_scale))
         {
             return source;
         }
@@ -89,7 +89,7 @@ void add_lazy_cipher(Ciphertext &accumulator, const Ciphertext &term, EvaluatorC
         {
             evaluator.drop_modulus(adjusted, adjusted, target.parms_id());
         }
-        if (!poseidon::util::are_approximate<double>(adjusted.scale(), target.scale()))
+        if (!poseidon::util::is_approximate<double>(adjusted.scale(), target.scale()))
         {
             adjusted = preserve_value_scale_same_level(adjusted, target.scale());
         }
@@ -124,11 +124,11 @@ void sub_lazy_cipher(const Ciphertext &lhs, const Ciphertext &rhs, Ciphertext &r
 {
     auto same_level_with_same_scale = [&](const Ciphertext &a, const Ciphertext &b) {
         return a.parms_id() == b.parms_id() &&
-               poseidon::util::are_approximate<double>(a.scale(), b.scale());
+               poseidon::util::is_approximate<double>(a.scale(), b.scale());
     };
 
     auto preserve_value_scale_same_level = [&](const Ciphertext &source, double target_scale) {
-        if (poseidon::util::are_approximate<double>(source.scale(), target_scale))
+        if (poseidon::util::is_approximate<double>(source.scale(), target_scale))
         {
             return source;
         }
@@ -153,7 +153,7 @@ void sub_lazy_cipher(const Ciphertext &lhs, const Ciphertext &rhs, Ciphertext &r
         {
             evaluator.drop_modulus(adjusted, adjusted, target.parms_id());
         }
-        if (!poseidon::util::are_approximate<double>(adjusted.scale(), target.scale()))
+        if (!poseidon::util::is_approximate<double>(adjusted.scale(), target.scale()))
         {
             adjusted = preserve_value_scale_same_level(adjusted, target.scale());
         }
@@ -188,7 +188,7 @@ void multiply_reduced_cipher(const Ciphertext &lhs, const Ciphertext &rhs, Ciphe
                              CKKSEncoder &encoder)
 {
     auto preserve_value_scale_same_level = [&](const Ciphertext &source, double target_scale) {
-        if (poseidon::util::are_approximate<double>(source.scale(), target_scale))
+        if (poseidon::util::is_approximate<double>(source.scale(), target_scale))
         {
             return source;
         }
@@ -213,7 +213,7 @@ void multiply_reduced_cipher(const Ciphertext &lhs, const Ciphertext &rhs, Ciphe
         {
             evaluator.drop_modulus(adjusted, adjusted, target.parms_id());
         }
-        if (!poseidon::util::are_approximate<double>(adjusted.scale(), target.scale()))
+        if (!poseidon::util::is_approximate<double>(adjusted.scale(), target.scale()))
         {
             adjusted = preserve_value_scale_same_level(adjusted, target.scale());
         }
@@ -232,7 +232,7 @@ void multiply_reduced_cipher(const Ciphertext &lhs, const Ciphertext &rhs, Ciphe
         lhs_aligned = preserve_value_rescale_to(lhs, rhs);
     }
 
-    if (!poseidon::util::are_approximate<double>(lhs_aligned.scale(), rhs_aligned.scale()))
+    if (!poseidon::util::is_approximate<double>(lhs_aligned.scale(), rhs_aligned.scale()))
     {
         rhs_aligned = preserve_value_scale_same_level(rhs_aligned, lhs_aligned.scale());
     }

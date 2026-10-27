@@ -21,7 +21,9 @@ PoseidonRuntime::PoseidonRuntime(PoseidonContext ctx, std::unique_ptr<EvaluatorC
 
 PoseidonRuntime make_poseidon_runtime(const PoseidonInferPlan &plan)
 {
-    if (plan.remaining_level != plan.convolution_levels + plan.relu_levels)
+    const int activation_budget = plan.functional_relu
+        ? static_cast<int>(plan.functional_plan.transform_depth) : plan.relu_levels;
+    if (plan.remaining_level != plan.convolution_levels + activation_budget)
     {
         throw std::invalid_argument(
             "application level budget must equal convolution plus ReLU levels");
@@ -36,7 +38,7 @@ PoseidonRuntime make_poseidon_runtime(const PoseidonInferPlan &plan)
     }
     ParametersLiteral ckks_param_literal{
         CKKS, static_cast<std::uint32_t>(plan.logN), static_cast<std::uint32_t>(plan.logN - 1),
-        static_cast<std::uint32_t>(plan.log_scale), 5,
+        static_cast<std::uint32_t>(plan.log_scale), plan.secret_hamming_weight,
         static_cast<std::uint32_t>(plan.q0_level), 0, {}, {}};
     ckks_param_literal.set_log_modulus(plan.logq_chain, {51});
 

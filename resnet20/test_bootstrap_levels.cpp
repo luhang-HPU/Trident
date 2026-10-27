@@ -318,6 +318,7 @@ void run_manual_bootstrap(Ciphertext bootstrap_input, const vector<complex<doubl
 {
     const bool reencrypt_cts = read_env_bool("BOOTSTRAP_REENCRYPT_CTS");
     const bool reencrypt_evalmod = read_env_bool("BOOTSTRAP_REENCRYPT_EVALMOD");
+    // Legacy flag selects numerical parameters; the backend has one eval_mod API.
     const bool high_precision = read_env_bool("BOOTSTRAP_HIGH_PRECISION", true);
     const bool level_efficient =
         !read_env_bool("POSEIDON_BOOTSTRAP_DISABLE_LEVEL_EFFICIENT", false);
@@ -426,24 +427,10 @@ void run_manual_bootstrap(Ciphertext bootstrap_input, const vector<complex<doubl
             context.crt_context()->get_context_data(ciph_real.parms_id())->level()));
 
         Ciphertext real_mod, imag_mod, ref_real_mod, ref_imag_mod;
-        if (high_precision)
-        {
-            evaluator.eval_mod_high_precision(ciph_real, real_mod, eval_mod_poly, relin_keys,
-                                              encoder);
-            evaluator.eval_mod_high_precision(ciph_imag, imag_mod, eval_mod_poly, relin_keys,
-                                              encoder);
-            evaluator.eval_mod_high_precision(ref_real, ref_real_mod, ref_eval_mod_poly,
-                                              relin_keys, encoder);
-            evaluator.eval_mod_high_precision(ref_imag, ref_imag_mod, ref_eval_mod_poly,
-                                              relin_keys, encoder);
-        }
-        else
-        {
-            evaluator.eval_mod(ciph_real, real_mod, eval_mod_poly, relin_keys, encoder);
-            evaluator.eval_mod(ciph_imag, imag_mod, eval_mod_poly, relin_keys, encoder);
-            evaluator.eval_mod(ref_real, ref_real_mod, ref_eval_mod_poly, relin_keys, encoder);
-            evaluator.eval_mod(ref_imag, ref_imag_mod, ref_eval_mod_poly, relin_keys, encoder);
-        }
+        evaluator.eval_mod(ciph_real, real_mod, eval_mod_poly, relin_keys, encoder);
+        evaluator.eval_mod(ciph_imag, imag_mod, eval_mod_poly, relin_keys, encoder);
+        evaluator.eval_mod(ref_real, ref_real_mod, ref_eval_mod_poly, relin_keys, encoder);
+        evaluator.eval_mod(ref_imag, ref_imag_mod, ref_eval_mod_poly, relin_keys, encoder);
 
         auto real_mod_plain = decrypt_and_decode(real_mod, decryptor, encoder);
         auto imag_mod_plain = decrypt_and_decode(imag_mod, decryptor, encoder);
@@ -473,18 +460,8 @@ void run_manual_bootstrap(Ciphertext bootstrap_input, const vector<complex<doubl
     eval_mod_poly.set_level_start(static_cast<uint32_t>(
         context.crt_context()->get_context_data(ciph_real.parms_id())->level()));
     Ciphertext ciph_real_mod, ciph_imag_mod;
-    if (high_precision)
-    {
-        evaluator.eval_mod_high_precision(ciph_imag, ciph_imag_mod, eval_mod_poly, relin_keys,
-                                          encoder);
-        evaluator.eval_mod_high_precision(ciph_real, ciph_real_mod, eval_mod_poly, relin_keys,
-                                          encoder);
-    }
-    else
-    {
-        evaluator.eval_mod(ciph_imag, ciph_imag_mod, eval_mod_poly, relin_keys, encoder);
-        evaluator.eval_mod(ciph_real, ciph_real_mod, eval_mod_poly, relin_keys, encoder);
-    }
+    evaluator.eval_mod(ciph_imag, ciph_imag_mod, eval_mod_poly, relin_keys, encoder);
+    evaluator.eval_mod(ciph_real, ciph_real_mod, eval_mod_poly, relin_keys, encoder);
     print_cipher_state("manual after eval_mod imag", context, ciph_imag_mod);
     print_cipher_state("manual after eval_mod real", context, ciph_real_mod);
     auto evalmod_real_plain = decrypt_and_decode(ciph_real_mod, decryptor, encoder);
@@ -725,6 +702,7 @@ int main(int argc, char **argv)
         return 0;
     }
 
+    // Legacy flag selects numerical parameters; the backend has one eval_mod API.
     const bool high_precision = read_env_bool("BOOTSTRAP_HIGH_PRECISION", true);
     const bool level_efficient =
         !read_env_bool("POSEIDON_BOOTSTRAP_DISABLE_LEVEL_EFFICIENT", false);
@@ -766,16 +744,8 @@ int main(int argc, char **argv)
 
     const size_t level_before = chain_index_or_throw(context, bootstrap_input);
     const auto time_start = chrono::high_resolution_clock::now();
-    if (high_precision)
-    {
-        ckks_eva->bootstrap_high_precision(bootstrap_input, bootstrap_input, relin_keys,
-                                           rot_keys, encoder, eval_mod_poly);
-    }
-    else
-    {
-        ckks_eva->bootstrap(bootstrap_input, bootstrap_input, relin_keys, rot_keys, encoder,
-                            eval_mod_poly);
-    }
+    ckks_eva->bootstrap(bootstrap_input, bootstrap_input, relin_keys, rot_keys, encoder,
+                        eval_mod_poly);
     const auto time_end = chrono::high_resolution_clock::now();
     const size_t level_after = chain_index_or_throw(context, bootstrap_input);
 

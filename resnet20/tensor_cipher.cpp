@@ -12,6 +12,22 @@
 using namespace poseidon;
 using namespace std;
 
+namespace {
+void validate_layout(int logn, int k, int h, int w, int c, int t, int p, size_t slots)
+{
+    if (logn < 1 || logn > 16 || slots != (size_t{1} << (logn - 1)) ||
+        k <= 0 || h <= 0 || w <= 0 || c <= 0 || t <= 0 || p <= 0 || (p & (p - 1)))
+        throw invalid_argument("invalid tensor layout or ring dimension");
+    size_t used = 1;
+    for (const int factor : {k, k, h, w, t, p})
+    {
+        if (static_cast<size_t>(factor) > slots / used)
+            throw invalid_argument("tensor layout exceeds available slots");
+        used *= static_cast<size_t>(factor);
+    }
+}
+}
+
 TensorCipher::TensorCipher(int logn, int k, int h, int w, int c, int t, int p,
                            const vector<double> &data, Encryptor &encryptor,
                            CKKSEncoder &encoder, int logp)
@@ -26,6 +42,7 @@ TensorCipher::TensorCipher(int logn, int k, int h, int w, int c, int t, int p,
     }
 
     const size_t slot_count = encoder.slot_count();
+    validate_layout(logn, k, h, w, c, t, p, slot_count);
     if (data.size() > slot_count)
     {
         throw std::out_of_range("the size of data is larger than slot count");
@@ -54,6 +71,7 @@ TensorCipher::TensorCipher(int logn, int k, int h, int w, int c, int t, int p,
                            const Ciphertext &cipher)
     : k_(k), h_(h), w_(w), c_(c), t_(t), p_(p), logn_(logn), cipher_(cipher)
 {
+    validate_layout(logn, k, h, w, c, t, p, cipher.poly_modulus_degree() / 2);
 }
 
 int TensorCipher::k() const

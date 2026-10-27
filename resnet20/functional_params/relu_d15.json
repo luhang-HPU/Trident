@@ -1,0 +1,14 @@
+{
+  "source": "independent fixed-phase adaptive grid linear program",
+  "certificate": null,
+  "phase_decimal": "0.4494",
+  "degree": 15,
+  "grid_points": 200001,
+  "sampled_max_error": 0.0032940322163550724,
+  "lp_error": 0.003294032199274743,
+  "iterations": 2,
+  "coefficient_l1": 1.4967945976289507,
+  "numpy": "1.26.4",
+  "scipy": "1.15.3",
+  "sha256": "3a3308bbbb4147f114893c75fbb973f34013cc5fc5d170bf0186d25c697dd756"
+}

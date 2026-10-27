@@ -44,15 +44,16 @@ string make_run_timestamp()
     return stamp.str();
 }
 
-void log_stage_plan(ofstream &output, const PoseidonStagePlan &stage, int block_index)
+void log_stage_plan(ofstream &output, const PoseidonStagePlan &stage, int block_index, bool functional)
 {
+    const char *activation = functional ? "functional_boot_relu" : "bootstrap -> relu";
     output << stage.name << " block " << block_index
-           << ": conv1 -> bn1 -> bootstrap -> relu -> conv2 -> bn2";
+           << ": conv1 -> bn1 -> " << activation << " -> conv2 -> bn2";
     if (stage.first_block_stride == 2 && block_index == 0)
     {
         output << " -> downsample shortcut";
     }
-    output << " -> add -> bootstrap -> relu" << endl;
+    output << " -> add -> " << activation << endl;
 }
 
 void log_plain_logits(const vector<double> &logits, ofstream &output)
@@ -77,6 +78,8 @@ vector<double> decode_real_slots(const TensorCipher &tensor, PoseidonRuntime &ru
     vector<double> values(copy_count, 0.0);
     for (size_t i = 0; i < copy_count; ++i)
     {
+        if (!std::isfinite(decoded[i].real()) || !std::isfinite(decoded[i].imag()))
+            throw runtime_error("nonfinite decoded logit");
         values[i] = decoded[i].real();
     }
     return values;
@@ -96,6 +99,8 @@ struct RunContext
     PoseidonRuntime &runtime;
     ReluConfig &relu;
     const ModelWeights &weights;
+    const trident::PreparedFunctionalBootstrap *functional = nullptr;
+    unsigned functional_calls = 0;
 };
 
 struct InferenceState
@@ -149,6 +154,31 @@ void run_relu(TensorCipher &input, TensorCipher &output, PlainTensor &plain_inpu
               PlainTensor &plain_output, RunContext &ctx, ofstream &log, size_t stage)
 {
     PoseidonRuntime &runtime = ctx.runtime;
+    if (ctx.functional)
+    {
+        const auto start = chrono::steady_clock::now();
+        Ciphertext result;
+        ctx.functional->evaluate(input.cipher(), result, *runtime.evaluator,
+                                 runtime.relin_keys, runtime.galois_keys);
+        output = TensorCipher(input.logn(), input.k(), input.h(), input.w(), input.c(),
+                              input.t(), input.p(), result);
+        log << "functional_relu site=" << ctx.functional_calls++ << " stage=" << stage
+            << " input_level=" << input.cipher().level() << " output_level=" << result.level()
+            << " scale=" << result.scale() << " time_ms="
+            << chrono::duration<double, milli>(chrono::steady_clock::now()-start).count() << '\n';
+        if (!resnet20_execution::inference_only())
+        {
+            plain_output = plain_input;
+            const double bound = ctx.functional->plan().bound;
+            for (auto &value : plain_output.values)
+            {
+                if (!std::isfinite(value) || std::abs(value) > bound)
+                    throw runtime_error("reference activation exceeds declared functional bound");
+                value = ctx.functional->approximation().evaluate(value, bound);
+            }
+        }
+        return;
+    }
     ReluConfig &relu_config = ctx.relu;
     approx_relu_print(input, output, relu_config.comp_no, relu_config.deg, relu_config.alpha,
                       relu_config.tree, relu_config.scaled_val, runtime.encryptor,
@@ -256,7 +286,7 @@ void run_residual_block(InferenceState &state, const PoseidonStagePlan &stage_pl
     const int stride = (block_index == 0) ? stage_plan.first_block_stride : 1;
     output << "\n========== Stage " << (stage_index + 1) << " Block " << block_index
            << " / Layer " << state.logical_layer << " ==========\n";
-    log_stage_plan(output, stage_plan, block_index);
+    log_stage_plan(output, stage_plan, block_index, ctx.functional != nullptr);
     output << "layer " << state.logical_layer++ << endl;
     multiplexed_convolution_print(
         state.cipher, branch_conv1, stage_plan.out_channels, stride, 3, 3,
@@ -298,7 +328,7 @@ void run_residual_block(InferenceState &state, const PoseidonStagePlan &stage_pl
     }
     ++state.bn_idx;
 
-    maybe_bootstrap(branch_bn1, runtime, output, state.logical_layer);
+    if (!ctx.functional) maybe_bootstrap(branch_bn1, runtime, output, state.logical_layer);
     run_relu(branch_bn1, branch_relu1, plain_branch_bn1, plain_branch_relu1, ctx, output,
              state.logical_layer);
 
@@ -375,7 +405,7 @@ void run_residual_block(InferenceState &state, const PoseidonStagePlan &stage_pl
         }
     }
 
-    maybe_bootstrap(added, runtime, output, state.logical_layer);
+    if (!ctx.functional) maybe_bootstrap(added, runtime, output, state.logical_layer);
     run_relu(added, block_output, plain_added, plain_block_output, ctx, output,
              state.logical_layer);
     state.cipher = std::move(block_output);
@@ -423,13 +453,43 @@ vector<double> run_head(InferenceState &state, RunContext &ctx, ofstream &output
 void ResNet_cifar10_sparse(size_t start_image_id, size_t end_image_id,
                            const ResNet20RunOptions &options)
 {
-    const PoseidonInferPlan plan = default_poseidon_plan();
+    PoseidonInferPlan plan = default_poseidon_plan();
+    if (options.functional_relu)
+    {
+        plan.functional_relu = true;
+        plan.logN = options.functional_log_n;
+        plan.log_slots = plan.logN - 1;
+        plan.init_p = plan.logN == 15 ? 4 : 8;
+        plan.secret_hamming_weight = 32;
+        plan.functional_plan.harmonic_degree = options.functional_degree;
+        plan.functional_plan.transform_depth = options.functional_dft_depth;
+        plan.functional_plan.bound = options.functional_bound;
+        plan.functional_plan.validate();
+        plan.remaining_level = plan.functional_plan.output_level();
+        plan.relu_levels = 0;
+        plan.boot_level = plan.functional_plan.transform_depth + plan.functional_plan.nonlinear_depth();
+        plan.logq_chain = plan.functional_plan.modulus_bits();
+    }
     resnet20_execution::set_inference_only(options.inference_only);
-    const string run_timestamp = make_run_timestamp();
+    const string run_timestamp = make_run_timestamp() + (options.functional_relu
+        ? "_functional_d" + to_string(options.functional_degree) : "_legacy");
     ReluConfig relu_config = default_relu_config(plan);
 
     cout << "Setting Poseidon Parameters" << endl;
     PoseidonRuntime runtime = make_poseidon_runtime(plan);
+    unique_ptr<trident::PreparedFunctionalBootstrap> functional;
+    if (options.functional_relu)
+    {
+        const auto coefficients = resnet20_root() / "functional_params";
+        functional = make_unique<trident::PreparedFunctionalBootstrap>(runtime.context,
+            runtime.encoder, plan.functional_plan,
+            trident::FrozenRelu::load(coefficients / ("relu_d" + to_string(options.functional_degree) + ".txt")),
+            coefficients / "carrier_k12_d31.txt");
+        cout << "functional experimental profile: logN=" << plan.logN
+             << " H=" << plan.secret_hamming_weight << " degree=" << options.functional_degree
+             << " bound=" << options.functional_bound << " dft_depth=" << options.functional_dft_depth
+             << " security_profile=unassessed" << endl;
+    }
     cout << "Poseidon slot count: " << runtime.slot_count << endl;
     cout << "Poseidon scale: " << runtime.scale << endl;
     cout << "Poseidon Q primes: " << plan.logq_chain.size()
@@ -460,7 +520,7 @@ void ResNet_cifar10_sparse(size_t start_image_id, size_t end_image_id,
                << ", run_timestamp=" << run_timestamp << '\n';
 
     ModelWeights weights = load_resnet20_parameters();
-    RunContext ctx{runtime, relu_config, weights};
+    RunContext ctx{runtime, relu_config, weights, functional.get()};
 
     const auto all_time_start = chrono::high_resolution_clock::now();
     for (size_t image_id = start_image_id; image_id <= end_image_id; ++image_id)
@@ -488,12 +548,29 @@ void ResNet_cifar10_sparse(size_t start_image_id, size_t end_image_id,
             read_image_slots(image_id, plan.log_slots, plan.init_p, plan.boundary);
         const int image_label = read_image_label(image_id);
         InferenceState state;
+        ctx.functional_calls = 0;
         if (!options.inference_only)
         {
             state.plain = plain_input_tensor_from_image_slots(image_slots);
         }
 
         output << "runtime: poseidon ready\n";
+        output << "route=" << (functional ? "functional_relu" : "legacy")
+               << " logN=" << plan.logN << " log_slots=" << plan.log_slots
+               << " init_p=" << plan.init_p << " H=" << plan.secret_hamming_weight
+               << " timing_mode=" << (options.inference_only ? "encrypted_only" : "validation") << '\n';
+        if (functional)
+            output << "functional_config: degree=" << plan.functional_plan.harmonic_degree
+                   << " phase=" << functional->approximation().phase
+                   << " bound=" << plan.functional_plan.bound
+                   << " dft_depth=" << plan.functional_plan.transform_depth
+                   << " nonlinear_depth=" << plan.functional_plan.nonlinear_depth()
+                   << " security_profile=unassessed\n";
+        output << "Q_primes:";
+        for (const auto &q : runtime.context.parameters_literal()->q()) output << ' ' << q.value();
+        output << "\nP_primes:";
+        for (const auto &p : runtime.context.parameters_literal()->p()) output << ' ' << p.value();
+        output << '\n';
         output << "ckks_config: log_scale=" << plan.log_scale
                << ", q0_bits=" << plan.logq_chain.front()
                << ", compute_q_bits=" << plan.logq_chain.at(plan.q0_level + 1)
@@ -518,11 +595,12 @@ void ResNet_cifar10_sparse(size_t start_image_id, size_t end_image_id,
             log_plain_tensor("plain input", state.plain, output);
         }
 
-        // Before the first bootstrap the path is stem convolution (2), ReLU
+        // Functional: input R -> stem convolution (2) -> StC (S) -> ModRaise.
+        // Legacy: before the first bootstrap the path is stem convolution (2), ReLU
         // (14), then the first block convolution (2). After that bootstrap,
         // every steady-state path is ReLU (14) plus convolution (2).
         const std::size_t initial_level = static_cast<std::size_t>(
-            plan.remaining_level + plan.convolution_levels);
+            plan.remaining_level + (plan.functional_relu ? 0 : plan.convolution_levels));
         while (cipher_chain_index(runtime, state.cipher.cipher()) > initial_level)
         {
             runtime.evaluator->drop_modulus_to_next(state.cipher.cipher(), state.cipher.cipher());
@@ -555,6 +633,8 @@ void ResNet_cifar10_sparse(size_t start_image_id, size_t end_image_id,
         output << "head: average_pool -> fully_connected -> argmax\n";
         vector<double> plain_logits;
         vector<double> logits = run_head(state, ctx, output, plain_logits);
+        if (functional && ctx.functional_calls != 19)
+            throw runtime_error("functional route did not execute exactly 19 activations");
         const auto encrypted_inference_end = chrono::steady_clock::now();
         const auto encrypted_inference_time_ms =
             chrono::duration_cast<chrono::milliseconds>(
@@ -568,6 +648,28 @@ void ResNet_cifar10_sparse(size_t start_image_id, size_t end_image_id,
 
         if (!options.inference_only)
         {
+            double max_logit_error = 0;
+            double squared_logit_error = 0;
+            if (logits.size() != 10 || plain_logits.size() != logits.size())
+                throw runtime_error("invalid logits shape");
+            for (size_t i = 0; i < logits.size(); ++i)
+            {
+                if (!std::isfinite(plain_logits[i])) throw runtime_error("nonfinite reference logit");
+                const double error = logits[i] - plain_logits[i];
+                max_logit_error = max(max_logit_error, std::abs(error));
+                squared_logit_error += error * error;
+            }
+            auto sorted_logits = plain_logits;
+            sort(sorted_logits.begin(), sorted_logits.end(), greater<double>());
+            const double margin = sorted_logits[0] - sorted_logits[1];
+            output << "reference_activation=" << (functional ? "frozen_trigonometric" : "exact_relu")
+                   << " max_logit_error=" << max_logit_error
+                   << " rmse=" << sqrt(squared_logit_error / logits.size())
+                   << " reference_margin=" << margin << '\n';
+            if (functional && (!std::isfinite(max_logit_error) || max_logit_error > 1e-2))
+                throw runtime_error("functional network exceeds the 1e-2 logit error target");
+            if (functional && margin > 2 * max_logit_error && predicted_label != plain_predicted_label)
+                throw runtime_error("prediction mismatch outside logit uncertainty margin");
             output << "logits:";
             for (double logit : logits)
             {
